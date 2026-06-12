@@ -1,0 +1,7 @@
+dist
+node_modules
+package-lock.json
+README.md
+ola-helper.js
+overleaf-ai-assistant.js
+docker-compose.yml
