@@ -1,0 +1,27 @@
+import type { DocumentSnapshot } from './document';
+import { DocumentOperation, type DocumentCommand } from './document-command';
+import { resolveTarget } from './document-target';
+import { DocumentRangeError } from './errors';
+
+export class ResolvedEdit {
+  private constructor(
+    readonly command: DocumentCommand,
+    readonly document: DocumentSnapshot,
+  ) {}
+
+  static resolve(document: DocumentSnapshot, command: DocumentCommand): ResolvedEdit {
+    const target = resolveTarget(document, command.target);
+    if (
+      command.operation === DocumentOperation.Replace ||
+      command.operation === DocumentOperation.Delete
+    ) {
+      const lastLine = target.lineNumber + command.lineCount - 1;
+      if (lastLine > document.lines.length) {
+        throw new DocumentRangeError(
+          `Lines ${String(target.lineNumber)}–${String(lastLine)} run past the end of the document (${String(document.lines.length)} lines).`,
+        );
+      }
+    }
+    return new ResolvedEdit(Object.freeze({ ...command, target }), document);
+  }
+}
