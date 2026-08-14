@@ -1,0 +1,277 @@
+#ola-root {
+  position: fixed;
+  right: 20px;
+  bottom: 20px;
+  z-index: 99999;
+  width: 380px;
+  color: #fff;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif;
+  left: auto;
+  top: auto;
+  display: block;
+}
+#ola-root * {
+  box-sizing: border-box;
+}
+#ola-root .ola-badge {
+  position: fixed;
+  right: 20px;
+  bottom: 20px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 42px;
+  padding: 9px 12px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 999px;
+  background: #2c3e50;
+  color: #fff;
+  box-shadow: 0 12px 34px rgba(0, 0, 0, 0.32);
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 700;
+  z-index: 100000;
+}
+#ola-root .ola-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: #27ae60;
+}
+#ola-root.is-busy .ola-dot {
+  background: #f1c40f;
+}
+#ola-root .ola-panel {
+  position: fixed;
+  right: 20px;
+  bottom: 72px;
+  width: 380px;
+  height: min(640px, calc(100vh - 96px));
+  max-height: calc(100vh - 96px);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 12px;
+  background: #2c3e50;
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.38);
+  z-index: 99999;
+}
+#ola-root.is-collapsed .ola-panel {
+  display: none;
+}
+#ola-root .ola-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 12px 14px;
+  background: #34495e;
+  font-weight: 800;
+}
+#ola-root .ola-new-chat {
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 999px;
+  padding: 5px 9px;
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.9);
+  cursor: pointer;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 800;
+}
+#ola-root .ola-new-chat:hover {
+  background: rgba(255, 255, 255, 0.14);
+}
+#ola-root .ola-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  background: rgba(0, 0, 0, 0.08);
+  flex: 0 0 auto;
+}
+#ola-root .ola-label {
+  display: grid;
+  gap: 5px;
+  color: rgba(255, 255, 255, 0.78);
+  font-size: 12px;
+  font-weight: 700;
+}
+#ola-root .ola-labelRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-height: 20px;
+}
+#ola-root .ola-labelRow .ola-status {
+  position: static;
+  margin-left: auto;
+  min-height: 0;
+  max-width: 60%;
+  text-align: right;
+  pointer-events: none;
+}
+#ola-root .ola-textarea {
+  width: 100%;
+  min-height: 92px;
+  padding: 10px;
+  resize: vertical;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 8px;
+  background: #22313f;
+  color: #fff;
+  font: inherit;
+  font-size: 13px;
+  outline: none;
+}
+#ola-root .ola-sendRow {
+  display: flex;
+  gap: 6px;
+}
+#ola-root .ola-btn {
+  border: 0;
+  border-radius: 999px;
+  padding: 9px 12px;
+  cursor: pointer;
+  color: #fff;
+  background: #34495e;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+}
+#ola-root .ola-send {
+  background: #27ae60;
+  flex: 1;
+}
+#ola-root .ola-status {
+  min-height: 20px;
+  color: rgba(255, 255, 255, 0.8);
+  font-size: 12px;
+  line-height: 1.45;
+}
+#ola-root .ola-status.is-empty {
+  display: none;
+}
+#ola-root .ola-chat {
+  display: grid;
+  align-content: start;
+  align-items: start;
+  gap: 8px;
+  padding: 12px;
+  background: #243342;
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+#ola-root .ola-msg {
+  padding: 10px;
+  border-radius: 10px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 13px;
+  line-height: 1.45;
+}
+#ola-root .ola-user {
+  background: rgba(52, 73, 94, 0.9);
+}
+#ola-root .ola-ai {
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+#ola-root .ola-system {
+  color: rgba(255, 255, 255, 0.76);
+  background: transparent;
+  padding: 0;
+}
+#ola-root .ola-welcome {
+  display: grid;
+  gap: 6px;
+  padding: 11px 12px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.045);
+  color: rgba(255, 255, 255, 0.88);
+}
+#ola-root .ola-welcome-title {
+  font-size: 13px;
+  font-weight: 800;
+  color: #fff;
+}
+#ola-root .ola-welcome-copy {
+  font-size: 12px;
+  line-height: 1.45;
+  color: rgba(255, 255, 255, 0.74);
+}
+#ola-root .ola-result-title {
+  font-size: 13px;
+  font-weight: 800;
+  color: #fff;
+  margin-bottom: 6px;
+}
+#ola-root .ola-result-plan {
+  margin-bottom: 8px;
+  padding: 8px 10px;
+  border-left: 3px solid #2ecc71;
+  border-radius: 6px;
+  background: rgba(46, 204, 113, 0.1);
+  color: rgba(255, 255, 255, 0.82);
+  font-size: 12px;
+  line-height: 1.4;
+}
+#ola-root .ola-result-body {
+  padding: 10px;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.18);
+  color: rgba(255, 255, 255, 0.92);
+  white-space: pre-wrap;
+  word-break: break-word;
+  font: inherit;
+  font-size: 13px;
+}
+#ola-root .ola-result-meta {
+  margin-top: 8px;
+  color: rgba(255, 255, 255, 0.68);
+  font-size: 11px;
+}
+#ola-root .ola-result-actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-top: 8px;
+}
+#ola-root .ola-result-actions .ola-btn {
+  border-radius: 8px;
+  padding: 8px 10px;
+}
+#ola-root .ola-apply {
+  background: #27ae60;
+}
+#ola-root .ola-reject {
+  background: #e74c3c;
+}
+#ola-root .ola-error {
+  color: #ff7675;
+  font-weight: 700;
+}
+@media (max-width: 760px) {
+  #ola-root {
+    left: 12px;
+    right: 12px;
+    bottom: 12px;
+    width: auto;
+  }
+  #ola-root .ola-badge {
+    right: 12px;
+    bottom: 12px;
+  }
+  #ola-root .ola-panel {
+    left: 12px;
+    right: 12px;
+    bottom: 64px;
+    width: auto;
+    height: min(620px, calc(100vh - 88px));
+    max-height: calc(100vh - 88px);
+  }
+}
