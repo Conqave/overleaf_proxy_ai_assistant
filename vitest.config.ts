@@ -10,6 +10,7 @@ export default defineConfig({
           name: 'node',
           include: ['tests/**/*.test.ts'],
           exclude: DOM_TESTS,
+          globalSetup: ['tests/integration/global-setup.ts'],
         },
       },
       {
