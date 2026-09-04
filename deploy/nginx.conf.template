@@ -1,0 +1,105 @@
+worker_processes auto;
+
+events {
+    worker_connections 1024;
+}
+
+http {
+    include /etc/nginx/mime.types;
+    default_type application/octet-stream;
+
+    sendfile on;
+    tcp_nopush on;
+    keepalive_timeout 65;
+
+    map $http_upgrade $connection_upgrade {
+        default upgrade;
+        '' close;
+    }
+
+    map $upstream_http_content_security_policy $overleaf_script_nonce {
+        "~'nonce-(?<nonce>[^']+)'" $nonce;
+        default "";
+    }
+
+    server {
+        listen 80;
+        server_name _;
+
+        client_max_body_size 100m;
+
+        location = /overleaf-ai-assistant.js {
+            root /usr/share/nginx/html;
+            default_type application/javascript;
+            add_header Cache-Control "no-store, no-cache, must-revalidate, max-age=0" always;
+        }
+
+        location = /overleaf-ai-assistant/config.json {
+            default_type application/json;
+            add_header Cache-Control "no-store" always;
+            return 200 '{"ollamaEndpoint":"${ASSISTANT_OLLAMA_PATH}","model":"${OLLAMA_MODEL}","requestTimeoutMs":${OLLAMA_REQUEST_TIMEOUT_MS},"contextTokens":${OLLAMA_CONTEXT_TOKENS}}';
+        }
+
+        location = /healthz {
+            access_log off;
+            default_type text/plain;
+            return 200 "ok\n";
+        }
+
+        location = /healthz/overleaf {
+            access_log off;
+            proxy_pass http://${OVERLEAF_UPSTREAM}/status;
+            proxy_connect_timeout 5s;
+            proxy_read_timeout 5s;
+        }
+
+        location = /healthz/ollama {
+            access_log off;
+            proxy_pass http://${OLLAMA_UPSTREAM}/api/version;
+            proxy_set_header Host $proxy_host;
+            proxy_connect_timeout 5s;
+            proxy_read_timeout 5s;
+        }
+
+        location = ${ASSISTANT_OLLAMA_PATH} {
+            limit_except POST {
+                deny all;
+            }
+            proxy_pass http://${OLLAMA_UPSTREAM}/api/generate;
+            proxy_http_version 1.1;
+
+            proxy_set_header Host $proxy_host;
+            proxy_set_header Origin "";
+            proxy_set_header Referer "";
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+
+            proxy_buffering off;
+            proxy_read_timeout ${OLLAMA_PROXY_TIMEOUT_S}s;
+            proxy_send_timeout ${OLLAMA_PROXY_TIMEOUT_S}s;
+        }
+
+        location / {
+            proxy_pass http://${OVERLEAF_UPSTREAM};
+            proxy_http_version 1.1;
+
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+            proxy_set_header Origin "";
+            proxy_set_header Referer "";
+            proxy_set_header Upgrade $http_upgrade;
+            proxy_set_header Connection $connection_upgrade;
+            proxy_set_header Accept-Encoding "";
+
+            proxy_read_timeout 900s;
+            proxy_send_timeout 900s;
+            proxy_buffering off;
+
+            sub_filter_once off;
+            sub_filter '</body>' '<script nonce="$overleaf_script_nonce" src="/overleaf-ai-assistant.js"></script></body>';
+        }
+    }
+}

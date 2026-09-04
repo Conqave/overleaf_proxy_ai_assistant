@@ -1,0 +1,41 @@
+#!/bin/sh
+assistant_config_fail() {
+    echo "overleaf-ai-assistant: invalid configuration: $*" >&2
+    exit 1
+}
+
+assistant_require_upstream() {
+    eval "assistant_value=\${$1:-}"
+    [ -n "$assistant_value" ] || assistant_config_fail "$1 is required (host:port)"
+    echo "$assistant_value" | grep -Eq '^[A-Za-z0-9.-]+:[0-9]{1,5}$' \
+        || assistant_config_fail "$1 must be host:port, got '$assistant_value'"
+}
+
+assistant_positive_int() {
+    eval "assistant_value=\${$1:-}"
+    echo "$assistant_value" | grep -Eq '^[1-9][0-9]*$' \
+        || assistant_config_fail "$1 must be a positive integer, got '$assistant_value'"
+}
+
+assistant_require_upstream OVERLEAF_UPSTREAM
+assistant_require_upstream OLLAMA_UPSTREAM
+
+[ -n "${OLLAMA_MODEL:-}" ] || assistant_config_fail "OLLAMA_MODEL is required"
+echo "$OLLAMA_MODEL" | grep -Eq '^[A-Za-z0-9._:/-]+$' \
+    || assistant_config_fail "OLLAMA_MODEL contains unsupported characters: '$OLLAMA_MODEL'"
+
+: "${OLLAMA_REQUEST_TIMEOUT_MS:=900000}"
+: "${OLLAMA_CONTEXT_TOKENS:=128000}"
+assistant_positive_int OLLAMA_REQUEST_TIMEOUT_MS
+assistant_positive_int OLLAMA_CONTEXT_TOKENS
+ASSISTANT_MIN_CONTEXT_TOKENS=16384
+[ "$OLLAMA_CONTEXT_TOKENS" -ge "$ASSISTANT_MIN_CONTEXT_TOKENS" ] \
+    || assistant_config_fail "OLLAMA_CONTEXT_TOKENS must be at least $ASSISTANT_MIN_CONTEXT_TOKENS"
+
+OLLAMA_PROXY_TIMEOUT_S=$((OLLAMA_REQUEST_TIMEOUT_MS / 1000 + 30))
+ASSISTANT_OLLAMA_PATH=/ollama/main/api/generate
+
+export OVERLEAF_UPSTREAM OLLAMA_UPSTREAM OLLAMA_MODEL OLLAMA_REQUEST_TIMEOUT_MS \
+    OLLAMA_CONTEXT_TOKENS OLLAMA_PROXY_TIMEOUT_S \
+    ASSISTANT_OLLAMA_PATH
+unset assistant_value

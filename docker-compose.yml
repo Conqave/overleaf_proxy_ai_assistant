@@ -1,16 +1,9 @@
 services:
   overleaf-ai-proxy:
-    image: nginx:1.29-alpine
+    build: .
+    image: overleaf-ai-proxy
     container_name: overleaf-ai-proxy
     restart: unless-stopped
+    env_file: .env
     ports:
-      - "80:80"
-    volumes:
-      - ./nginx.conf:/etc/nginx/nginx.conf:ro
-      - ./overleaf-ai-assistant.js:/usr/share/nginx/html/overleaf-ai-assistant.js:ro
-    healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://127.0.0.1/overleaf-ai-assistant.js"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
-      start_period: 10s
+      - '${PROXY_PORT:-80}:80'
