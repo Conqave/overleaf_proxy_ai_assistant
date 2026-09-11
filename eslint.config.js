@@ -22,7 +22,7 @@ const browserGlobals = [
 ];
 
 export default tseslint.config(
-  { ignores: ['dist/', 'node_modules/', 'ola-helper.js', 'overleaf-ai-assistant.js'] },
+  { ignores: ['dist/', 'node_modules/'] },
   js.configs.recommended,
   ...tseslint.configs.strictTypeChecked,
   {
