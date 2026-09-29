@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs';
-import { describe, expect, it } from 'vitest';
+import { beforeAll, describe, expect, it } from 'vitest';
 import { Evidence } from '../../src/domain/assistant-plan';
 import { createDocumentSnapshot } from '../../src/domain/document';
 import { OllamaAssistant } from '../../src/infrastructure/ollama/ollama-assistant';
@@ -105,7 +105,7 @@ const CASES: Case[] = [
   },
 ];
 
-describe.runIf(OLLAMA_URL)('Ollama contract', () => {
+function createContractAssistant(): OllamaAssistant {
   const client = new OllamaClient(
     {
       endpoint: requireEnv('OLLAMA_CONTRACT_URL'),
@@ -115,7 +115,15 @@ describe.runIf(OLLAMA_URL)('Ollama contract', () => {
     },
     (input, init) => fetch(input, init),
   );
-  const assistant = new OllamaAssistant(client);
+  return new OllamaAssistant(client);
+}
+
+describe.runIf(OLLAMA_URL)('Ollama contract', () => {
+  let assistant: OllamaAssistant;
+
+  beforeAll(() => {
+    assistant = createContractAssistant();
+  });
 
   it.each(CASES)(
     '$request',
