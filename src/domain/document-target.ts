@@ -50,7 +50,7 @@ export function resolveTarget(
       `Line ${String(requested.lineNumber)} does not start with "${requested.lineText}".`,
     );
   }
-  return createDocumentTarget(requested.lineNumber, atNumber);
+  return Object.freeze({ lineNumber: requested.lineNumber, lineText: atNumber });
 }
 
 export function assertSnapshotCurrent(expected: DocumentSnapshot, current: DocumentSnapshot): void {
