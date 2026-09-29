@@ -3,9 +3,9 @@ import { createAssistantPlan } from '../../../src/domain/assistant-plan';
 import { InvalidAssistantPlanError } from '../../../src/domain/errors';
 
 describe('createAssistantPlan', () => {
-  it('accepts an edit plan and de-duplicates needs', () => {
+  it('accepts an edit plan', () => {
     expect(
-      createAssistantPlan({ intent: 'edit', needs: ['logs', 'selection', 'logs'], reason: 'r' }),
+      createAssistantPlan({ intent: 'edit', needs: ['logs', 'selection'], reason: 'r' }),
     ).toEqual({ intent: 'edit', needs: ['logs', 'selection'], reason: 'r' });
   });
 
@@ -26,6 +26,7 @@ describe('createAssistantPlan', () => {
     ['unknown need', { intent: 'summary', needs: ['everything'] }],
     ['needs not an array', { intent: 'summary', needs: 'logs' }],
     ['the document as a need, which is always given', { intent: 'summary', needs: ['document'] }],
+    ['evidence listed twice', { intent: 'summary', needs: ['logs', 'selection', 'logs'] }],
     ['non-string reason', { intent: 'summary', reason: 3 }],
   ])('rejects %s', (_name, input) => {
     expect(() => createAssistantPlan(input)).toThrow(InvalidAssistantPlanError);

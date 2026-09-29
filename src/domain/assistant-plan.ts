@@ -51,9 +51,13 @@ export function createAssistantPlan(input: {
     }
     return need;
   });
+  const unique = new Set(evidence);
+  if (unique.size !== evidence.length) {
+    throw new InvalidAssistantPlanError(`needs lists evidence twice: ${JSON.stringify(needs)}`);
+  }
   return Object.freeze({
     intent,
-    needs: Object.freeze([...new Set(evidence)]),
+    needs: Object.freeze(evidence),
     reason: (input.reason ?? '').trim(),
   });
 }
