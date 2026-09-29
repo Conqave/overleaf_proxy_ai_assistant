@@ -55,7 +55,7 @@ function compose(
     conversation,
   });
 
-  controller.attach(new AssistantView(window.document, controller));
+  void controller.attach(new AssistantView(window.document, controller));
   void preloadOllamaModel(client);
 }
 

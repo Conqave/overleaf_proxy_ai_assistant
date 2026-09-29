@@ -20,14 +20,14 @@ export class AssistantController implements ViewEvents {
 
   constructor(private readonly useCases: UseCases) {}
 
-  attach(view: AssistantView): void {
+  attach(view: AssistantView): Promise<void> {
     this.view = view;
-    this.guard(() => {
+    return this.guard(() => {
       view.showConversation(this.useCases.conversation.restore());
     });
   }
 
-  send(text: string): void {
+  send(text: string): Promise<void> {
     const view = this.requireView();
     let accepted = false;
     const run = async (): Promise<void> => {
@@ -50,52 +50,38 @@ export class AssistantController implements ViewEvents {
         }
       }
     };
-    void this.guardAsync(run);
+    return this.guard(run);
   }
 
-  apply(changeId: string): void {
+  apply(changeId: string): Promise<void> {
     const view = this.requireView();
     view.closeChangeActions(changeId);
-    this.guard(() => {
+    return this.guard(() => {
       const command = this.useCases.applyChange.execute(changeId);
       view.showNotice(appliedNotice(command), 'info');
     });
   }
 
-  reject(changeId: string): void {
+  reject(changeId: string): Promise<void> {
     const view = this.requireView();
     view.closeChangeActions(changeId);
-    this.guard(() => {
+    return this.guard(() => {
       const { removedMessageId } = this.useCases.rejectChange.execute(changeId);
       view.removeMessage(removedMessageId);
       view.showNotice(REJECTED, 'info');
     });
   }
 
-  newConversation(): void {
+  newConversation(): Promise<void> {
     const view = this.requireView();
-    this.guard(() => {
+    return this.guard(() => {
       this.useCases.startNewConversation.execute();
       view.showConversation([]);
       view.clearInput();
     });
   }
 
-  private guard(action: () => void): void {
-    try {
-      action();
-    } catch (error) {
-      if (!(error instanceof OperationalError)) {
-        this.requireView().showNotice(INTERNAL_ERROR, 'error');
-        throw error;
-      }
-      this.requireView().showNotice(`Error: ${error.message}`, 'error');
-    } finally {
-      this.reportPersistence();
-    }
-  }
-
-  private async guardAsync(action: () => Promise<void>): Promise<void> {
+  private async guard(action: () => void | Promise<void>): Promise<void> {
     try {
       await action();
     } catch (error) {

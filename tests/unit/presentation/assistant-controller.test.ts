@@ -4,7 +4,7 @@ import { DocumentConflictError, InvariantViolation } from '../../../src/domain/e
 import { AssistantController, type UseCases } from '../../../src/presentation/assistant-controller';
 import { AssistantView } from '../../../src/presentation/assistant-view';
 
-function setup(applyError: Error) {
+async function setup(applyError: Error) {
   const { window } = new JSDOM('<!doctype html><html><head></head><body></body></html>');
   const useCases = {
     conversation: { restore: () => [], takePersistenceFailure: () => null },
@@ -15,27 +15,23 @@ function setup(applyError: Error) {
     },
   } as unknown as UseCases;
   const controller = new AssistantController(useCases);
-  controller.attach(new AssistantView(window.document, controller));
+  await controller.attach(new AssistantView(window.document, controller));
   const notices = () =>
     Array.from(window.document.querySelectorAll('.ola-error')).map((n) => n.textContent);
   return { controller, notices };
 }
 
 describe('AssistantController error handling', () => {
-  it('shows expected failures and continues', () => {
-    const { controller, notices } = setup(new DocumentConflictError('Document changed.'));
-    expect(() => {
-      controller.apply('c1');
-    }).not.toThrow();
+  it('shows expected failures and continues', async () => {
+    const { controller, notices } = await setup(new DocumentConflictError('Document changed.'));
+    await expect(controller.apply('c1')).resolves.toBeUndefined();
     expect(notices()).toEqual(['Error: Document changed.']);
   });
 
-  it('does not disguise defects as user errors', () => {
+  it('does not disguise defects as user errors', async () => {
     const defect = new InvariantViolation('broken');
-    const { controller, notices } = setup(defect);
-    expect(() => {
-      controller.apply('c1');
-    }).toThrow(defect);
+    const { controller, notices } = await setup(defect);
+    await expect(controller.apply('c1')).rejects.toBe(defect);
     expect(notices()).toEqual(['Unexpected internal error. Details are in the browser console.']);
   });
 });

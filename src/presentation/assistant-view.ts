@@ -9,10 +9,10 @@ import css from './assistant.css?raw';
 import { GREETING, messageMeta, messageTitle } from './message-format';
 
 export interface ViewEvents {
-  send(text: string): void;
-  apply(changeId: string): void;
-  reject(changeId: string): void;
-  newConversation(): void;
+  send(text: string): Promise<void>;
+  apply(changeId: string): Promise<void>;
+  reject(changeId: string): Promise<void>;
+  newConversation(): Promise<void>;
 }
 
 const ROOT_ID = 'ola-root';
@@ -49,7 +49,7 @@ export class AssistantView {
     newButton.type = 'button';
     newButton.title = 'Start a new chat';
     newButton.addEventListener('click', () => {
-      this.events.newConversation();
+      void this.events.newConversation();
     });
     head.append(this.el('span', undefined, 'Hans AI Assistant'), newButton);
 
@@ -148,7 +148,7 @@ export class AssistantView {
   }
 
   private submit(): void {
-    this.events.send(this.input.value);
+    void this.events.send(this.input.value);
   }
 
   private renderAssistant(message: AssistantMessage, changeId?: string): HTMLElement {
@@ -174,10 +174,10 @@ export class AssistantView {
       const reject = this.el('button', 'ola-btn ola-reject', 'Reject');
       apply.type = reject.type = 'button';
       apply.addEventListener('click', () => {
-        this.events.apply(changeId);
+        void this.events.apply(changeId);
       });
       reject.addEventListener('click', () => {
-        this.events.reject(changeId);
+        void this.events.reject(changeId);
       });
       actions.append(apply, reject);
       node.append(actions);
