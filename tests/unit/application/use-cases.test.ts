@@ -143,7 +143,6 @@ describe('HandleAssistantRequest', () => {
       command: change.edit.command,
       rationale: 'After results.',
     });
-    expect(change.status).toBe('previewed');
     expect(editor.preview).toBe(change.edit);
     expect(assistant.replyRequests[0]!.evidence.document).toEqual(editor.readDocument());
     expect(editor.applied).toHaveLength(0);
@@ -225,7 +224,6 @@ describe('HandleAssistantRequest', () => {
   it('discards the open change when a new request starts', async () => {
     const changeId = await proposeEdit();
     await send('hi');
-    expect(pendingChanges.get(changeId).status).toBe('discarded');
     expect(editor.preview).toBeNull();
     expect(() => apply.execute(changeId)).toThrow(ChangeNoLongerPendingError);
     expect(() => reject.execute(changeId)).toThrow(ChangeNoLongerPendingError);
@@ -266,7 +264,6 @@ describe('preview / apply / reject', () => {
     expect(apply.execute(changeId)).toBe(pendingChanges.get(changeId).edit.command);
     expect(editor.lines).toEqual([...DOC, 'More numbers.']);
     expect(editor.preview).toBeNull();
-    expect(pendingChanges.get(changeId).status).toBe('applied');
   });
 
   it('rejects a command and removes its proposal from the conversation', async () => {
@@ -288,7 +285,7 @@ describe('preview / apply / reject', () => {
   it('refuses apply after reject and reject after apply', async () => {
     const first = await proposeEdit();
     reject.execute(first);
-    expect(() => apply.execute(first)).toThrow(ChangeNoLongerPendingError);
+    expect(() => apply.execute(first)).toThrow('it was rejected');
     const second = await proposeEdit();
     apply.execute(second);
     expect(() => reject.execute(second)).toThrow(ChangeNoLongerPendingError);
@@ -319,14 +316,14 @@ describe('preview / apply / reject', () => {
     const changeId = await proposeEdit();
     editor.lines.pop();
     expect(() => apply.execute(changeId)).toThrow(DocumentConflictError);
-    expect(pendingChanges.get(changeId).status).toBe('failed');
+    expect(() => apply.execute(changeId)).toThrow('it was failed');
   });
 
   it('fails when the editor vanished before apply', async () => {
     const changeId = await proposeEdit();
     editor.available = false;
     expect(() => apply.execute(changeId)).toThrow(EditorUnavailableError);
-    expect(pendingChanges.get(changeId).status).toBe('failed');
+    expect(() => apply.execute(changeId)).toThrow('it was failed');
   });
 });
 
@@ -338,7 +335,7 @@ describe('conversation', () => {
     new StartNewConversation({ conversation, pendingChanges, editor }).execute();
     expect(conversation.messages()).toHaveLength(0);
     expect(repository.stored).toHaveLength(0);
-    expect(change.status).toBe('discarded');
+    expect(() => apply.execute(change.id)).toThrow(ChangeNoLongerPendingError);
   });
 
   it('keeps working when storage fails and reports it once', async () => {

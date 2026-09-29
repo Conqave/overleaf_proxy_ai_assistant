@@ -5,57 +5,81 @@ import { ChangeNoLongerPendingError } from './errors';
 export type PendingChangeStatus =
   'validated' | 'previewed' | 'approved' | 'applied' | 'failed' | 'rejected' | 'discarded';
 
+interface Transition {
+  readonly from: readonly PendingChangeStatus[];
+  readonly closed: readonly PendingChangeStatus[];
+  readonly to: PendingChangeStatus;
+}
+
+const OPEN: readonly PendingChangeStatus[] = ['validated', 'previewed'];
+
+const CLOSED_BY_USER_OR_REQUEST: readonly PendingChangeStatus[] = [
+  'applied',
+  'failed',
+  'rejected',
+  'discarded',
+];
+
+const PREVIEW: Transition = { from: ['validated'], closed: [], to: 'previewed' };
+const APPROVE: Transition = {
+  from: ['previewed'],
+  closed: CLOSED_BY_USER_OR_REQUEST,
+  to: 'approved',
+};
+const REJECT: Transition = {
+  from: ['previewed'],
+  closed: CLOSED_BY_USER_OR_REQUEST,
+  to: 'rejected',
+};
+const MARK_APPLIED: Transition = { from: ['approved'], closed: [], to: 'applied' };
+const MARK_FAILED: Transition = { from: ['approved'], closed: [], to: 'failed' };
+const DISCARD: Transition = { from: OPEN, closed: [], to: 'discarded' };
+
 export class PendingDocumentChange {
-  private currentStatus: PendingChangeStatus = 'validated';
+  private status: PendingChangeStatus = 'validated';
 
   constructor(
     readonly id: string,
     readonly edit: ResolvedEdit,
   ) {}
 
-  get status(): PendingChangeStatus {
-    return this.currentStatus;
-  }
-
   get isOpen(): boolean {
-    return this.currentStatus === 'validated' || this.currentStatus === 'previewed';
+    return OPEN.includes(this.status);
   }
 
   markPreviewed(): void {
-    this.transition(['validated'], 'previewed');
+    this.transition(PREVIEW);
   }
 
   approve(): void {
-    this.transition(['previewed'], 'approved');
+    this.transition(APPROVE);
   }
 
   reject(): void {
-    this.transition(['previewed'], 'rejected');
+    this.transition(REJECT);
   }
 
   markApplied(): void {
-    this.transition(['approved'], 'applied');
+    this.transition(MARK_APPLIED);
   }
 
   markFailed(): void {
-    this.transition(['approved'], 'failed');
+    this.transition(MARK_FAILED);
   }
 
   discard(): void {
-    this.transition(['validated', 'previewed'], 'discarded');
+    this.transition(DISCARD);
   }
 
-  private transition(from: readonly PendingChangeStatus[], to: PendingChangeStatus): void {
-    if (from.includes(this.currentStatus)) {
-      this.currentStatus = to;
+  private transition({ from, closed, to }: Transition): void {
+    if (from.includes(this.status)) {
+      this.status = to;
       return;
     }
-    if (this.currentStatus === 'validated' || this.currentStatus === 'approved') {
-      throw new InvariantViolation(
-        `pending change ${this.id}: cannot go from ${this.currentStatus} to ${to}`,
-      );
-    }
-    throw new ChangeNoLongerPendingError(this.currentStatus);
+    if (closed.includes(this.status)) throw new ChangeNoLongerPendingError(this.status);
+    throw new InvariantViolation(
+      `pending change ${this.id}: cannot go from ${this.status} to ${to}`,
+    );
   }
 }
 

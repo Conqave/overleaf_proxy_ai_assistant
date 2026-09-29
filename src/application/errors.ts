@@ -1,4 +1,5 @@
 import { OperationalError } from '../domain/errors';
+import type { PendingChangeStatus } from './pending-change';
 
 export class EmptyRequestError extends OperationalError {
   constructor() {
@@ -19,7 +20,7 @@ export class RequestSupersededError extends OperationalError {
 }
 
 export class ChangeNoLongerPendingError extends OperationalError {
-  constructor(status: string) {
+  constructor(status: PendingChangeStatus) {
     super(`This suggestion can no longer be used (it was ${status}).`);
   }
 }
