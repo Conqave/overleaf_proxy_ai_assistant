@@ -30,7 +30,8 @@ export class OverleafEditorAdapter implements EditorPort {
 
   readCompileLogs(): string {
     const logs = this.document.querySelector(LOGS_SELECTOR);
-    return (logs?.textContent ?? '').replace(/\u00a0/g, ' ').trim();
+    if (logs === null) return '';
+    return logs.textContent.replace(/\u00a0/g, ' ').trim();
   }
 
   showPreview(edit: ResolvedEdit): void {

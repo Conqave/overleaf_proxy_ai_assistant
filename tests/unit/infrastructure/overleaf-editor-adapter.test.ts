@@ -78,8 +78,10 @@ describe('OverleafEditorAdapter', () => {
     expect(adapter.readCursorLine()).toBe(4);
   });
 
-  it('reads compile logs', () => {
+  it('reads compile logs, and none while the log pane is closed', () => {
     expect(adapter.readCompileLogs()).toBe('x:4: Undefined.');
+    document.querySelector('.logs-pane')?.remove();
+    expect(adapter.readCompileLogs()).toBe('');
   });
 
   it('inserts before the target line', () => {
