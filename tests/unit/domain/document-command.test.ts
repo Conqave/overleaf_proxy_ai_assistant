@@ -35,6 +35,10 @@ describe('createDocumentCommand', () => {
     });
   });
 
+  it('reads a range without a line count as the target line alone', () => {
+    expect(createDocumentCommand({ operation: 'delete', target })).toMatchObject({ lineCount: 1 });
+  });
+
   it('keeps multi-line content verbatim', () => {
     const content = '\\begin{itemize}\n  \\item a\n\\end{itemize}';
     const command = createDocumentCommand({ operation: 'insert_after', target, content });
@@ -43,8 +47,8 @@ describe('createDocumentCommand', () => {
 
   it.each([
     ['missing target', { operation: 'replace', lineCount: 1, content: 'x' }],
-    ['delete without line count', { operation: 'delete', target }],
     ['replace with zero lines', { operation: 'replace', target, lineCount: 0, content: 'x' }],
+    ['range ending before it starts', { operation: 'delete', target, lineCount: -1 }],
     ['fractional line count', { operation: 'delete', target, lineCount: 1.5 }],
     [
       'insertion with a line count',

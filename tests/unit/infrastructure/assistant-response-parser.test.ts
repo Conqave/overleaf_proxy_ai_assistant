@@ -107,6 +107,13 @@ describe('parseEditResponse', () => {
     });
   });
 
+  it('tells the model when END_LINE is before LINE or given for an insertion', () => {
+    expect(() => parse(edit({ OPERATION: 'delete', END_LINE: '2' }, ''))).toThrow(
+      'the delete range must end at or after its first line 3',
+    );
+    expect(() => parse(edit({ END_LINE: '4' }))).toThrow('takes no range end');
+  });
+
   it('sends a range past the end of the shown document back to the model', () => {
     expect(() => parse(edit({ OPERATION: 'delete', END_LINE: '9' }, ''))).toThrow(
       'END_LINE must be a line of the document',

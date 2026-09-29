@@ -55,18 +55,13 @@ export function parseEditResponse(raw: string, shown: DocumentSnapshot): Assista
     if (question === '') throw new InvalidAssistantResponse('QUESTION is empty');
     return { kind: 'question', text: question };
   }
-  const operation = getRequiredField(fields, 'OPERATION');
   const lineNumber = getLineNumber(fields, 'LINE');
-  const lastLine = fields.has('END_LINE') ? getLineNumber(fields, 'END_LINE') : lineNumber;
-  if (lastLine < lineNumber) throw new InvalidAssistantResponse('END_LINE is before LINE');
-  const rangeOperation = operation === 'replace' || operation === 'delete';
-  if (!rangeOperation && fields.has('END_LINE')) {
-    throw new InvalidAssistantResponse(`${operation} anchors on one line; leave out END_LINE`);
-  }
   const command = parseCommand({
-    operation,
+    operation: getRequiredField(fields, 'OPERATION'),
     target: { lineNumber, lineText: getRequiredField(fields, 'LINE_TEXT') },
-    lineCount: rangeOperation ? lastLine - lineNumber + 1 : undefined,
+    ...(fields.has('END_LINE')
+      ? { lineCount: getLineNumber(fields, 'END_LINE') - lineNumber + 1 }
+      : {}),
     content,
     reason: getOptionalField(fields, 'REASON'),
   });

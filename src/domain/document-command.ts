@@ -54,27 +54,34 @@ export function createDocumentCommand(input: DocumentCommandInput): DocumentComm
     if (input.content !== undefined) {
       throw new InvalidDocumentCommandError('delete must not carry content');
     }
-    return Object.freeze({ operation, target, lineCount: parseLineCount(input.lineCount), reason });
+    const lineCount = parseLineCount(operation, target, input.lineCount);
+    return Object.freeze({ operation, target, lineCount, reason });
   }
   if (typeof input.content !== 'string' || input.content.trim() === '') {
     throw new InvalidDocumentCommandError(`${operation} requires non-empty content`);
   }
   const content = input.content;
   if (operation === DocumentOperation.Replace) {
-    const lineCount = parseLineCount(input.lineCount);
+    const lineCount = parseLineCount(operation, target, input.lineCount);
     return Object.freeze({ operation, target, lineCount, reason, content });
   }
   if (input.lineCount !== undefined) {
     throw new InvalidDocumentCommandError(
-      `${operation} anchors on one line and takes no line count`,
+      `${operation} anchors on one line and takes no range end`,
     );
   }
   return Object.freeze({ operation, target, reason, content });
 }
 
-function parseLineCount(value: unknown): number {
-  if (typeof value !== 'number' || !Number.isInteger(value) || value < 1) {
-    throw new InvalidDocumentCommandError('line count must be a positive integer');
+function parseLineCount(operation: string, target: DocumentTarget, value: unknown): number {
+  if (value === undefined) return 1;
+  if (typeof value !== 'number' || !Number.isInteger(value)) {
+    throw new InvalidDocumentCommandError('line count must be a whole number');
+  }
+  if (value < 1) {
+    throw new InvalidDocumentCommandError(
+      `the ${operation} range must end at or after its first line ${String(target.lineNumber)}`,
+    );
   }
   return value;
 }
