@@ -33,7 +33,21 @@ const SMALL_BLOCK_SHARE = 8;
 const REJECTED_REPLY_CHARS = 3_000;
 const CORRECTION_RESERVE_CHARS = 4_096;
 const MIN_DOCUMENT_CHARS = 1_024;
-const MIN_COMPACT_CHARS = 128;
+const MIN_KEPT_CHARS = 32;
+
+const LINE_BREAK = '\n';
+const COMPACT_GAP = LINE_BREAK.repeat(2);
+const COMPACT_MARKER_CHARS = compactMarker(Number.MAX_SAFE_INTEGER).length;
+const MIN_COMPACT_CHARS = COMPACT_MARKER_CHARS + 2 * MIN_KEPT_CHARS;
+
+const USER_MESSAGE_LABEL = 'User message:';
+const PLANNER_REASON_LABEL = 'Planner reason:';
+const CONVERSATION_LABEL = 'Conversation so far:';
+const CARET_LABEL = 'Lines around the caret:';
+const SELECTION_LABEL = 'Selected text:';
+const LOGS_LABEL = 'Compile logs:';
+const NUMBERED_DOCUMENT_LABEL = 'Numbered document lines:';
+const DOCUMENT_LABEL = 'Document text:';
 
 export interface ProtocolExchange<T> {
   readonly request: GenerateRequest;
@@ -164,13 +178,13 @@ export function createPlanExchange(
   request: PlanningRequest,
   budget: number,
 ): ProtocolExchange<AssistantPlan> {
-  const message = `User message:\n${request.message}`;
-  const conversationBudget = budget - PLANNING_SYSTEM.length - message.length - 1;
-  if (conversationBudget < MIN_COMPACT_CHARS) throw createTooLargeError();
+  const message = userMessage(request.message);
+  const conversationBudget = budget - PLANNING_SYSTEM.length - message.length - LINE_BREAK.length;
+  if (conversationBudget < minBlockChars(CONVERSATION_LABEL)) throw createTooLargeError();
   return {
     request: {
       system: PLANNING_SYSTEM,
-      prompt: lines(message, conversationBlock(request.conversation, conversationBudget)),
+      prompt: lines(message, ...conversationBlock(request.conversation, conversationBudget)),
     },
     retryInstruction: PLAN_RETRY,
     parse: parsePlanResponse,
@@ -207,9 +221,7 @@ export function createCorrectionRequest(
     system: exchange.request.system,
     prompt: lines(
       exchange.request.prompt,
-      '',
-      `Your previous reply was:\n${compact(rejected, REJECTED_REPLY_CHARS)}`,
-      '',
+      `Your previous reply was:${LINE_BREAK}${compact(rejected, REJECTED_REPLY_CHARS)}`,
       `It was rejected because: ${problem}.`,
       exchange.retryInstruction,
     ),
@@ -219,30 +231,39 @@ export function createCorrectionRequest(
 function buildReplyPrompt(request: ReplyRequest, numbered: boolean, budget: number): string {
   const { evidence, plan } = request;
   const smallBlock = Math.floor(budget / SMALL_BLOCK_SHARE);
-  const before = lines(
-    `User message:\n${request.message}`,
-    plan.reason === undefined ? '' : `\nPlanner reason:\n${compact(plan.reason, smallBlock)}`,
-    conversationBlock(request.conversation, smallBlock),
-  );
-  const after = lines(
-    evidence.lineContext
-      ? `\nLines around the caret:\n${compact(caretLines(evidence.lineContext), smallBlock)}`
-      : '',
-    evidence.selection ? `\nSelected text:\n${compact(evidence.selection, smallBlock)}` : '',
-    evidence.logs ? `\nCompile logs:\n${compact(evidence.logs, smallBlock)}` : '',
-  );
-  const separators = after === '' ? 1 : 2;
-  const documentBudget = budget - before.length - after.length - separators;
+  const before = [
+    userMessage(request.message),
+    ...optionalBlock(PLANNER_REASON_LABEL, plan.reason, smallBlock),
+    ...conversationBlock(request.conversation, smallBlock),
+  ];
+  const after = [
+    ...optionalBlock(
+      CARET_LABEL,
+      evidence.lineContext === undefined ? undefined : caretLines(evidence.lineContext),
+      smallBlock,
+    ),
+    ...optionalBlock(SELECTION_LABEL, evidence.selection, smallBlock),
+    ...optionalBlock(LOGS_LABEL, evidence.logs, smallBlock),
+  ];
+  const documentBudget = budget - lines(...before, ...after).length - LINE_BREAK.length;
   if (documentBudget < MIN_DOCUMENT_CHARS) throw createTooLargeError();
-  return lines(before, documentBlock(evidence.document, numbered, documentBudget), after);
+  return lines(...before, documentBlock(evidence.document, numbered, documentBudget), ...after);
 }
 
-function conversationBlock(conversation: readonly ConversationMessage[], maxChars: number): string {
+function userMessage(message: string): string {
+  return `${USER_MESSAGE_LABEL}${LINE_BREAK}${message}`;
+}
+
+function conversationBlock(
+  conversation: readonly ConversationMessage[],
+  maxChars: number,
+): string[] {
   const recent = conversation.filter(isTranscribed).slice(-CONVERSATION_WINDOW);
-  if (!recent.length) return '';
-  const label = '\nConversation so far:\n';
-  const text = recent.map((message) => `[${message.role}] ${transcriptText(message)}`).join('\n');
-  return `${label}${compact(text, maxChars - label.length)}`;
+  if (!recent.length) return [];
+  const text = recent
+    .map((message) => `[${message.role}] ${transcriptText(message)}`)
+    .join(LINE_BREAK);
+  return [block(CONVERSATION_LABEL, text, maxChars)];
 }
 
 function isTranscribed(
@@ -274,25 +295,44 @@ function describeProposal(command: DocumentCommand): string {
 function caretLines(context: NonNullable<ReplyRequest['evidence']['lineContext']>): string {
   return context.lines
     .map((text, i) => `${String(context.firstLineNumber + i)}: ${text}`)
-    .join('\n');
+    .join(LINE_BREAK);
 }
 
 function documentBlock(snapshot: DocumentSnapshot, numbered: boolean, maxChars: number): string {
-  const label = numbered ? '\nNumbered document lines:\n' : '\nDocument text:\n';
-  const text = numbered
-    ? snapshot.lines.map((line, index) => `${String(index + 1)}: ${line}`).join('\n')
-    : documentText(snapshot);
-  return `${label}${compact(text, maxChars - label.length)}`;
+  if (!numbered) return block(DOCUMENT_LABEL, documentText(snapshot), maxChars);
+  const text = snapshot.lines.map((line, index) => `${String(index + 1)}: ${line}`);
+  return block(NUMBERED_DOCUMENT_LABEL, text.join(LINE_BREAK), maxChars);
 }
 
-export function compact(text: string, maxChars: number): string {
+function optionalBlock(label: string, text: string | undefined, maxChars: number): string[] {
+  return text === undefined ? [] : [block(label, text, maxChars)];
+}
+
+function block(label: string, text: string, maxChars: number): string {
+  const heading = blockHeading(label);
+  return `${heading}${compact(text, maxChars - heading.length)}`;
+}
+
+function blockHeading(label: string): string {
+  return `${LINE_BREAK}${label}${LINE_BREAK}`;
+}
+
+function minBlockChars(label: string): number {
+  return blockHeading(label).length + MIN_COMPACT_CHARS;
+}
+
+function compact(text: string, maxChars: number): string {
   if (text.length <= maxChars) return text;
   if (maxChars < MIN_COMPACT_CHARS) {
     throw new InvariantViolation(`cannot compact text into ${String(maxChars)} characters`);
   }
-  const keep = Math.floor((maxChars - 64) / 2);
+  const keep = Math.floor((maxChars - COMPACT_MARKER_CHARS) / 2);
   const omitted = text.length - 2 * keep;
-  return `${text.slice(0, keep)}\n\n[AUTOCOMPACTED: omitted ${String(omitted)} chars]\n\n${text.slice(-keep)}`;
+  return `${text.slice(0, keep)}${compactMarker(omitted)}${text.slice(-keep)}`;
+}
+
+function compactMarker(omitted: number): string {
+  return `${COMPACT_GAP}[AUTOCOMPACTED: omitted ${String(omitted)} chars]${COMPACT_GAP}`;
 }
 
 function createTooLargeError(): AssistantRequestTooLargeError {
@@ -301,6 +341,6 @@ function createTooLargeError(): AssistantRequestTooLargeError {
   );
 }
 
-function lines(...parts: string[]): string {
-  return parts.filter((part) => part !== '').join('\n');
+function lines(...parts: readonly string[]): string {
+  return parts.join(LINE_BREAK);
 }

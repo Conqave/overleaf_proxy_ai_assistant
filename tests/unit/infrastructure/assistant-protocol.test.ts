@@ -1,10 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { createDocumentSnapshot } from '../../../src/domain/document';
 import { createDocumentCommand } from '../../../src/domain/document-command';
-import { InvariantViolation } from '../../../src/domain/errors';
 import { AssistantRequestTooLargeError } from '../../../src/ports/errors';
 import {
-  compact,
   createCorrectionRequest,
   createPlanExchange,
   createReplyExchange,
@@ -147,16 +145,28 @@ describe('prompt budget', () => {
     );
   });
 
+  it('refuses rather than breaks when the conversation barely fits', () => {
+    const conversation = [{ id: '1', role: 'user' as const, text: 'x'.repeat(10_000) }];
+    const system = createPlanExchange({ message: 'm', conversation: [] }, budget).request.system;
+    for (let tight = system.length; tight < system.length + 400; tight += 1) {
+      const create = () => createPlanExchange({ message: 'm', conversation }, tight);
+      const outcome = (() => {
+        try {
+          return create().request.system.length + create().request.prompt.length <= tight;
+        } catch (error) {
+          return error instanceof AssistantRequestTooLargeError;
+        }
+      })();
+      expect(outcome).toBe(true);
+    }
+  });
+
   it('refuses a message too long for the context window', () => {
     const huge = { message: 'm'.repeat(budget) };
     expect(() => createReplyExchange(reply(huge), budget)).toThrow(AssistantRequestTooLargeError);
     expect(() => createPlanExchange({ ...huge, conversation: [] }, budget)).toThrow(
       AssistantRequestTooLargeError,
     );
-  });
-
-  it('treats compacting into less than the marker as a defect', () => {
-    expect(() => compact('x'.repeat(100), 10)).toThrow(InvariantViolation);
   });
 });
 
@@ -177,13 +187,25 @@ describe('correction request', () => {
   });
 });
 
-describe('compact', () => {
-  it('keeps the head and the tail of a long text', () => {
-    const text = 'a'.repeat(100) + 'b'.repeat(100);
-    const result = compact(text, 128);
-    expect(result.startsWith('a'.repeat(32))).toBe(true);
-    expect(result.endsWith('b'.repeat(32))).toBe(true);
-    expect(result).toContain('omitted 136 chars');
-    expect(compact('short', 128)).toBe('short');
+describe('compaction', () => {
+  it('keeps the head and the tail of a long block and says how much it left out', () => {
+    const selection = 'a'.repeat(50_000) + 'b'.repeat(50_000);
+    const exchange = createReplyExchange(reply({ evidence: { document, selection } }), budget);
+    const compacted =
+      /Selected text:\n(a+)\n\n\[AUTOCOMPACTED: omitted (\d+) chars\]\n\n(b+)$/.exec(
+        exchange.request.prompt,
+      );
+    const [, head, omitted, tail] = compacted!;
+    expect(head!.length).toBe(tail!.length);
+    expect(head!.length + Number(omitted) + tail!.length).toBe(selection.length);
+  });
+
+  it('leaves a block that fits untouched', () => {
+    const exchange = createReplyExchange(
+      reply({ evidence: { document, selection: 'short' } }),
+      budget,
+    );
+    expect(exchange.request.prompt).toContain('Selected text:\nshort');
+    expect(exchange.request.prompt).not.toContain('AUTOCOMPACTED');
   });
 });
