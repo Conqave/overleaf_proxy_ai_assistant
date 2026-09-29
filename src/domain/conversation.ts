@@ -1,3 +1,4 @@
+import { Intent } from './assistant-plan';
 import type { DocumentCommand } from './document-command';
 
 export const AssistantMessageKind = {
@@ -15,10 +16,21 @@ export interface UserMessage {
   readonly text: string;
 }
 
+export type ReplyKind = Exclude<AssistantMessageKind, typeof AssistantMessageKind.Proposal>;
+
+const ANSWER_KIND: Record<Exclude<Intent, typeof Intent.Edit>, ReplyKind> = {
+  [Intent.Summary]: AssistantMessageKind.Summary,
+  [Intent.Explain]: AssistantMessageKind.Explanation,
+};
+
+export function getAnswerKind(intent: Exclude<Intent, typeof Intent.Edit>): ReplyKind {
+  return ANSWER_KIND[intent];
+}
+
 export interface ReplyMessage {
   readonly id: string;
   readonly role: 'assistant';
-  readonly kind: Exclude<AssistantMessageKind, typeof AssistantMessageKind.Proposal>;
+  readonly kind: ReplyKind;
   readonly text: string;
 }
 

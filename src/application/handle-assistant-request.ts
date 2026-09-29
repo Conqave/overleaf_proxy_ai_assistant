@@ -1,9 +1,10 @@
 import { Evidence, Intent, type AssistantPlan } from '../domain/assistant-plan';
-import type {
-  AssistantMessage,
-  ProposalMessage,
-  ReplyMessage,
-  UserMessage,
+import {
+  getAnswerKind,
+  type AssistantMessage,
+  type ProposalMessage,
+  type ReplyMessage,
+  type UserMessage,
 } from '../domain/conversation';
 import type { DocumentSnapshot } from '../domain/document';
 import { InvariantViolation } from '../domain/errors';
@@ -33,11 +34,6 @@ interface EditorContext {
 }
 
 const LINE_CONTEXT_RADIUS = 2;
-
-const ANSWER_KIND = {
-  summary: 'summary',
-  explain: 'explanation',
-} as const;
 
 export class HandleAssistantRequest {
   private running = false;
@@ -104,7 +100,7 @@ export class HandleAssistantRequest {
         if (plan.intent === Intent.Edit) {
           throw new InvariantViolation('assistant port answered an edit plan with plain text');
         }
-        return { message: this.reply(ANSWER_KIND[plan.intent], reply.text) };
+        return { message: this.reply(getAnswerKind(plan.intent), reply.text) };
       case 'question':
         return { message: this.reply('clarification', reply.text) };
       case 'edit':
