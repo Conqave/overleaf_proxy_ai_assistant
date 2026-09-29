@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { OllamaAssistant } from '../../../src/infrastructure/ollama/ollama-assistant';
 import { OllamaClient } from '../../../src/infrastructure/ollama/ollama-client';
 import { MIN_CONTEXT_TOKENS } from '../../../src/infrastructure/ollama/assistant-protocol';
@@ -72,11 +72,37 @@ describe('OllamaClient', () => {
     );
   });
 
-  it('times out', async () => {
+  it('times out, naming the configured limit', async () => {
     const ollama = new FakeOllama().reply({ hang: true });
     await expect(make(ollama).client.generate({ system: 'S', prompt: 'P' })).rejects.toThrow(
-      new AssistantTimeoutError('Ollama did not respond within 0 seconds.'),
+      new AssistantTimeoutError('Ollama did not respond within 50 milliseconds.'),
     );
+  });
+
+  it.each([
+    [1_000, '1 second'],
+    [1_500, '1,500 milliseconds'],
+    [90_000, '90 seconds'],
+    [60_000, '1 minute'],
+    [300_000, '5 minutes'],
+  ])('writes a limit of %i ms as %s', async (timeoutMs, duration) => {
+    const hanging = (_input: RequestInfo | URL, init?: RequestInit): Promise<Response> =>
+      new Promise((_resolve, reject) => {
+        init?.signal?.addEventListener('abort', () => {
+          reject(new DOMException('aborted', 'AbortError'));
+        });
+      });
+    vi.useFakeTimers();
+    try {
+      const client = new OllamaClient({ ...config, timeoutMs }, hanging);
+      const assertion = expect(client.generate({ system: 'S', prompt: 'P' })).rejects.toThrow(
+        `within ${duration}.`,
+      );
+      await vi.advanceTimersByTimeAsync(timeoutMs);
+      await assertion;
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('does not disguise defects as transport errors', async () => {
