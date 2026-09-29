@@ -23,13 +23,16 @@ export class InvalidAssistantResponse extends Error {
   }
 }
 
-type Json = Record<string, unknown>;
-
 export function parsePlanResponse(raw: string): AssistantPlan {
-  const data = decode(raw);
-  allowOnly(data, ['intent', 'needs', 'reason']);
+  const fields = decode(raw);
+  allowOnly(fields, ['intent', 'needs', 'reason']);
+  const input = {
+    intent: fields.get('intent'),
+    needs: fields.get('needs'),
+    reason: fields.get('reason'),
+  };
   try {
-    return createAssistantPlan({ intent: data.intent, needs: data.needs, reason: data.reason });
+    return createAssistantPlan(input);
   } catch (error) {
     if (error instanceof InvalidAssistantPlanError)
       throw new InvalidAssistantResponse(error.message);
@@ -178,7 +181,7 @@ function describeTargetMismatch(shown: DocumentSnapshot, command: DocumentComman
   return `LINE_TEXT must be copied from the start of line ${String(lineNumber)} (at least ${String(MIN_QUOTED_START)} characters, or the whole line if shorter), which ${content}${hint}`;
 }
 
-function decode(raw: string): Json {
+function decode(raw: string): Map<string, unknown> {
   const text = raw.trim();
   if (text === '') throw new InvalidAssistantResponse('the reply is empty');
   let data: unknown;
@@ -190,11 +193,11 @@ function decode(raw: string): Json {
   if (typeof data !== 'object' || data === null || Array.isArray(data)) {
     throw new InvalidAssistantResponse('the reply must be a JSON object');
   }
-  return data as Json;
+  return new Map(Object.entries(data));
 }
 
-function allowOnly(data: Json, keys: readonly string[]): void {
-  const unexpected = Object.keys(data).filter((key) => !keys.includes(key));
+function allowOnly(fields: Map<string, unknown>, keys: readonly string[]): void {
+  const unexpected = [...fields.keys()].filter((key) => !keys.includes(key));
   if (unexpected.length) {
     throw new InvalidAssistantResponse(`unexpected properties: ${unexpected.join(', ')}`);
   }
