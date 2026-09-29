@@ -38,13 +38,13 @@ export function parsePlanResponse(raw: string): AssistantPlan {
 }
 
 export function parseAnswerResponse(raw: string): string {
-  const text = stripThinking(raw);
+  const text = raw.trim();
   if (text === '') throw new InvalidAssistantResponse('the reply is empty');
   return text;
 }
 
 export function parseEditResponse(raw: string, shown: DocumentSnapshot): AssistantReply {
-  const text = stripThinking(raw);
+  const text = raw.trim();
   if (text === '') throw new InvalidAssistantResponse('the reply is empty');
   const { fields, content } = parseEditReply(text);
   if (fields.has('QUESTION')) {
@@ -179,7 +179,7 @@ function describeTargetMismatch(shown: DocumentSnapshot, command: DocumentComman
 }
 
 function decode(raw: string): Json {
-  const text = stripThinking(raw);
+  const text = raw.trim();
   if (text === '') throw new InvalidAssistantResponse('the reply is empty');
   let data: unknown;
   try {
@@ -191,10 +191,6 @@ function decode(raw: string): Json {
     throw new InvalidAssistantResponse('the reply must be a JSON object');
   }
   return data as Json;
-}
-
-function stripThinking(raw: string): string {
-  return raw.replace(/^\s*(?:<think>[\s\S]*?<\/think>\s*)+/i, '').trim();
 }
 
 function allowOnly(data: Json, keys: readonly string[]): void {

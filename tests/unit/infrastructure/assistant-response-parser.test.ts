@@ -198,10 +198,6 @@ describe('parseAnswerResponse', () => {
     );
   });
 
-  it('discards leading thinking blocks', () => {
-    expect(parseAnswerResponse('<think>plan</think>\nok')).toBe('ok');
-  });
-
   it('rejects an empty reply', () => {
     expect(() => parseAnswerResponse('  ')).toThrow(InvalidAssistantResponse);
   });
