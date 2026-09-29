@@ -15,10 +15,13 @@ import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { parseConfig } from '../../src/bootstrap/config';
 import { MIN_CONTEXT_TOKENS } from '../../src/infrastructure/ollama/assistant-protocol';
+import { TestFixtureError } from '../support/test-errors';
 
 const ROOT = path.resolve(import.meta.dirname, '../..');
 const ENVSH = path.join(ROOT, 'deploy/10-assistant-config.envsh');
 const TEMPLATE = path.join(ROOT, 'deploy/nginx.conf.template');
+const HEALTH_ATTEMPTS = 50;
+const HEALTH_INTERVAL_MS = 50;
 const hasBinary = (name: string) => spawnSync('sh', ['-c', `command -v ${name}`]).status === 0;
 
 const VALID_ENV = {
@@ -182,24 +185,15 @@ describe.runIf(hasBinary('nginx') && hasBinary('envsubst'))('nginx proxy', () =>
     execFileSync('nginx', ['-t', '-q', '-p', prefix, '-c', path.join(prefix, 'nginx.conf')]);
     execFileSync('nginx', ['-p', prefix, '-c', path.join(prefix, 'nginx.conf')]);
     base = `http://127.0.0.1:${String(port)}`;
-    for (let i = 0; i < 50; i += 1) {
-      if (
-        await fetch(`${base}/healthz`).then(
-          (r) => r.ok,
-          () => false,
-        )
-      )
-        break;
-      await new Promise((resolve) => setTimeout(resolve, 50));
-    }
+    await waitUntilHealthy(base);
   });
 
-  afterAll(() => {
+  afterAll(async () => {
     if (prefix) {
       spawnSync('nginx', ['-p', prefix, '-c', path.join(prefix, 'nginx.conf'), '-s', 'stop']);
       rmSync(prefix, { recursive: true, force: true });
     }
-    for (const server of servers) server.close();
+    await Promise.all(servers.map((server) => closeServer(server)));
   });
 
   it('injects the assistant with the nonce of the unchanged upstream CSP', async () => {
@@ -257,3 +251,23 @@ describe.runIf(hasBinary('nginx') && hasBinary('envsubst'))('nginx proxy', () =>
     expect((await fetch(`${base}/healthz`)).status).toBe(200);
   });
 });
+
+async function waitUntilHealthy(base: string): Promise<void> {
+  for (let attempt = 0; attempt < HEALTH_ATTEMPTS; attempt += 1) {
+    const healthy = await fetch(`${base}/healthz`).then(
+      (response) => response.ok,
+      () => false,
+    );
+    if (healthy) return;
+    await new Promise((resolve) => setTimeout(resolve, HEALTH_INTERVAL_MS));
+  }
+  throw new TestFixtureError(`the proxy at ${base} did not become healthy`);
+}
+
+function closeServer(server: Server): Promise<void> {
+  return new Promise((resolve) => {
+    server.close(() => {
+      resolve();
+    });
+  });
+}
