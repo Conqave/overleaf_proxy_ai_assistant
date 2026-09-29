@@ -6,7 +6,7 @@ import {
 } from '../domain/conversation';
 import { DocumentOperation } from '../domain/document-command';
 import css from './assistant.css?raw';
-import { GREETING, messageMeta, messageTitle } from './message-format';
+import { GREETING, messageMeta, messageTitle, VIEW_TEXT } from './message-format';
 
 export interface ViewEvents {
   send(text: string): Promise<void>;
@@ -39,28 +39,27 @@ export class AssistantView {
     this.root = this.el('div');
     this.root.id = ROOT_ID;
 
-    const badge = this.el('button', 'ola-badge', 'AI Agent');
+    const badge = this.el('button', 'ola-badge', VIEW_TEXT.badge);
     badge.type = 'button';
     badge.prepend(this.el('span', 'ola-dot'));
     badge.addEventListener('click', () => this.root.classList.toggle('is-collapsed'));
 
     const head = this.el('div', 'ola-head');
-    const newButton = this.el('button', 'ola-new-chat', 'New');
+    const newButton = this.el('button', 'ola-new-chat', VIEW_TEXT.newChat);
     newButton.type = 'button';
-    newButton.title = 'Start a new chat';
+    newButton.title = VIEW_TEXT.newChatHint;
     newButton.addEventListener('click', () => {
       void this.events.newConversation();
     });
-    head.append(this.el('span', undefined, 'Hans AI Assistant'), newButton);
+    head.append(this.el('span', undefined, VIEW_TEXT.title), newButton);
 
     this.chat = this.el('div', 'ola-chat');
 
     this.status = this.el('div', 'ola-status is-empty');
     const labelRow = this.el('div', 'ola-labelRow');
-    labelRow.append(this.el('span', undefined, 'Command'), this.status);
+    labelRow.append(this.el('span', undefined, VIEW_TEXT.inputLabel), this.status);
     this.input = this.el('textarea', 'ola-textarea');
-    this.input.placeholder =
-      'Describe what you want: explain an error, improve text, insert a table or delete a line.';
+    this.input.placeholder = VIEW_TEXT.inputPlaceholder;
     this.input.addEventListener('keydown', (event) => {
       if (event.key === 'Enter' && !event.shiftKey) {
         event.preventDefault();
@@ -70,7 +69,7 @@ export class AssistantView {
     const label = this.el('label', 'ola-label');
     label.append(labelRow, this.input);
 
-    this.sendButton = this.el('button', 'ola-btn ola-send', 'Send');
+    this.sendButton = this.el('button', 'ola-btn ola-send', VIEW_TEXT.send);
     this.sendButton.type = 'button';
     this.sendButton.addEventListener('click', () => {
       this.submit();
@@ -163,8 +162,8 @@ export class AssistantView {
     if (meta !== undefined) node.append(this.el('div', 'ola-result-meta', meta));
     if (changeId !== undefined) {
       const actions = this.el('div', 'ola-result-actions');
-      const apply = this.el('button', 'ola-btn ola-apply', 'Apply');
-      const reject = this.el('button', 'ola-btn ola-reject', 'Reject');
+      const apply = this.el('button', 'ola-btn ola-apply', VIEW_TEXT.apply);
+      const reject = this.el('button', 'ola-btn ola-reject', VIEW_TEXT.reject);
       apply.type = reject.type = 'button';
       apply.addEventListener('click', () => {
         void this.events.apply(changeId);
@@ -203,12 +202,8 @@ export class AssistantView {
   private showWelcome(): void {
     const node = this.el('div', 'ola-msg ola-welcome');
     node.append(
-      this.el('div', 'ola-welcome-title', 'Ready to help with this document'),
-      this.el(
-        'div',
-        'ola-welcome-copy',
-        'Ask for an explanation, a cleaner paragraph, or a precise LaTeX edit. I will show a suggestion before changing anything.',
-      ),
+      this.el('div', 'ola-welcome-title', VIEW_TEXT.welcomeTitle),
+      this.el('div', 'ola-welcome-copy', VIEW_TEXT.welcomeCopy),
     );
     this.append(node);
   }

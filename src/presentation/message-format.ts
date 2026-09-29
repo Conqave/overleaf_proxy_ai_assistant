@@ -27,6 +27,22 @@ const DOCUMENT_STATUS = 'Hans is reading the TeX content';
 
 const STATUS_LIST = new Intl.ListFormat('en', { style: 'long', type: 'conjunction' });
 
+export const VIEW_TEXT = {
+  badge: 'Hans',
+  title: 'Hans AI Assistant',
+  newChat: 'New',
+  newChatHint: 'Start a new chat',
+  inputLabel: 'Command',
+  inputPlaceholder:
+    'Describe what you want: explain an error, improve text, insert a table or delete a line.',
+  send: 'Send',
+  apply: 'Apply',
+  reject: 'Reject',
+  welcomeTitle: 'Ready to help with this document',
+  welcomeCopy:
+    'Ask for an explanation, a cleaner paragraph, or a precise LaTeX edit. I will show a suggestion before changing anything.',
+} as const;
+
 export const GREETING = 'Tell me what to change, explain, or fix in this Overleaf document.';
 export const REJECTED = 'Change rejected.';
 export const INTERNAL_ERROR = 'Unexpected internal error. Details are in the browser console.';
@@ -50,6 +66,10 @@ export function messageMeta(message: AssistantMessage): string | undefined {
       if (command.lineCount === 1) return `Line ${first}: ${lineText}`;
       return `Lines ${first}–${String(lineNumber + command.lineCount - 1)}, starting: ${lineText}`;
   }
+}
+
+export function errorNotice(message: string): string {
+  return `Error: ${message}`;
 }
 
 export function appliedNotice(command: DocumentCommand): string {

@@ -5,7 +5,13 @@ import type { HandleAssistantRequest } from '../application/handle-assistant-req
 import type { RejectDocumentChange } from '../application/reject-document-change';
 import { InvariantViolation, OperationalError } from '../domain/errors';
 import type { AssistantView, ViewEvents } from './assistant-view';
-import { appliedNotice, INTERNAL_ERROR, progressStatus, REJECTED } from './message-format';
+import {
+  appliedNotice,
+  errorNotice,
+  INTERNAL_ERROR,
+  progressStatus,
+  REJECTED,
+} from './message-format';
 
 export interface UseCases {
   handleRequest: HandleAssistantRequest;
@@ -89,7 +95,7 @@ export class AssistantController implements ViewEvents {
         this.requireView().showNotice(INTERNAL_ERROR, 'error');
         throw error;
       }
-      this.requireView().showNotice(`Error: ${error.message}`, 'error');
+      this.requireView().showNotice(errorNotice(error.message), 'error');
     } finally {
       this.reportPersistence();
     }

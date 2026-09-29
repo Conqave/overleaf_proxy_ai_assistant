@@ -58,7 +58,7 @@ const insertAfterResults = edit(
 describe('assistant runtime', () => {
   it('opens with badge, panel and welcome message and warms the model', async () => {
     const { doc, messages, ollama } = await start();
-    expect(doc.querySelector('.ola-badge')?.textContent).toBe('AI Agent');
+    expect(doc.querySelector('.ola-badge')?.textContent).toBe('Hans');
     expect(doc.querySelector('.ola-head')?.textContent).toContain('Hans AI Assistant');
     expect(messages()).toEqual([expect.stringContaining('Ready to help with this document')]);
     expect(ollama.calls.filter((c) => c.body.prompt === '')).toHaveLength(1);
