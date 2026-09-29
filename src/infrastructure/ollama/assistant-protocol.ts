@@ -11,7 +11,14 @@ import { InvariantViolation } from '../../domain/errors';
 import type { PlanningRequest, ReplyRequest } from '../../ports/assistant-port';
 import { AssistantRequestTooLargeError } from '../../ports/errors';
 import {
+  CONTENT,
+  CONTENT_MARKER,
   EDIT_FIELDS,
+  EditField,
+  fieldLine,
+  fieldName,
+} from './edit-reply-format';
+import {
   parseAnswerResponse,
   parseEditResponse,
   parsePlanResponse,
@@ -42,16 +49,21 @@ const JSON_RULE =
 const PLAN_SCHEMA =
   '{"intent":"summary|explain|edit","needs":["line_context","selection","logs"],"reason":"short reason"}';
 
-const EDIT_FORMAT = [
-  'OPERATION: insert_before|insert_after|replace|delete',
-  'LINE: <line number>',
-  'END_LINE: <last line number; only for a replace or delete that spans several lines>',
-  'LINE_TEXT: <that line copied exactly from its start; for a long line its first sentence is enough>',
-  'REASON: <short user-facing reason> (optional)',
-  'PLAN: <one short sentence about the placement> (optional)',
-  'CONTENT:',
+const F = EditField;
+
+const EDIT_FORMAT = lines(
+  fieldLine(F.Operation, Object.values(DocumentOperation).join('|')),
+  fieldLine(F.Line, '<line number>'),
+  fieldLine(F.EndLine, '<last line number; only for a replace or delete that spans several lines>'),
+  fieldLine(
+    F.LineText,
+    '<that line copied exactly from its start; for a long line its first sentence is enough>',
+  ),
+  `${fieldLine(F.Reason, '<short user-facing reason>')} (optional)`,
+  `${fieldLine(F.Plan, '<one short sentence about the placement>')} (optional)`,
+  CONTENT_MARKER,
   '<the new LaTeX lines, exactly as they go into the document>',
-].join('\n');
+);
 
 const PLANNING_SYSTEM = lines(
   'You are Hans, the planner of an assistant built into the Overleaf LaTeX editor.',
@@ -85,31 +97,31 @@ const EDIT_SYSTEM = lines(
   'Reply in exactly this format, nothing before or after it (no JSON, no markdown fences):',
   EDIT_FORMAT,
   'If the location or the wanted change is unclear, reply with a single line instead:',
-  'QUESTION: <one short question>',
+  fieldLine(F.Question, '<one short question>'),
   'Operations — the lines are chosen from Numbered document lines:',
-  '- insert_before / insert_after: CONTENT is added before / after that line.',
-  '- replace: lines LINE to END_LINE (or just LINE) are swapped for CONTENT. Keep everything that should stay, e.g. the \\label inside a \\caption.',
-  '- delete: lines LINE to END_LINE (or just LINE) are removed; CONTENT: is left out or left empty.',
-  '- END_LINE only for replace and delete, only when the change spans several consecutive lines (a paragraph over several lines, a whole subsection with its text, an environment).',
+  `- insert_before / insert_after: ${CONTENT} is added before / after that line.`,
+  `- replace: lines ${F.Line} to ${F.EndLine} (or just ${F.Line}) are swapped for ${CONTENT}. Keep everything that should stay, e.g. the \\label inside a \\caption.`,
+  `- delete: lines ${F.Line} to ${F.EndLine} (or just ${F.Line}) are removed; ${CONTENT_MARKER} is left out or left empty.`,
+  `- ${F.EndLine} only for replace and delete, only when the change spans several consecutive lines (a paragraph over several lines, a whole subsection with its text, an environment).`,
   'Targeting:',
-  '- LINE is the number of the line and LINE_TEXT its text copied exactly from the start, without the "N: " prefix; for a long paragraph the first sentence is enough.',
+  `- ${F.Line} is the number of the line and ${F.LineText} its text copied exactly from the start, without the "N: " prefix; for a long paragraph the first sentence is enough.`,
   '- Do not target \\begin{document}, \\maketitle, \\tableofcontents or preamble lines unless the user asks for that location.',
   '- New sections go after the end of the closest related section; with no sections yet, after \\maketitle.',
   '- Explanatory text goes before the table, figure, equation or listing it describes; captions and labels go inside their environment.',
   '- "after X" / "before X": target the line containing X. For a whole environment, target its \\end{name} line (after) or its \\begin{name} line (before).',
   '- Selected text, when given, is what the user means by "this", "zaznaczony", "the selection": change the line that contains it without asking.',
-  '- When the request covers several consecutive lines, use one replace or delete with LINE and END_LINE instead of asking which line; when several places could match, choose the one most specifically about the request.',
+  `- When the request covers several consecutive lines, use one replace or delete with ${F.Line} and ${F.EndLine} instead of asking which line; when several places could match, choose the one most specifically about the request.`,
   'Content:',
-  '- Everything after CONTENT: is inserted verbatim: plain LaTeX source, one source line per line, no escaping, no fences.',
+  `- Everything after ${CONTENT_MARKER} is inserted verbatim: plain LaTeX source, one source line per line, no escaping, no fences.`,
   '- It must be valid LaTeX: close every environment you open.',
   '- Only the new or changed lines; never repeat unchanged surrounding lines and never rewrite the whole document.',
   'Example of an insertion:',
-  'OPERATION: insert_after',
-  'LINE: 42',
-  'LINE_TEXT: \\end{table}',
-  'REASON: Dodaję tabelę z wynikami pomiarów.',
-  'PLAN: Nowa tabela zaraz po istniejącej tabeli.',
-  'CONTENT:',
+  fieldLine(F.Operation, DocumentOperation.InsertAfter),
+  fieldLine(F.Line, '42'),
+  fieldLine(F.LineText, '\\end{table}'),
+  fieldLine(F.Reason, 'Dodaję tabelę z wynikami pomiarów.'),
+  fieldLine(F.Plan, 'Nowa tabela zaraz po istniejącej tabeli.'),
+  CONTENT_MARKER,
   '\\begin{table}',
   '\\centering',
   '\\begin{tabular}{l|r}',
@@ -120,29 +132,29 @@ const EDIT_SYSTEM = lines(
   '\\caption{\\label{tab:wyniki}Wyniki pomiarów.}',
   '\\end{table}',
   'Example of a replacement:',
-  'OPERATION: replace',
-  'LINE: 16',
-  'LINE_TEXT: \\title{Your Paper}',
-  'REASON: Zmieniam tytuł.',
-  'PLAN: Podmiana linii z tytułem.',
-  'CONTENT:',
+  fieldLine(F.Operation, DocumentOperation.Replace),
+  fieldLine(F.Line, '16'),
+  fieldLine(F.LineText, '\\title{Your Paper}'),
+  fieldLine(F.Reason, 'Zmieniam tytuł.'),
+  fieldLine(F.Plan, 'Podmiana linii z tytułem.'),
+  CONTENT_MARKER,
   '\\title{Raport z laboratorium}',
   'Example of a deletion of a whole subsection (heading, blank line and paragraph):',
-  'OPERATION: delete',
-  'LINE: 64',
-  'END_LINE: 67',
-  'LINE_TEXT: \\subsection{Wyniki pomocnicze}',
-  'REASON: Usuwam podsekcję z wynikami pomocniczymi.',
-  'PLAN: Usunięcie nagłówka i treści podsekcji.',
+  fieldLine(F.Operation, DocumentOperation.Delete),
+  fieldLine(F.Line, '64'),
+  fieldLine(F.EndLine, '67'),
+  fieldLine(F.LineText, '\\subsection{Wyniki pomocnicze}'),
+  fieldLine(F.Reason, 'Usuwam podsekcję z wynikami pomocniczymi.'),
+  fieldLine(F.Plan, 'Usunięcie nagłówka i treści podsekcji.'),
 );
 
 const PLAN_RETRY = 'Reply again with one JSON object only, exactly matching the required shape.';
 const ANSWER_RETRY = 'Reply again with the answer as plain text.';
 const EDIT_RETRY = `Reply again in exactly the required format: the header lines (${EDIT_FIELDS.filter(
-  (field) => field !== 'QUESTION',
+  (field) => field !== F.Question,
 )
-  .map((field) => `${field}:`)
-  .join(', ')}) and CONTENT:, or a single QUESTION: line. No JSON.`;
+  .map(fieldName)
+  .join(', ')}) and ${CONTENT_MARKER}, or a single ${fieldName(F.Question)} line. No JSON.`;
 
 export function getPromptBudget(contextTokens: number): number {
   return (contextTokens - REPLY_RESERVE_TOKENS) * CHARS_PER_TOKEN - CORRECTION_RESERVE_CHARS;

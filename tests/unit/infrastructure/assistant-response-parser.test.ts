@@ -172,6 +172,7 @@ describe('parseEditResponse', () => {
     ['empty response', ''],
     ['JSON instead of the edit format', JSON.stringify({ type: 'edit' })],
     ['unknown field', edit({ ANCHOR: 'x' })],
+    ['field glued to its value', edit().replace('LINE: 3', 'LINE:3')],
     ['field twice', edit().replace('CONTENT:', 'LINE: 3\nCONTENT:')],
     ['unknown operation', edit({ OPERATION: 'explain' })],
     ['legacy operation', edit({ OPERATION: 'replace_line' })],
