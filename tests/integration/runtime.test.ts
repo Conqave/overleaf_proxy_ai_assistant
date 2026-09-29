@@ -341,7 +341,7 @@ describe('assistant runtime', () => {
     expect(messages().at(-1)).toContain('Hi, I am here');
   });
 
-  it('sends with Enter and Ctrl+Shift+C, not with Shift+Enter', async () => {
+  it('sends with Enter, not with Shift+Enter, and leaves page shortcuts alone', async () => {
     const { browser, doc, messages } = await start();
     const input = doc.querySelector<HTMLTextAreaElement>('.ola-textarea')!;
     const { KeyboardEvent } = browser.window;
@@ -353,10 +353,15 @@ describe('assistant runtime', () => {
     await browser.settle();
     expect(messages()).toEqual(['hi', expect.stringContaining('Hi, I am here')]);
     input.value = 'hey';
-    browser.window.dispatchEvent(
-      new KeyboardEvent('keydown', { code: 'KeyC', ctrlKey: true, shiftKey: true }),
-    );
+    const inspect = new KeyboardEvent('keydown', {
+      code: 'KeyC',
+      ctrlKey: true,
+      shiftKey: true,
+      cancelable: true,
+    });
+    browser.window.dispatchEvent(inspect);
     await browser.settle();
-    expect(messages()).toHaveLength(4);
+    expect(inspect.defaultPrevented).toBe(false);
+    expect(messages()).toHaveLength(2);
   });
 });

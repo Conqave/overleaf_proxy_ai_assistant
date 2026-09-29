@@ -84,13 +84,6 @@ export class AssistantView {
     panel.append(head, this.chat, body);
     this.root.append(panel, badge);
     document.body.appendChild(this.root);
-
-    document.defaultView?.addEventListener('keydown', (event) => {
-      if ((event.ctrlKey || event.metaKey) && event.shiftKey && event.code === 'KeyC') {
-        event.preventDefault();
-        this.submit();
-      }
-    });
   }
 
   showConversation(messages: readonly ConversationMessage[]): void {
