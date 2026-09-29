@@ -14,14 +14,7 @@ export interface OpenEditor {
 export class OverleafEditorBridge {
   private current: OpenEditor | null = null;
   private preview: ChangePreview | null = null;
-  private readonly ready: Promise<void>;
-  private markReady: () => void = () => undefined;
-
-  constructor() {
-    this.ready = new Promise((resolve) => {
-      this.markReady = resolve;
-    });
-  }
+  private readonly ready = Promise.withResolvers<undefined>();
 
   install(window: Window): () => void {
     const listener = (event: Event): void => {
@@ -38,7 +31,7 @@ export class OverleafEditorBridge {
   }
 
   whenReady(): Promise<void> {
-    return this.ready;
+    return this.ready.promise;
   }
 
   private extend({ CodeMirror: cm, extensions }: ExtensionsEventDetail): void {
@@ -51,7 +44,7 @@ export class OverleafEditorBridge {
 
   private track(editor: OpenEditor): PluginValue {
     this.current = editor;
-    this.markReady();
+    this.ready.resolve(undefined);
     return {
       destroy: () => {
         if (this.current === editor) this.current = null;
