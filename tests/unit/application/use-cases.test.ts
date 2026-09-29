@@ -20,7 +20,7 @@ import { ResolvedEdit } from '../../../src/domain/resolved-edit';
 import { DocumentConflictError, InvariantViolation } from '../../../src/domain/errors';
 import {
   AssistantProtocolError,
-  AssistantTransportError,
+  AssistantUnreachableError,
   EditorUnavailableError,
 } from '../../../src/ports/errors';
 import {
@@ -185,8 +185,8 @@ describe('HandleAssistantRequest', () => {
   });
 
   it('propagates transport and protocol failures', async () => {
-    assistant.willPlan(new AssistantTransportError('down'));
-    await expect(send('summarize')).rejects.toThrow(AssistantTransportError);
+    assistant.willPlan(new AssistantUnreachableError('down'));
+    await expect(send('summarize')).rejects.toThrow(AssistantUnreachableError);
     assistant
       .willPlan({ intent: 'summary', needs: [] })
       .willReply(new AssistantProtocolError('bad'));

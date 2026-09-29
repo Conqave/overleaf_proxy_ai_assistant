@@ -53,7 +53,7 @@ function compose(
   });
 
   controller.attach(new AssistantView(window.document, controller));
-  preloadOllamaModel(client);
+  void preloadOllamaModel(client);
 }
 
 function start(window: Window & typeof globalThis): void {

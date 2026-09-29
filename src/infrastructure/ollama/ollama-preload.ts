@@ -1,11 +1,13 @@
-import { AssistantTimeoutError, AssistantTransportError } from '../../ports/errors';
+import { AssistantTimeoutError, AssistantUnreachableError } from '../../ports/errors';
 import type { OllamaClient } from './ollama-client';
 
-export function preloadOllamaModel(client: OllamaClient): void {
-  client.loadModel().catch((error: unknown) => {
-    if (!(error instanceof AssistantTransportError || error instanceof AssistantTimeoutError)) {
+export async function preloadOllamaModel(client: OllamaClient): Promise<void> {
+  try {
+    await client.loadModel();
+  } catch (error) {
+    if (!(error instanceof AssistantUnreachableError || error instanceof AssistantTimeoutError)) {
       throw error;
     }
     console.debug('[overleaf-ai-assistant] the model could not be preloaded', error);
-  });
+  }
 }

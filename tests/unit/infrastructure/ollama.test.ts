@@ -2,10 +2,13 @@ import { describe, expect, it } from 'vitest';
 import { OllamaAssistant } from '../../../src/infrastructure/ollama/ollama-assistant';
 import { OllamaClient } from '../../../src/infrastructure/ollama/ollama-client';
 import { MIN_CONTEXT_TOKENS } from '../../../src/infrastructure/ollama/assistant-protocol';
+import { preloadOllamaModel } from '../../../src/infrastructure/ollama/ollama-preload';
 import {
+  AssistantHttpError,
   AssistantProtocolError,
+  AssistantResponseContractError,
   AssistantTimeoutError,
-  AssistantTransportError,
+  AssistantUnreachableError,
 } from '../../../src/ports/errors';
 import { FakeOllama } from '../../support/fake-ollama';
 import { createDocumentSnapshot } from '../../../src/domain/document';
@@ -39,34 +42,33 @@ describe('OllamaClient', () => {
     });
   });
 
-  it('reports HTTP errors as transport errors', async () => {
+  it('reports HTTP errors with their status', async () => {
     const ollama = new FakeOllama().reply({ status: 502 });
-    await expect(make(ollama).client.generate({ system: 'S', prompt: 'P' })).rejects.toThrow(
-      AssistantTransportError,
+    await expect(make(ollama).client.generate({ system: 'S', prompt: 'P' })).rejects.toMatchObject({
+      name: AssistantHttpError.name,
+      status: 502,
+    });
+  });
+
+  it('reports a body that is not JSON as a broken response contract', async () => {
+    const client = new OllamaClient(config, () => Promise.resolve(new Response('<html>')));
+    await expect(client.generate({ system: 'S', prompt: 'P' })).rejects.toThrow(
+      new AssistantResponseContractError('Ollama sent a body that is not JSON.'),
     );
   });
 
-  it('reports a body that is not JSON as a transport error', async () => {
-    const client = new OllamaClient(config, () => Promise.resolve(new Response('<html>')));
-    await expect(client.generate({ system: 'S', prompt: 'P' })).rejects.toThrow('not JSON');
-  });
-
-  it('reports network failures while loading the model as transport errors', async () => {
-    const client = new OllamaClient(config, () => Promise.reject(new TypeError('offline')));
-    await expect(client.loadModel()).rejects.toThrow(AssistantTransportError);
-  });
-
-  it('reports network failures as transport errors', async () => {
+  it('reports network failures as an unreachable Ollama', async () => {
     const client = new OllamaClient(config, () => Promise.reject(new TypeError('offline')));
     await expect(client.generate({ system: 'S', prompt: 'P' })).rejects.toThrow(
-      AssistantTransportError,
+      AssistantUnreachableError,
     );
+    await expect(client.loadModel()).rejects.toThrow(AssistantUnreachableError);
   });
 
-  it('reports a malformed transport body', async () => {
+  it('reports a body without a response as a broken response contract', async () => {
     const client = new OllamaClient(config, () => Promise.resolve(new Response('{"done":true}')));
     await expect(client.generate({ system: 'S', prompt: 'P' })).rejects.toThrow(
-      'no "response" field',
+      new AssistantResponseContractError('Ollama returned no "response" field.'),
     );
   });
 
@@ -85,7 +87,9 @@ describe('OllamaClient', () => {
     const bodyDefect = new OllamaClient(config, () =>
       Promise.resolve(new Response('{"response": 1}')),
     );
-    await expect(bodyDefect.generate({ system: 'S', prompt: 'P' })).rejects.toThrow('non-text');
+    await expect(bodyDefect.generate({ system: 'S', prompt: 'P' })).rejects.toThrow(
+      AssistantResponseContractError,
+    );
   });
 
   it('loads the model with an empty prompt and the same model options as real calls', async () => {
@@ -95,6 +99,20 @@ describe('OllamaClient', () => {
     await client.generate({ system: 'S', prompt: 'P' });
     expect(ollama.calls[0]!.body.prompt).toBe('');
     expect(ollama.calls[0]!.body.options).toEqual(ollama.calls[1]!.body.options);
+  });
+});
+
+describe('preloadOllamaModel', () => {
+  it('gives up quietly when Ollama is unreachable', async () => {
+    const client = new OllamaClient(config, () => Promise.reject(new TypeError('offline')));
+    await expect(preloadOllamaModel(client)).resolves.toBeUndefined();
+  });
+
+  it('lets an HTTP error of the model load through', async () => {
+    const client = new OllamaClient(config, () =>
+      Promise.resolve(new Response('error', { status: 500 })),
+    );
+    await expect(preloadOllamaModel(client)).rejects.toThrow(AssistantHttpError);
   });
 });
 
@@ -128,7 +146,7 @@ describe('OllamaAssistant', () => {
 
   it('does not retry transport errors', async () => {
     const ollama = new FakeOllama().reply({ status: 500 });
-    await expect(make(ollama).assistant.plan(request)).rejects.toThrow(AssistantTransportError);
+    await expect(make(ollama).assistant.plan(request)).rejects.toThrow(AssistantHttpError);
     expect(ollama.promptCalls).toHaveLength(1);
   });
 

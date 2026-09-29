@@ -1,4 +1,9 @@
-import { AssistantTimeoutError, AssistantTransportError } from '../../ports/errors';
+import {
+  AssistantHttpError,
+  AssistantResponseContractError,
+  AssistantTimeoutError,
+  AssistantUnreachableError,
+} from '../../ports/errors';
 
 export interface OllamaClientConfig {
   readonly endpoint: string;
@@ -29,7 +34,8 @@ export class OllamaClient {
         signal,
       );
       if (!response.ok) {
-        throw new AssistantTransportError(
+        throw new AssistantHttpError(
+          response.status,
           `Ollama answered HTTP ${String(response.status)} ${response.statusText}`.trim(),
         );
       }
@@ -41,7 +47,8 @@ export class OllamaClient {
     return this.withTimeout(async (signal) => {
       const response = await this.post({ prompt: '', options: this.getOptions() }, signal);
       if (!response.ok) {
-        throw new AssistantTransportError(
+        throw new AssistantHttpError(
+          response.status,
           `Loading the model failed with HTTP ${String(response.status)}`,
         );
       }
@@ -75,7 +82,7 @@ export class OllamaClient {
     } catch (error) {
       if (signal.aborted) throw this.createTimeoutError(error);
       if (error instanceof TypeError) {
-        throw new AssistantTransportError('Ollama could not be reached.', { cause: error });
+        throw new AssistantUnreachableError('Ollama could not be reached.', { cause: error });
       }
       throw error;
     }
@@ -87,7 +94,9 @@ export class OllamaClient {
     } catch (error) {
       if (signal.aborted) throw this.createTimeoutError(error);
       if (error instanceof SyntaxError) {
-        throw new AssistantTransportError('Ollama sent a body that is not JSON.', { cause: error });
+        throw new AssistantResponseContractError('Ollama sent a body that is not JSON.', {
+          cause: error,
+        });
       }
       throw error;
     }
@@ -103,10 +112,10 @@ export class OllamaClient {
 
 function getResponseText(data: unknown): string {
   if (typeof data !== 'object' || data === null || !('response' in data)) {
-    throw new AssistantTransportError('Ollama returned no "response" field.');
+    throw new AssistantResponseContractError('Ollama returned no "response" field.');
   }
   if (typeof data.response !== 'string') {
-    throw new AssistantTransportError('Ollama returned a non-text "response" field.');
+    throw new AssistantResponseContractError('Ollama returned a non-text "response" field.');
   }
   return data.response;
 }
