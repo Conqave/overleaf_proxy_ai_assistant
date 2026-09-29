@@ -10,14 +10,11 @@ export const DocumentOperation = {
 
 export type DocumentOperation = (typeof DocumentOperation)[keyof typeof DocumentOperation];
 
-export type AnchorOperation =
-  typeof DocumentOperation.InsertBefore | typeof DocumentOperation.InsertAfter;
-
-export type RangeOperation = typeof DocumentOperation.Replace | typeof DocumentOperation.Delete;
+type AnchorOperation = typeof DocumentOperation.InsertBefore | typeof DocumentOperation.InsertAfter;
 
 const OPERATIONS: readonly string[] = Object.values(DocumentOperation);
 
-export function isDocumentOperation(value: unknown): value is DocumentOperation {
+function isDocumentOperation(value: unknown): value is DocumentOperation {
   return typeof value === 'string' && OPERATIONS.includes(value);
 }
 
