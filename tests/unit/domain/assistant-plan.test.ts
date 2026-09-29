@@ -13,8 +13,8 @@ describe('createAssistantPlan', () => {
     expect(createAssistantPlan({ intent: 'summary' })).toEqual({
       intent: 'summary',
       needs: [],
-      reason: '',
     });
+    expect(createAssistantPlan({ intent: 'summary', reason: '  ' })).not.toHaveProperty('reason');
   });
 
   it.each([

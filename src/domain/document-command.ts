@@ -23,7 +23,7 @@ export function isDocumentOperation(value: unknown): value is DocumentOperation 
 
 interface CommandBase {
   readonly target: DocumentTarget;
-  readonly reason: string;
+  readonly reason?: string;
 }
 
 export type DocumentCommand =
@@ -52,17 +52,14 @@ export function createDocumentCommand(input: DocumentCommandInput): DocumentComm
     throw new InvalidDocumentCommandError(`unknown operation: ${JSON.stringify(operation)}`);
   }
   const target = parseTarget(input.target);
-  if (input.reason !== undefined && typeof input.reason !== 'string') {
-    throw new InvalidDocumentCommandError('reason must be a string');
-  }
-  const reason = (input.reason ?? '').trim();
+  const reason = parseReason(input.reason);
 
   if (operation === DocumentOperation.Delete) {
     if (input.content !== undefined) {
       throw new InvalidDocumentCommandError('delete must not carry content');
     }
     const lineCount = parseLineCount(operation, target, input.lineCount);
-    return Object.freeze({ operation, target, lineCount, reason });
+    return Object.freeze({ operation, target, lineCount, ...reason });
   }
   if (typeof input.content !== 'string' || input.content.trim() === '') {
     throw new InvalidDocumentCommandError(`${operation} requires non-empty content`);
@@ -70,14 +67,14 @@ export function createDocumentCommand(input: DocumentCommandInput): DocumentComm
   const content = input.content;
   if (operation === DocumentOperation.Replace) {
     const lineCount = parseLineCount(operation, target, input.lineCount);
-    return Object.freeze({ operation, target, lineCount, reason, content });
+    return Object.freeze({ operation, target, lineCount, content, ...reason });
   }
   if (input.lineCount !== undefined) {
     throw new InvalidDocumentCommandError(
       `${operation} anchors on one line and takes no range end`,
     );
   }
-  return Object.freeze({ operation, target, reason, content });
+  return Object.freeze({ operation, target, content, ...reason });
 }
 
 function parseLineCount(operation: string, target: DocumentTarget, value: unknown): number {
@@ -91,6 +88,13 @@ function parseLineCount(operation: string, target: DocumentTarget, value: unknow
     );
   }
   return value;
+}
+
+function parseReason(value: unknown): { readonly reason?: string } {
+  if (value === undefined) return {};
+  if (typeof value !== 'string') throw new InvalidDocumentCommandError('reason must be a string');
+  const reason = value.trim();
+  return reason === '' ? {} : { reason };
 }
 
 function parseTarget(value: unknown): DocumentTarget {

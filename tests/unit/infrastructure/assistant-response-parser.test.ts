@@ -67,7 +67,7 @@ describe('parseEditResponse', () => {
     const reply = parse(edit({}, content));
     expect(reply).toMatchObject({
       kind: 'edit',
-      plan: 'After the results heading.',
+      rationale: 'After the results heading.',
       edit: {
         document: shown,
         command: {
@@ -128,11 +128,11 @@ describe('parseEditResponse', () => {
   });
 
   it('accepts an edit without the optional REASON and PLAN', () => {
-    expect(parse(edit({ REASON: null, PLAN: null }))).toMatchObject({
-      kind: 'edit',
-      plan: '',
-      edit: { command: { reason: '' } },
-    });
+    const reply = parse(edit({ REASON: null, PLAN: null }));
+    expect(reply).toMatchObject({ kind: 'edit' });
+    expect(reply).not.toHaveProperty('rationale');
+    expect(reply).not.toHaveProperty('edit.command.reason');
+    expect(parse(edit({ REASON: '', PLAN: '' }))).not.toHaveProperty('rationale');
   });
 
   it('completes a long line from its quoted start', () => {

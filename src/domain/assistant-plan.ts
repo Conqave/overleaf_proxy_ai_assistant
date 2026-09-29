@@ -17,7 +17,7 @@ export type Evidence = (typeof Evidence)[keyof typeof Evidence];
 export interface AssistantPlan {
   readonly intent: Intent;
   readonly needs: readonly Evidence[];
-  readonly reason: string;
+  readonly reason?: string;
 }
 
 const INTENTS: readonly string[] = Object.values(Intent);
@@ -40,9 +40,6 @@ export function createAssistantPlan(input: {
   if (!isIntent(intent)) {
     throw new InvalidAssistantPlanError(`unknown intent: ${JSON.stringify(intent)}`);
   }
-  if (input.reason !== undefined && typeof input.reason !== 'string') {
-    throw new InvalidAssistantPlanError('reason must be a string');
-  }
   const needs = input.needs === undefined ? [] : input.needs;
   if (!Array.isArray(needs)) throw new InvalidAssistantPlanError('needs must be an array');
   const evidence = needs.map((need: unknown) => {
@@ -55,9 +52,12 @@ export function createAssistantPlan(input: {
   if (unique.size !== evidence.length) {
     throw new InvalidAssistantPlanError(`needs lists evidence twice: ${JSON.stringify(needs)}`);
   }
-  return Object.freeze({
-    intent,
-    needs: Object.freeze(evidence),
-    reason: (input.reason ?? '').trim(),
-  });
+  return Object.freeze({ intent, needs: Object.freeze(evidence), ...parseReason(input.reason) });
+}
+
+function parseReason(value: unknown): { readonly reason?: string } {
+  if (value === undefined) return {};
+  if (typeof value !== 'string') throw new InvalidAssistantPlanError('reason must be a string');
+  const reason = value.trim();
+  return reason === '' ? {} : { reason };
 }

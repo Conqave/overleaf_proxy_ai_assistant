@@ -22,7 +22,6 @@ describe('createDocumentCommand', () => {
       target,
       lineCount: 3,
       content: 'Text.',
-      reason: '',
     });
   });
 
@@ -31,7 +30,6 @@ describe('createDocumentCommand', () => {
       operation: 'delete',
       target,
       lineCount: 2,
-      reason: '',
     });
   });
 

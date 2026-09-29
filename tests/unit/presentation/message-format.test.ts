@@ -11,7 +11,6 @@ const proposal = (input: DocumentCommandInput): AssistantMessage => ({
   role: 'assistant',
   kind: 'proposal',
   command: createDocumentCommand(input),
-  plan: '',
 });
 const target = { lineNumber: 3, lineText: '\\section{A}' };
 

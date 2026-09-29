@@ -23,7 +23,7 @@ const conversation = Array.from({ length: 15 }, (_, i) => ({
 
 const reply = (overrides: Partial<ReplyRequest> = {}): ReplyRequest => ({
   message: 'm',
-  plan: { intent: 'explain', needs: [], reason: '' },
+  plan: { intent: 'explain', needs: [] },
   evidence: { document },
   conversation: [],
   ...overrides,
@@ -53,7 +53,7 @@ describe('conversation history', () => {
         content: 'New body.',
         reason: 'Clearer.',
       }),
-      plan: 'p',
+      rationale: 'p',
     };
     const exchange = createPlanExchange({ message: 'm', conversation: [proposal] }, budget);
     expect(exchange.request.prompt).toContain(
@@ -98,10 +98,7 @@ describe('reply exchange', () => {
   });
 
   it('parses an edit against the document the model was shown', () => {
-    const exchange = createReplyExchange(
-      reply({ plan: { intent: 'edit', needs: [], reason: '' } }),
-      budget,
-    );
+    const exchange = createReplyExchange(reply({ plan: { intent: 'edit', needs: [] } }), budget);
     const edit = exchange.parse('OPERATION: delete\nLINE: 2\nLINE_TEXT: Body.\nREASON: r\nPLAN: p');
     expect(edit).toMatchObject({ kind: 'edit', edit: { document } });
   });
@@ -151,10 +148,7 @@ describe('prompt budget', () => {
 describe('correction request', () => {
   it('keeps the instructions, names the problem and asks for the format of its exchange', () => {
     const plan = createPlanExchange({ message: 'm', conversation: [] }, budget);
-    const edit = createReplyExchange(
-      reply({ plan: { intent: 'edit', needs: [], reason: '' } }),
-      budget,
-    );
+    const edit = createReplyExchange(reply({ plan: { intent: 'edit', needs: [] } }), budget);
     const answer = createReplyExchange(reply(), budget);
     const correction = createCorrectionRequest(edit, 'bad', 'the reply is JSON');
     expect(correction.system).toBe(edit.request.system);

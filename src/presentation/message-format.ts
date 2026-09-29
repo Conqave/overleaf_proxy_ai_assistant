@@ -35,8 +35,8 @@ export function messageTitle(message: AssistantMessage): string {
   return PROPOSAL_TITLE[message.command.operation];
 }
 
-export function messageMeta(message: AssistantMessage): string {
-  if (message.kind !== 'proposal') return '';
+export function messageMeta(message: AssistantMessage): string | undefined {
+  if (message.kind !== 'proposal') return undefined;
   const { command } = message;
   const { lineNumber, lineText } = command.target;
   const first = String(lineNumber);

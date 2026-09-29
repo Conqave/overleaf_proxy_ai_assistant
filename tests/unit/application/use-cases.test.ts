@@ -49,7 +49,7 @@ const send = (text: string) => handle.execute(text, (p) => progress.push(p));
 
 const editReply = (overrides: Record<string, unknown> = {}) => ({
   kind: 'edit' as const,
-  plan: 'After results.',
+  rationale: 'After results.',
   edit: ResolvedEdit.resolve(
     createDocumentSnapshot(DOC),
     createDocumentCommand({
@@ -63,7 +63,7 @@ const editReply = (overrides: Record<string, unknown> = {}) => ({
 });
 
 async function proposeEdit(overrides: Record<string, unknown> = {}) {
-  assistant.willPlan({ intent: 'edit', needs: [], reason: '' }).willReply(editReply(overrides));
+  assistant.willPlan({ intent: 'edit', needs: [] }).willReply(editReply(overrides));
   const result = await send('add more numbers');
   return result.changeId!;
 }
@@ -96,7 +96,7 @@ describe('HandleAssistantRequest', () => {
 
   it('answers a summary with the document as evidence', async () => {
     assistant
-      .willPlan({ intent: 'summary', needs: [], reason: '' })
+      .willPlan({ intent: 'summary', needs: [] })
       .willReply({ kind: 'answer', text: 'A short paper.' });
     const result = await send('What is this document about?');
     expect(result.changeId).toBeUndefined();
@@ -110,7 +110,7 @@ describe('HandleAssistantRequest', () => {
     editor.selection = 'world';
     editor.logs = 'Undefined control sequence';
     assistant
-      .willPlan({ intent: 'explain', needs: ['line_context', 'selection', 'logs'], reason: '' })
+      .willPlan({ intent: 'explain', needs: ['line_context', 'selection', 'logs'] })
       .willReply({ kind: 'answer', text: 'Because.' });
     const result = await send('why does this fail?');
     expect(result.message.kind).toBe('explanation');
@@ -123,9 +123,7 @@ describe('HandleAssistantRequest', () => {
   });
 
   it('passes the conversation to the assistant', async () => {
-    assistant
-      .willPlan({ intent: 'explain', needs: [], reason: '' })
-      .willReply({ kind: 'answer', text: 'ok' });
+    assistant.willPlan({ intent: 'explain', needs: [] }).willReply({ kind: 'answer', text: 'ok' });
     await send('hello');
     await send('second?');
     expect(assistant.planRequests[0]!.conversation).toMatchObject([
@@ -135,7 +133,7 @@ describe('HandleAssistantRequest', () => {
   });
 
   it('proposes an edit as a previewed pending change', async () => {
-    assistant.willPlan({ intent: 'edit', needs: [], reason: '' }).willReply(editReply());
+    assistant.willPlan({ intent: 'edit', needs: [] }).willReply(editReply());
     const result = await send('add more numbers');
     const change = pendingChanges.get(result.changeId!);
     expect(result.message).toEqual({
@@ -143,7 +141,7 @@ describe('HandleAssistantRequest', () => {
       role: 'assistant',
       kind: 'proposal',
       command: change.edit.command,
-      plan: 'After results.',
+      rationale: 'After results.',
     });
     expect(change.status).toBe('previewed');
     expect(editor.preview).toBe(change.edit);
@@ -153,7 +151,7 @@ describe('HandleAssistantRequest', () => {
 
   it('turns a question of the edit step into a clarification', async () => {
     assistant
-      .willPlan({ intent: 'edit', needs: [], reason: '' })
+      .willPlan({ intent: 'edit', needs: [] })
       .willReply({ kind: 'question', text: 'Which table?' });
     const result = await send('fix the table');
     expect(result.message).toMatchObject({
@@ -165,7 +163,7 @@ describe('HandleAssistantRequest', () => {
   });
 
   it('drops an edit when the document changed while the assistant was working', async () => {
-    assistant.willPlan({ intent: 'edit', needs: [], reason: '' }).willReply(editReply());
+    assistant.willPlan({ intent: 'edit', needs: [] }).willReply(editReply());
     const reply = assistant.reply.bind(assistant);
     assistant.reply = (request) => {
       editor.lines[0] = '\\section{Introduction}';
@@ -177,7 +175,7 @@ describe('HandleAssistantRequest', () => {
   });
 
   it('drops an edit whose preview fails', async () => {
-    assistant.willPlan({ intent: 'edit', needs: [], reason: '' }).willReply(editReply());
+    assistant.willPlan({ intent: 'edit', needs: [] }).willReply(editReply());
     editor.showPreview = () => {
       throw new EditorUnavailableError('gone');
     };
@@ -186,7 +184,7 @@ describe('HandleAssistantRequest', () => {
   });
 
   it('treats an edit for a non-edit plan as a port contract violation', async () => {
-    assistant.willPlan({ intent: 'explain', needs: [], reason: '' }).willReply(editReply());
+    assistant.willPlan({ intent: 'explain', needs: [] }).willReply(editReply());
     await expect(send('explain')).rejects.toThrow(InvariantViolation);
   });
 
@@ -194,7 +192,7 @@ describe('HandleAssistantRequest', () => {
     assistant.willPlan(new AssistantTransportError('down'));
     await expect(send('summarize')).rejects.toThrow(AssistantTransportError);
     assistant
-      .willPlan({ intent: 'summary', needs: [], reason: '' })
+      .willPlan({ intent: 'summary', needs: [] })
       .willReply(new AssistantProtocolError('bad'));
     await expect(send('summarize')).rejects.toThrow(AssistantProtocolError);
   });
@@ -208,7 +206,7 @@ describe('HandleAssistantRequest', () => {
   it('works on an empty document', async () => {
     editor.lines = [''];
     assistant
-      .willPlan({ intent: 'explain', needs: [], reason: '' })
+      .willPlan({ intent: 'explain', needs: [] })
       .willReply({ kind: 'answer', text: 'The document is empty.' });
     await expect(send('what is here?')).resolves.toMatchObject({
       message: { kind: 'explanation' },
@@ -217,7 +215,7 @@ describe('HandleAssistantRequest', () => {
 
   it('accepts one request at a time', async () => {
     assistant
-      .willPlan({ intent: 'summary', needs: [], reason: '' })
+      .willPlan({ intent: 'summary', needs: [] })
       .willReply({ kind: 'answer', text: 'A short paper.' });
     const first = send('What is this document about?');
     await expect(send('And the second one?')).rejects.toThrow(RequestInProgressError);
@@ -243,7 +241,7 @@ describe('conversation reset during a request', () => {
     const slowAssistant = {
       plan: async () => {
         await gate;
-        return { intent: 'edit' as const, needs: [], reason: '' };
+        return { intent: 'edit' as const, needs: [] };
       },
       reply: () => Promise.resolve(editReply()),
     };

@@ -27,7 +27,7 @@ export interface ProposalMessage {
   readonly role: 'assistant';
   readonly kind: typeof AssistantMessageKind.Proposal;
   readonly command: DocumentCommand;
-  readonly plan: string;
+  readonly rationale?: string;
 }
 
 export type AssistantMessage = ReplyMessage | ProposalMessage;

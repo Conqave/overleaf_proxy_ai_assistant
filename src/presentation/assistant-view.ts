@@ -159,7 +159,7 @@ export class AssistantView {
       node.append(this.el('div', 'ola-result-body', message.text));
     }
     const meta = messageMeta(message);
-    if (meta) node.append(this.el('div', 'ola-result-meta', meta));
+    if (meta !== undefined) node.append(this.el('div', 'ola-result-meta', meta));
     if (changeId !== undefined) {
       const actions = this.el('div', 'ola-result-actions');
       const apply = this.el('button', 'ola-btn ola-apply', 'Apply');
@@ -181,8 +181,12 @@ export class AssistantView {
   private renderProposal(message: ProposalMessage): HTMLElement[] {
     const { command } = message;
     const parts: HTMLElement[] = [];
-    if (message.plan) parts.push(this.el('div', 'ola-result-plan', message.plan));
-    if (command.reason) parts.push(this.el('div', 'ola-result-reason', command.reason));
+    if (message.rationale !== undefined) {
+      parts.push(this.el('div', 'ola-result-rationale', message.rationale));
+    }
+    if (command.reason !== undefined) {
+      parts.push(this.el('div', 'ola-result-reason', command.reason));
+    }
     switch (command.operation) {
       case DocumentOperation.InsertBefore:
       case DocumentOperation.InsertAfter:

@@ -19,7 +19,7 @@ const messages: ConversationMessage[] = [
       content: '\\begin{table}\n\\end{table}',
       reason: 'Adds a table.',
     }),
-    plan: 'After results.',
+    rationale: 'After results.',
   },
   {
     id: '3',
@@ -30,7 +30,6 @@ const messages: ConversationMessage[] = [
       target: { lineNumber: 2, lineText: 'Old.' },
       lineCount: 2,
     }),
-    plan: 'Old lines.',
   },
 ];
 
@@ -80,7 +79,7 @@ describe('LocalStorageConversationRepository', () => {
     ['unknown kind', JSON.stringify([{ id: '1', role: 'assistant', kind: 'x', text: '' }])],
     [
       'proposal without its command',
-      JSON.stringify([{ id: '1', role: 'assistant', kind: 'proposal', plan: '' }]),
+      JSON.stringify([{ id: '1', role: 'assistant', kind: 'proposal' }]),
     ],
     [
       'proposal at line zero',
@@ -89,7 +88,6 @@ describe('LocalStorageConversationRepository', () => {
           id: '1',
           role: 'assistant',
           kind: 'proposal',
-          plan: '',
           command: { operation: 'delete', target: { lineNumber: 0, lineText: '' }, lineCount: 1 },
         },
       ]),
@@ -101,7 +99,6 @@ describe('LocalStorageConversationRepository', () => {
           id: '1',
           role: 'assistant',
           kind: 'proposal',
-          plan: '',
           command: { operation: 'x' },
         },
       ]),

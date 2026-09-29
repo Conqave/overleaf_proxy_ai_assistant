@@ -111,7 +111,7 @@ export class HandleAssistantRequest {
         if (plan.intent !== Intent.Edit) {
           throw new InvariantViolation('assistant port returned an edit for a non-edit plan');
         }
-        return this.propose(reply.edit, reply.plan);
+        return this.propose(reply.edit, reply.rationale);
     }
   }
 
@@ -129,7 +129,7 @@ export class HandleAssistantRequest {
     if (this.deps.conversation.epoch !== epoch) throw new RequestSupersededError();
   }
 
-  private propose(edit: ResolvedEdit, plan: string): AssistantRequestResult {
+  private propose(edit: ResolvedEdit, rationale: string | undefined): AssistantRequestResult {
     const change = new PendingDocumentChange(this.deps.newId(), edit, this.deps.newId());
     this.deps.pendingChanges.add(change);
     this.showPreview(change);
@@ -138,7 +138,7 @@ export class HandleAssistantRequest {
       role: 'assistant',
       kind: 'proposal',
       command: edit.command,
-      plan,
+      ...(rationale === undefined ? {} : { rationale }),
     };
     this.deps.conversation.append(message);
     return { message, changeId: change.id };

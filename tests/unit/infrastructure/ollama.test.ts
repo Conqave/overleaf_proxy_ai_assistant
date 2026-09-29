@@ -137,7 +137,7 @@ describe('OllamaAssistant', () => {
     const ollama = new FakeOllama().reply({ response: editLike });
     const reply = await make(ollama).assistant.reply({
       ...request,
-      plan: { intent: 'explain', needs: [], reason: '' },
+      plan: { intent: 'explain', needs: [] },
       evidence: { document: createDocumentSnapshot(['a']) },
     });
     expect(reply).toEqual({ kind: 'answer', text: editLike });
@@ -151,7 +151,7 @@ describe('OllamaAssistant', () => {
     );
     const reply = await make(ollama).assistant.reply({
       ...request,
-      plan: { intent: 'edit', needs: [], reason: '' },
+      plan: { intent: 'edit', needs: [] },
       evidence: { document: shown },
     });
     expect(reply).toMatchObject({ kind: 'edit', edit: { command: { target: { lineNumber: 2 } } } });

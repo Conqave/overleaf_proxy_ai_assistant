@@ -205,7 +205,7 @@ function buildReplyPrompt(request: ReplyRequest, numbered: boolean, budget: numb
   const smallBlock = Math.floor(budget / SMALL_BLOCK_SHARE);
   const before = lines(
     `User message:\n${request.message}`,
-    plan.reason ? `\nPlanner reason:\n${compact(plan.reason, smallBlock)}` : '',
+    plan.reason === undefined ? '' : `\nPlanner reason:\n${compact(plan.reason, smallBlock)}`,
     conversationBlock(request.conversation, smallBlock),
   );
   const after = lines(
@@ -238,7 +238,7 @@ function transcriptText(message: ConversationMessage): string {
 
 function describeProposal(command: DocumentCommand): string {
   const proposed = `Proposed ${command.operation} at line ${String(command.target.lineNumber)}`;
-  const summary = command.reason === '' ? proposed : `${proposed}: ${command.reason}`;
+  const summary = command.reason === undefined ? proposed : `${proposed}: ${command.reason}`;
   switch (command.operation) {
     case DocumentOperation.InsertBefore:
     case DocumentOperation.InsertAfter:

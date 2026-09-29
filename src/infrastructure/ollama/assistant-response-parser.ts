@@ -65,10 +65,11 @@ export function parseEditResponse(raw: string, shown: DocumentSnapshot): Assista
     content,
     reason: getOptionalField(fields, 'REASON'),
   });
+  const rationale = getOptionalField(fields, 'PLAN');
   return {
     kind: 'edit',
     edit: resolveShown(shown, command),
-    plan: getOptionalField(fields, 'PLAN'),
+    ...(rationale === undefined ? {} : { rationale }),
   };
 }
 
@@ -129,8 +130,10 @@ function parseFields(headerRows: readonly string[]): Map<string, string> {
   return fields;
 }
 
-function getOptionalField(fields: Map<string, string>, name: string): string {
-  return fields.get(name) ?? '';
+function getOptionalField(fields: Map<string, string>, name: string): string | undefined {
+  const value = fields.get(name);
+  if (value === '') return undefined;
+  return value;
 }
 
 function getRequiredField(fields: Map<string, string>, name: string): string {
