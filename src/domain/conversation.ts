@@ -21,6 +21,14 @@ export type ReplyKind = Exclude<
   typeof AssistantMessageKind.Greeting | typeof AssistantMessageKind.Proposal
 >;
 
+const REPLY_KINDS: readonly string[] = Object.values(AssistantMessageKind).filter(
+  (kind) => kind !== AssistantMessageKind.Greeting && kind !== AssistantMessageKind.Proposal,
+);
+
+export function isReplyKind(value: unknown): value is ReplyKind {
+  return typeof value === 'string' && REPLY_KINDS.includes(value);
+}
+
 const ANSWER_KIND: Record<Exclude<Intent, typeof Intent.Edit>, ReplyKind> = {
   [Intent.Summary]: AssistantMessageKind.Summary,
   [Intent.Explain]: AssistantMessageKind.Explanation,

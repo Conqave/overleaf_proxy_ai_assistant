@@ -109,6 +109,22 @@ describe('LocalStorageConversationRepository', () => {
     expect(() => repository.load()).toThrow(PersistenceError);
   });
 
+  it('keeps the named format problem as the cause', () => {
+    storage.setItem(KEY, '{}');
+    const failure = (() => {
+      try {
+        repository.load();
+      } catch (error) {
+        if (!(error instanceof PersistenceError)) throw error;
+        return error;
+      }
+    })();
+    expect(failure?.cause).toMatchObject({
+      name: 'UnknownStoredFormatError',
+      message: 'not an array',
+    });
+  });
+
   it('reports unavailable storage', () => {
     const hardened = {
       get localStorage(): Storage {

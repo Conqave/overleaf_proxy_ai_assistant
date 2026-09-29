@@ -1,34 +1,29 @@
 import {
   AssistantMessageKind,
+  isReplyKind,
   type ConversationMessage,
-  type ReplyMessage,
 } from '../../domain/conversation';
 import { createDocumentCommand, type DocumentCommand } from '../../domain/document-command';
 import { InvalidDocumentCommandError } from '../../domain/errors';
 import type { ConversationRepository } from '../../ports/conversation-repository';
 import { PersistenceError } from '../../ports/errors';
+import type { OverleafPageIdentity } from '../overleaf/overleaf-page';
 
-export interface ConversationScope {
-  readonly userId: string;
-  readonly projectId: string;
+type StorageAction = 'read' | 'save' | 'clear';
+
+class UnknownStoredFormatError extends Error {
+  constructor(message: string, options?: { cause?: unknown }) {
+    super(message, options);
+    this.name = new.target.name;
+  }
 }
-
-function isReplyKind(value: unknown): value is ReplyMessage['kind'] {
-  return (
-    value === AssistantMessageKind.Summary ||
-    value === AssistantMessageKind.Explanation ||
-    value === AssistantMessageKind.Clarification
-  );
-}
-
-class UnknownStoredFormatError extends Error {}
 
 export class LocalStorageConversationRepository implements ConversationRepository {
   private readonly key: string;
 
   constructor(
     private readonly window: Window,
-    scope: ConversationScope,
+    scope: OverleafPageIdentity,
   ) {
     this.key = `ola-conversation:${scope.userId}:${scope.projectId}`;
   }
@@ -66,7 +61,7 @@ export class LocalStorageConversationRepository implements ConversationRepositor
     });
   }
 
-  private access<T>(action: string, operation: (storage: Storage) => T): T {
+  private access<T>(action: StorageAction, operation: (storage: Storage) => T): T {
     try {
       return operation(this.window.localStorage);
     } catch (error) {
