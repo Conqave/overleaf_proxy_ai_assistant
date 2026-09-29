@@ -42,6 +42,21 @@ describe('plan exchange', () => {
 });
 
 describe('conversation history', () => {
+  it('leaves out the greetings answered without the model', () => {
+    const exchange = createPlanExchange(
+      {
+        message: 'm',
+        conversation: [
+          { id: 'u', role: 'user', text: 'hi' },
+          { id: 'g', role: 'assistant', kind: 'greeting' },
+        ],
+      },
+      budget,
+    );
+    expect(exchange.request.prompt).toContain('Conversation so far:\n[user] hi');
+    expect(exchange.request.prompt).not.toContain('[assistant]');
+  });
+
   it('shows a proposal to the model as its operation, reason and content', () => {
     const proposal = {
       id: 'p',

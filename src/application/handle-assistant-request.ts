@@ -2,6 +2,7 @@ import { Evidence, Intent, type AssistantPlan } from '../domain/assistant-plan';
 import {
   getAnswerKind,
   type AssistantMessage,
+  type GreetingMessage,
   type ProposalMessage,
   type ReplyMessage,
   type UserMessage,
@@ -13,7 +14,7 @@ import type { AssistantPort, GatheredEvidence } from '../ports/assistant-port';
 import type { EditorPort } from '../ports/editor-port';
 import type { ConversationLog } from './conversation-log';
 import { EmptyRequestError, RequestInProgressError, RequestSupersededError } from './errors';
-import { GREETING_REPLY, isGreetingOnly } from './greeting-policy';
+import { isGreetingOnly } from './greeting-policy';
 import { PendingDocumentChange, type PendingChanges } from './pending-change';
 
 export type RequestProgress =
@@ -77,7 +78,7 @@ export class HandleAssistantRequest {
     onProgress({ stage: 'received', message: userMessage });
 
     if (isGreetingOnly(request)) {
-      return { message: this.reply('greeting', GREETING_REPLY) };
+      return { message: this.greet() };
     }
 
     const context = this.readEditorContext();
@@ -151,6 +152,12 @@ export class HandleAssistantRequest {
       throw error;
     }
     change.markPreviewed();
+  }
+
+  private greet(): GreetingMessage {
+    const message: GreetingMessage = { id: this.deps.newId(), role: 'assistant', kind: 'greeting' };
+    this.deps.conversation.append(message);
+    return message;
   }
 
   private reply(kind: ReplyMessage['kind'], text: string): ReplyMessage {

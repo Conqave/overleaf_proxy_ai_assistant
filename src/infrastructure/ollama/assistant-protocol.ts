@@ -1,6 +1,10 @@
 import type { AssistantPlan } from '../../domain/assistant-plan';
 import type { AssistantReply } from '../../domain/assistant-reply';
-import { AssistantMessageKind, type ConversationMessage } from '../../domain/conversation';
+import {
+  AssistantMessageKind,
+  type ConversationMessage,
+  type GreetingMessage,
+} from '../../domain/conversation';
 import { documentText, type DocumentSnapshot } from '../../domain/document';
 import { DocumentOperation, type DocumentCommand } from '../../domain/document-command';
 import { InvariantViolation } from '../../domain/errors';
@@ -222,14 +226,20 @@ function buildReplyPrompt(request: ReplyRequest, numbered: boolean, budget: numb
 }
 
 function conversationBlock(conversation: readonly ConversationMessage[], maxChars: number): string {
-  const recent = conversation.slice(-CONVERSATION_WINDOW);
+  const recent = conversation.filter(isTranscribed).slice(-CONVERSATION_WINDOW);
   if (!recent.length) return '';
   const label = '\nConversation so far:\n';
   const text = recent.map((message) => `[${message.role}] ${transcriptText(message)}`).join('\n');
   return `${label}${compact(text, maxChars - label.length)}`;
 }
 
-function transcriptText(message: ConversationMessage): string {
+function isTranscribed(
+  message: ConversationMessage,
+): message is Exclude<ConversationMessage, GreetingMessage> {
+  return message.role === 'user' || message.kind !== AssistantMessageKind.Greeting;
+}
+
+function transcriptText(message: Exclude<ConversationMessage, GreetingMessage>): string {
   if (message.role === 'user' || message.kind !== AssistantMessageKind.Proposal) {
     return message.text.trim();
   }

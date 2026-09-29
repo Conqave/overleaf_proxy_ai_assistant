@@ -16,7 +16,10 @@ export interface UserMessage {
   readonly text: string;
 }
 
-export type ReplyKind = Exclude<AssistantMessageKind, typeof AssistantMessageKind.Proposal>;
+export type ReplyKind = Exclude<
+  AssistantMessageKind,
+  typeof AssistantMessageKind.Greeting | typeof AssistantMessageKind.Proposal
+>;
 
 const ANSWER_KIND: Record<Exclude<Intent, typeof Intent.Edit>, ReplyKind> = {
   [Intent.Summary]: AssistantMessageKind.Summary,
@@ -25,6 +28,12 @@ const ANSWER_KIND: Record<Exclude<Intent, typeof Intent.Edit>, ReplyKind> = {
 
 export function getAnswerKind(intent: Exclude<Intent, typeof Intent.Edit>): ReplyKind {
   return ANSWER_KIND[intent];
+}
+
+export interface GreetingMessage {
+  readonly id: string;
+  readonly role: 'assistant';
+  readonly kind: typeof AssistantMessageKind.Greeting;
 }
 
 export interface ReplyMessage {
@@ -42,6 +51,6 @@ export interface ProposalMessage {
   readonly rationale?: string;
 }
 
-export type AssistantMessage = ReplyMessage | ProposalMessage;
+export type AssistantMessage = GreetingMessage | ReplyMessage | ProposalMessage;
 
 export type ConversationMessage = UserMessage | AssistantMessage;

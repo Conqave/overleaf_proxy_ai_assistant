@@ -1,11 +1,12 @@
-import type {
-  AssistantMessage,
-  ConversationMessage,
-  ProposalMessage,
+import {
+  AssistantMessageKind,
+  type AssistantMessage,
+  type ConversationMessage,
+  type ProposalMessage,
 } from '../domain/conversation';
 import { DocumentOperation } from '../domain/document-command';
 import css from './assistant.css?raw';
-import { messageMeta, messageTitle } from './message-format';
+import { GREETING, messageMeta, messageTitle } from './message-format';
 
 export interface ViewEvents {
   send(text: string): void;
@@ -153,10 +154,17 @@ export class AssistantView {
   private renderAssistant(message: AssistantMessage, changeId?: string): HTMLElement {
     const node = this.el('div', 'ola-msg ola-ai ola-result');
     node.append(this.el('div', 'ola-result-title', messageTitle(message)));
-    if (message.kind === 'proposal') {
-      node.append(...this.renderProposal(message));
-    } else {
-      node.append(this.el('div', 'ola-result-body', message.text));
+    switch (message.kind) {
+      case AssistantMessageKind.Greeting:
+        node.append(this.el('div', 'ola-result-body', GREETING));
+        break;
+      case AssistantMessageKind.Proposal:
+        node.append(...this.renderProposal(message));
+        break;
+      case AssistantMessageKind.Summary:
+      case AssistantMessageKind.Explanation:
+      case AssistantMessageKind.Clarification:
+        node.append(this.el('div', 'ola-result-body', message.text));
     }
     const meta = messageMeta(message);
     if (meta !== undefined) node.append(this.el('div', 'ola-result-meta', meta));

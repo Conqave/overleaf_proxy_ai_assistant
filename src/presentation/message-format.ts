@@ -27,6 +27,7 @@ const DOCUMENT_STATUS = 'Hans is reading the TeX content';
 
 const STATUS_LIST = new Intl.ListFormat('en', { style: 'long', type: 'conjunction' });
 
+export const GREETING = 'Tell me what to change, explain, or fix in this Overleaf document.';
 export const REJECTED = 'Change rejected.';
 export const INTERNAL_ERROR = 'Unexpected internal error. Details are in the browser console.';
 

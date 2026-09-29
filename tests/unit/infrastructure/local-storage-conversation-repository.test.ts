@@ -9,6 +9,7 @@ const SCOPE = { userId: 'user-1', projectId: 'project-1' };
 const KEY = 'ola-conversation:user-1:project-1';
 const messages: ConversationMessage[] = [
   { id: '1', role: 'user', text: 'add a table' },
+  { id: 'g', role: 'assistant', kind: 'greeting' },
   {
     id: '2',
     role: 'assistant',

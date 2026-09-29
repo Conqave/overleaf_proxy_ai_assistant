@@ -15,7 +15,6 @@ export interface ConversationScope {
 
 function isReplyKind(value: unknown): value is ReplyMessage['kind'] {
   return (
-    value === AssistantMessageKind.Greeting ||
     value === AssistantMessageKind.Summary ||
     value === AssistantMessageKind.Explanation ||
     value === AssistantMessageKind.Clarification
@@ -96,6 +95,7 @@ function parseMessage(value: unknown): ConversationMessage {
     if (!fields.has('rationale')) return { id, role, kind, command };
     return { id, role, kind, command, rationale: getString(fields, 'rationale') };
   }
+  if (kind === AssistantMessageKind.Greeting) return { id, role, kind };
   if (!isReplyKind(kind)) throw new UnknownStoredFormatError('unknown message kind');
   return { id, role, kind, text: getString(fields, 'text') };
 }
