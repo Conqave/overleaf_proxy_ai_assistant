@@ -11,7 +11,6 @@ export class PendingDocumentChange {
   constructor(
     readonly id: string,
     readonly edit: ResolvedEdit,
-    readonly messageId: string,
   ) {}
 
   get status(): PendingChangeStatus {

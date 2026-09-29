@@ -127,11 +127,11 @@ export class HandleAssistantRequest {
   }
 
   private propose(edit: ResolvedEdit, rationale: string | undefined): AssistantRequestResult {
-    const change = new PendingDocumentChange(this.deps.newId(), edit, this.deps.newId());
+    const change = new PendingDocumentChange(this.deps.newId(), edit);
     this.deps.pendingChanges.add(change);
     this.showPreview(change);
     const message: ProposalMessage = {
-      id: change.messageId,
+      id: change.id,
       role: 'assistant',
       kind: 'proposal',
       command: edit.command,

@@ -137,7 +137,7 @@ describe('HandleAssistantRequest', () => {
     const result = await send('add more numbers');
     const change = pendingChanges.get(result.changeId!);
     expect(result.message).toEqual({
-      id: change.messageId,
+      id: change.id,
       role: 'assistant',
       kind: 'proposal',
       command: change.edit.command,
@@ -295,7 +295,7 @@ describe('preview / apply / reject', () => {
   });
 
   it('treats approving a change that was never previewed as a defect', () => {
-    const change = new PendingDocumentChange('c', editReply().edit, 'm');
+    const change = new PendingDocumentChange('c', editReply().edit);
     expect(() => {
       change.approve();
     }).toThrow(InvariantViolation);

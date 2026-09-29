@@ -15,7 +15,7 @@ export class RejectDocumentChange {
     const change = this.deps.pendingChanges.get(changeId);
     change.reject();
     this.deps.editor.clearPreview();
-    this.deps.conversation.remove(change.messageId);
-    return { removedMessageId: change.messageId };
+    this.deps.conversation.remove(change.id);
+    return { removedMessageId: change.id };
   }
 }
