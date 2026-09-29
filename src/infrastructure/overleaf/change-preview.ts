@@ -1,6 +1,6 @@
 import type { Extension, Range, Text } from '@codemirror/state';
 import type { Decoration, DecorationSet, EditorView } from '@codemirror/view';
-import type { DocumentCommand } from '../../domain/document-command';
+import { DocumentOperation, type DocumentCommand } from '../../domain/document-command';
 import type { CodeMirrorApi } from './codemirror-api';
 import { getAffectedLines, type AffectedLines } from './document-change';
 
@@ -70,7 +70,10 @@ export function createChangePreview(cm: CodeMirrorApi): ChangePreview {
     command: DocumentCommand,
   ): DecorationSet {
     const ranges: Range<Decoration>[] = [];
-    if (command.operation === 'insert_before' || command.operation === 'insert_after') {
+    if (
+      command.operation === DocumentOperation.InsertBefore ||
+      command.operation === DocumentOperation.InsertAfter
+    ) {
       ranges.push(cm.Decoration.line({ class: PREVIEW_CLASS.target }).range(first.from));
     } else {
       const removed = cm.Decoration.line({
@@ -80,8 +83,8 @@ export function createChangePreview(cm: CodeMirrorApi): ChangePreview {
         ranges.push(removed.range(doc.line(number).from));
       }
     }
-    if (command.operation !== 'delete') {
-      const before = command.operation === 'insert_before';
+    if (command.operation !== DocumentOperation.Delete) {
+      const before = command.operation === DocumentOperation.InsertBefore;
       const added = cm.Decoration.widget({
         widget: new AddedLinesWidget(command.content),
         block: true,

@@ -1,6 +1,6 @@
 import type { Evidence } from '../domain/assistant-plan';
 import type { AssistantMessage } from '../domain/conversation';
-import type { DocumentCommand, DocumentOperation } from '../domain/document-command';
+import { DocumentOperation, type DocumentCommand } from '../domain/document-command';
 import type { RequestProgress } from '../application/handle-assistant-request';
 
 const KIND_TITLE: Record<Exclude<AssistantMessage['kind'], 'proposal'>, string> = {
@@ -11,10 +11,10 @@ const KIND_TITLE: Record<Exclude<AssistantMessage['kind'], 'proposal'>, string> 
 };
 
 const PROPOSAL_TITLE: Record<DocumentOperation, string> = {
-  insert_before: 'Proposed insertion',
-  insert_after: 'Proposed insertion',
-  replace: 'Proposed replacement',
-  delete: 'Proposed deletion',
+  [DocumentOperation.InsertBefore]: 'Proposed insertion',
+  [DocumentOperation.InsertAfter]: 'Proposed insertion',
+  [DocumentOperation.Replace]: 'Proposed replacement',
+  [DocumentOperation.Delete]: 'Proposed deletion',
 };
 
 const NEED_STATUS: Record<Evidence, string> = {
@@ -40,11 +40,11 @@ export function messageMeta(message: AssistantMessage): string {
   const { proposal } = message;
   const first = String(proposal.lineNumber);
   switch (proposal.operation) {
-    case 'insert_before':
-    case 'insert_after':
+    case DocumentOperation.InsertBefore:
+    case DocumentOperation.InsertAfter:
       return `Anchor: line ${first}: ${proposal.lineText}`;
-    case 'replace':
-    case 'delete':
+    case DocumentOperation.Replace:
+    case DocumentOperation.Delete:
       if (proposal.lineCount === 1) return `Line ${first}: ${proposal.lineText}`;
       return `Lines ${first}–${String(proposal.lineNumber + proposal.lineCount - 1)}, starting: ${proposal.lineText}`;
   }
@@ -52,15 +52,15 @@ export function messageMeta(message: AssistantMessage): string {
 
 export function appliedNotice(command: DocumentCommand): string {
   switch (command.operation) {
-    case 'insert_before':
+    case DocumentOperation.InsertBefore:
       return 'Done. Inserted before the selected anchor.';
-    case 'insert_after':
+    case DocumentOperation.InsertAfter:
       return 'Done. Inserted after the selected anchor.';
-    case 'replace':
+    case DocumentOperation.Replace:
       return command.lineCount === 1
         ? 'Done. Line replaced.'
         : `Done. ${String(command.lineCount)} lines replaced.`;
-    case 'delete':
+    case DocumentOperation.Delete:
       return command.lineCount === 1
         ? 'Done. Line deleted.'
         : `Done. ${String(command.lineCount)} lines deleted.`;

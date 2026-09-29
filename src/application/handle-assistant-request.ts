@@ -1,13 +1,12 @@
 import { Evidence, Intent, type AssistantPlan } from '../domain/assistant-plan';
-import type {
-  AssistantMessage,
-  ProposalMessage,
-  ProposalSummary,
-  ReplyMessage,
-  UserMessage,
+import {
+  summarizeProposal,
+  type AssistantMessage,
+  type ProposalMessage,
+  type ReplyMessage,
+  type UserMessage,
 } from '../domain/conversation';
 import type { DocumentSnapshot } from '../domain/document';
-import type { DocumentCommand } from '../domain/document-command';
 import { InvariantViolation } from '../domain/errors';
 import type { ResolvedEdit } from '../domain/resolved-edit';
 import type { AssistantPort, GatheredEvidence } from '../ports/assistant-port';
@@ -144,7 +143,7 @@ export class HandleAssistantRequest {
         .filter(Boolean)
         .join('\n\n'),
       plan,
-      proposal: createProposalSummary(command),
+      proposal: summarizeProposal(command),
     };
     this.deps.conversation.append(message);
     return { message, changeId: change.id };
@@ -187,16 +186,4 @@ function gatherEvidence(plan: AssistantPlan, context: EditorContext): GatheredEv
     ...(needs.has(Evidence.Selection) && context.selection ? { selection: context.selection } : {}),
     ...(needs.has(Evidence.Logs) && context.compileLogs ? { logs: context.compileLogs } : {}),
   };
-}
-
-function createProposalSummary(command: DocumentCommand): ProposalSummary {
-  const { lineNumber, lineText } = command.target;
-  switch (command.operation) {
-    case 'insert_before':
-    case 'insert_after':
-      return { operation: command.operation, lineNumber, lineText };
-    case 'replace':
-    case 'delete':
-      return { operation: command.operation, lineNumber, lineText, lineCount: command.lineCount };
-  }
 }

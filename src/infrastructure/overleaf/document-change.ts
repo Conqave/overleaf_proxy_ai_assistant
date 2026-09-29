@@ -1,5 +1,5 @@
 import type { ChangeSpec, Line, Text } from '@codemirror/state';
-import type { DocumentCommand } from '../../domain/document-command';
+import { DocumentOperation, type DocumentCommand } from '../../domain/document-command';
 import type { DocumentTarget } from '../../domain/document-target';
 import { InvariantViolation } from '../../domain/errors';
 
@@ -11,11 +11,11 @@ export interface AffectedLines {
 export function getAffectedLines(doc: Text, command: DocumentCommand): AffectedLines {
   const first = getTargetLine(doc, command.target);
   switch (command.operation) {
-    case 'insert_before':
-    case 'insert_after':
+    case DocumentOperation.InsertBefore:
+    case DocumentOperation.InsertAfter:
       return { first, last: first };
-    case 'replace':
-    case 'delete': {
+    case DocumentOperation.Replace:
+    case DocumentOperation.Delete: {
       const lastNumber = first.number + command.lineCount - 1;
       if (lastNumber > doc.lines) {
         throw new InvariantViolation(`the resolved range ends past line ${String(doc.lines)}`);
@@ -28,13 +28,13 @@ export function getAffectedLines(doc: Text, command: DocumentCommand): AffectedL
 export function createChange(doc: Text, command: DocumentCommand): ChangeSpec {
   const { first, last } = getAffectedLines(doc, command);
   switch (command.operation) {
-    case 'insert_before':
+    case DocumentOperation.InsertBefore:
       return { from: first.from, insert: `${command.content}\n` };
-    case 'insert_after':
+    case DocumentOperation.InsertAfter:
       return { from: first.to, insert: `\n${command.content}` };
-    case 'replace':
+    case DocumentOperation.Replace:
       return { from: first.from, to: last.to, insert: command.content };
-    case 'delete':
+    case DocumentOperation.Delete:
       return createLinesRemoval(doc, first, last);
   }
 }

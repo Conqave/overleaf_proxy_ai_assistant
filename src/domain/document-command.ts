@@ -10,6 +10,11 @@ export const DocumentOperation = {
 
 export type DocumentOperation = (typeof DocumentOperation)[keyof typeof DocumentOperation];
 
+export type AnchorOperation =
+  typeof DocumentOperation.InsertBefore | typeof DocumentOperation.InsertAfter;
+
+export type RangeOperation = typeof DocumentOperation.Replace | typeof DocumentOperation.Delete;
+
 const OPERATIONS: readonly string[] = Object.values(DocumentOperation);
 
 export function isDocumentOperation(value: unknown): value is DocumentOperation {
@@ -22,14 +27,16 @@ interface CommandBase {
 }
 
 export type DocumentCommand =
-  | (CommandBase & { readonly operation: 'insert_before'; readonly content: string })
-  | (CommandBase & { readonly operation: 'insert_after'; readonly content: string })
+  | (CommandBase & { readonly operation: AnchorOperation; readonly content: string })
   | (CommandBase & {
-      readonly operation: 'replace';
+      readonly operation: typeof DocumentOperation.Replace;
       readonly lineCount: number;
       readonly content: string;
     })
-  | (CommandBase & { readonly operation: 'delete'; readonly lineCount: number });
+  | (CommandBase & {
+      readonly operation: typeof DocumentOperation.Delete;
+      readonly lineCount: number;
+    });
 
 export interface DocumentCommandInput {
   readonly operation: unknown;
