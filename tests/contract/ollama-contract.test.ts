@@ -5,15 +5,28 @@ import { createDocumentSnapshot } from '../../src/domain/document';
 import { OllamaAssistant } from '../../src/infrastructure/ollama/ollama-assistant';
 import { OllamaClient } from '../../src/infrastructure/ollama/ollama-client';
 import type { GatheredEvidence } from '../../src/ports/assistant-port';
+import { TestFixtureError } from '../support/test-errors';
 
 const OLLAMA_URL = process.env.OLLAMA_CONTRACT_URL;
-const MODEL = process.env.OLLAMA_CONTRACT_MODEL ?? 'gpt-oss:20b-128k';
-const CONTEXT_TOKENS = Number(process.env.OLLAMA_CONTRACT_CONTEXT_TOKENS ?? '128000');
 const CASE_TIMEOUT_MS = 300_000;
 
 const source = readFileSync(new URL('../fixtures/overleaf-example.tex', import.meta.url), 'utf8');
 const snapshot = createDocumentSnapshot(source.replace(/\n$/, '').split('\n'));
 const lineOf = (needle: string): number => snapshot.lines.findIndex((l) => l.includes(needle)) + 1;
+const lineText = (lineNumber: number): string => {
+  const text = snapshot.lines[lineNumber - 1];
+  if (text === undefined)
+    throw new TestFixtureError(`the fixture has no line ${String(lineNumber)}`);
+  return text;
+};
+
+function requireEnv(name: string): string {
+  const value = process.env[name];
+  if (value === undefined || value === '') {
+    throw new TestFixtureError(`${name} must be set together with OLLAMA_CONTRACT_URL`);
+  }
+  return value;
+}
 
 const gap = (operation: string, line: number): number => {
   let at = operation === 'insert_before' ? line - 1 : line;
@@ -88,13 +101,18 @@ const CASES: Case[] = [
     intent: 'edit',
     operation: 'replace',
     line: lineOf('Your introduction goes here'),
-    selection: snapshot.lines[lineOf('Your introduction goes here') - 1] ?? '',
+    selection: lineText(lineOf('Your introduction goes here')),
   },
 ];
 
-describe.runIf(OLLAMA_URL)(`Ollama contract (${MODEL})`, () => {
+describe.runIf(OLLAMA_URL)('Ollama contract', () => {
   const client = new OllamaClient(
-    { endpoint: OLLAMA_URL ?? '', model: MODEL, contextTokens: CONTEXT_TOKENS, timeoutMs: 300_000 },
+    {
+      endpoint: requireEnv('OLLAMA_CONTRACT_URL'),
+      model: requireEnv('OLLAMA_CONTRACT_MODEL'),
+      contextTokens: Number(requireEnv('OLLAMA_CONTRACT_CONTEXT_TOKENS')),
+      timeoutMs: CASE_TIMEOUT_MS,
+    },
     (input, init) => fetch(input, init),
   );
   const assistant = new OllamaAssistant(client);
