@@ -1,3 +1,5 @@
+import { UnexpectedFakeCallError } from './test-errors';
+
 export interface OllamaCall {
   url: string;
   body: {
@@ -46,7 +48,8 @@ export class FakeOllama {
     if (body.prompt === '') return new Response('{}', { status: 200 });
     this.onPrompt?.({ url, body });
     const reply = this.replies.shift();
-    if (!reply) throw new Error(`Unexpected Ollama call: ${body.prompt.slice(0, 80)}`);
+    if (!reply)
+      throw new UnexpectedFakeCallError(`Unexpected Ollama call: ${body.prompt.slice(0, 80)}`);
     if ('hang' in reply) {
       return new Promise((_resolve, reject) => {
         init.signal?.addEventListener('abort', () => {

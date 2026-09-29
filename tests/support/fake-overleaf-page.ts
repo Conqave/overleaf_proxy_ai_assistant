@@ -1,5 +1,6 @@
 import type { EditorView } from '@codemirror/view';
 import { openOverleafEditor } from './fake-overleaf';
+import { TestFixtureError } from './test-errors';
 
 declare global {
   interface Window {
@@ -10,7 +11,7 @@ declare global {
 window.fakeOverleaf = {
   open(text) {
     const parent = document.getElementById('editor');
-    if (!parent) throw new Error('the fixture has no #editor element');
+    if (!parent) throw new TestFixtureError('the fixture has no #editor element');
     return openOverleafEditor(window, parent, text);
   },
 };

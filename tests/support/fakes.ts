@@ -8,6 +8,7 @@ import type { AssistantPort, PlanningRequest, ReplyRequest } from '../../src/por
 import type { ConversationRepository } from '../../src/ports/conversation-repository';
 import type { EditorPort } from '../../src/ports/editor-port';
 import { EditorUnavailableError, PersistenceError } from '../../src/ports/errors';
+import { UnexpectedFakeCallError } from './test-errors';
 
 export class FakeEditor implements EditorPort {
   available = true;
@@ -92,7 +93,8 @@ export class FakeAssistant implements AssistantPort {
 
 function next<T>(queue: Step<T>[], what: string): Promise<T> {
   const step = queue.shift();
-  if (step === undefined) return Promise.reject(new Error(`unexpected ${what} call`));
+  if (step === undefined)
+    return Promise.reject(new UnexpectedFakeCallError(`unexpected ${what} call`));
   return step instanceof Error ? Promise.reject(step) : Promise.resolve(step);
 }
 

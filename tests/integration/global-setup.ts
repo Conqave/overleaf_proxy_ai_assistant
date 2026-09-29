@@ -1,6 +1,7 @@
 import { execFileSync } from 'node:child_process';
 import { build } from 'esbuild';
 import type { TestProject } from 'vitest/node';
+import { TestFixtureError } from '../support/test-errors';
 
 declare module 'vitest' {
   export interface ProvidedContext {
@@ -19,6 +20,6 @@ export default async function setup(project: TestProject): Promise<void> {
     logLevel: 'error',
   });
   const [script] = page.outputFiles;
-  if (!script) throw new Error('esbuild produced no fake Overleaf page script');
+  if (!script) throw new TestFixtureError('esbuild produced no fake Overleaf page script');
   project.provide('fakeOverleafScript', script.text);
 }
