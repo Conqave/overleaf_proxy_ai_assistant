@@ -1,7 +1,8 @@
 import type { AssistantPlan } from '../../domain/assistant-plan';
 import type { AssistantReply } from '../../domain/assistant-reply';
-import type { ConversationMessage } from '../../domain/conversation';
+import { AssistantMessageKind, type ConversationMessage } from '../../domain/conversation';
 import { documentText, type DocumentSnapshot } from '../../domain/document';
+import { DocumentOperation, type DocumentCommand } from '../../domain/document-command';
 import { InvariantViolation } from '../../domain/errors';
 import type { PlanningRequest, ReplyRequest } from '../../ports/assistant-port';
 import { AssistantRequestTooLargeError } from '../../ports/errors';
@@ -224,8 +225,28 @@ function conversationBlock(conversation: readonly ConversationMessage[], maxChar
   const recent = conversation.slice(-CONVERSATION_WINDOW);
   if (!recent.length) return '';
   const label = '\nConversation so far:\n';
-  const text = recent.map((message) => `[${message.role}] ${message.text.trim()}`).join('\n');
+  const text = recent.map((message) => `[${message.role}] ${transcriptText(message)}`).join('\n');
   return `${label}${compact(text, maxChars - label.length)}`;
+}
+
+function transcriptText(message: ConversationMessage): string {
+  if (message.role === 'user' || message.kind !== AssistantMessageKind.Proposal) {
+    return message.text.trim();
+  }
+  return describeProposal(message.command);
+}
+
+function describeProposal(command: DocumentCommand): string {
+  const proposed = `Proposed ${command.operation} at line ${String(command.target.lineNumber)}`;
+  const summary = command.reason === '' ? proposed : `${proposed}: ${command.reason}`;
+  switch (command.operation) {
+    case DocumentOperation.InsertBefore:
+    case DocumentOperation.InsertAfter:
+    case DocumentOperation.Replace:
+      return `${summary}\n${command.content}`;
+    case DocumentOperation.Delete:
+      return summary;
+  }
 }
 
 function caretLines(context: NonNullable<ReplyRequest['evidence']['lineContext']>): string {

@@ -1,6 +1,7 @@
 import { JSDOM } from 'jsdom';
 import { beforeEach, describe, expect, it } from 'vitest';
 import type { ConversationMessage } from '../../../src/domain/conversation';
+import { createDocumentCommand } from '../../../src/domain/document-command';
 import { LocalStorageConversationRepository } from '../../../src/infrastructure/persistence/local-storage-conversation-repository';
 import { PersistenceError } from '../../../src/ports/errors';
 
@@ -12,9 +13,24 @@ const messages: ConversationMessage[] = [
     id: '2',
     role: 'assistant',
     kind: 'proposal',
-    text: 'Adds a table.',
+    command: createDocumentCommand({
+      operation: 'insert_after',
+      target: { lineNumber: 4, lineText: 'Numbers.' },
+      content: '\\begin{table}\n\\end{table}',
+      reason: 'Adds a table.',
+    }),
     plan: 'After results.',
-    proposal: { operation: 'insert_after', lineNumber: 4, lineText: 'Numbers.' },
+  },
+  {
+    id: '3',
+    role: 'assistant',
+    kind: 'proposal',
+    command: createDocumentCommand({
+      operation: 'delete',
+      target: { lineNumber: 2, lineText: 'Old.' },
+      lineCount: 2,
+    }),
+    plan: 'Old lines.',
   },
 ];
 
@@ -63,8 +79,8 @@ describe('LocalStorageConversationRepository', () => {
     ['legacy v1 shape', JSON.stringify([{ text: 'hi', cls: 'ola-user' }])],
     ['unknown kind', JSON.stringify([{ id: '1', role: 'assistant', kind: 'x', text: '' }])],
     [
-      'proposal without its change',
-      JSON.stringify([{ id: '1', role: 'assistant', kind: 'proposal', text: '', plan: '' }]),
+      'proposal without its command',
+      JSON.stringify([{ id: '1', role: 'assistant', kind: 'proposal', plan: '' }]),
     ],
     [
       'proposal at line zero',
@@ -73,22 +89,20 @@ describe('LocalStorageConversationRepository', () => {
           id: '1',
           role: 'assistant',
           kind: 'proposal',
-          text: '',
           plan: '',
-          proposal: { operation: 'delete', lineNumber: 0, lineText: '', lineCount: 1 },
+          command: { operation: 'delete', target: { lineNumber: 0, lineText: '' }, lineCount: 1 },
         },
       ]),
     ],
     [
-      'bad proposal',
+      'unknown operation',
       JSON.stringify([
         {
           id: '1',
           role: 'assistant',
           kind: 'proposal',
-          text: '',
           plan: '',
-          proposal: { operation: 'x' },
+          command: { operation: 'x' },
         },
       ]),
     ],

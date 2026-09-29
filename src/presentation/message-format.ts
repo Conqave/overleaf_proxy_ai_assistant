@@ -32,21 +32,22 @@ export const INTERNAL_ERROR = 'Unexpected internal error. Details are in the bro
 
 export function messageTitle(message: AssistantMessage): string {
   if (message.kind !== 'proposal') return KIND_TITLE[message.kind];
-  return PROPOSAL_TITLE[message.proposal.operation];
+  return PROPOSAL_TITLE[message.command.operation];
 }
 
 export function messageMeta(message: AssistantMessage): string {
   if (message.kind !== 'proposal') return '';
-  const { proposal } = message;
-  const first = String(proposal.lineNumber);
-  switch (proposal.operation) {
+  const { command } = message;
+  const { lineNumber, lineText } = command.target;
+  const first = String(lineNumber);
+  switch (command.operation) {
     case DocumentOperation.InsertBefore:
     case DocumentOperation.InsertAfter:
-      return `Anchor: line ${first}: ${proposal.lineText}`;
+      return `Anchor: line ${first}: ${lineText}`;
     case DocumentOperation.Replace:
     case DocumentOperation.Delete:
-      if (proposal.lineCount === 1) return `Line ${first}: ${proposal.lineText}`;
-      return `Lines ${first}–${String(proposal.lineNumber + proposal.lineCount - 1)}, starting: ${proposal.lineText}`;
+      if (command.lineCount === 1) return `Line ${first}: ${lineText}`;
+      return `Lines ${first}–${String(lineNumber + command.lineCount - 1)}, starting: ${lineText}`;
   }
 }
 

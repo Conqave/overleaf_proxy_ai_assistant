@@ -1,10 +1,9 @@
 import { Evidence, Intent, type AssistantPlan } from '../domain/assistant-plan';
-import {
-  summarizeProposal,
-  type AssistantMessage,
-  type ProposalMessage,
-  type ReplyMessage,
-  type UserMessage,
+import type {
+  AssistantMessage,
+  ProposalMessage,
+  ReplyMessage,
+  UserMessage,
 } from '../domain/conversation';
 import type { DocumentSnapshot } from '../domain/document';
 import { InvariantViolation } from '../domain/errors';
@@ -134,16 +133,12 @@ export class HandleAssistantRequest {
     const change = new PendingDocumentChange(this.deps.newId(), edit, this.deps.newId());
     this.deps.pendingChanges.add(change);
     this.showPreview(change);
-    const { command } = edit;
     const message: ProposalMessage = {
       id: change.messageId,
       role: 'assistant',
       kind: 'proposal',
-      text: [command.reason, 'content' in command ? command.content : '']
-        .filter(Boolean)
-        .join('\n\n'),
+      command: edit.command,
       plan,
-      proposal: summarizeProposal(command),
     };
     this.deps.conversation.append(message);
     return { message, changeId: change.id };

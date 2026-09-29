@@ -1,4 +1,9 @@
-import type { AssistantMessage, ConversationMessage } from '../domain/conversation';
+import type {
+  AssistantMessage,
+  ConversationMessage,
+  ProposalMessage,
+} from '../domain/conversation';
+import { DocumentOperation } from '../domain/document-command';
 import css from './assistant.css?raw';
 import { messageMeta, messageTitle } from './message-format';
 
@@ -148,10 +153,11 @@ export class AssistantView {
   private renderAssistant(message: AssistantMessage, changeId?: string): HTMLElement {
     const node = this.el('div', 'ola-msg ola-ai ola-result');
     node.append(this.el('div', 'ola-result-title', messageTitle(message)));
-    if (message.kind === 'proposal' && message.plan) {
-      node.append(this.el('div', 'ola-result-plan', message.plan));
+    if (message.kind === 'proposal') {
+      node.append(...this.renderProposal(message));
+    } else {
+      node.append(this.el('div', 'ola-result-body', message.text));
     }
-    node.append(this.el('div', 'ola-result-body', message.text));
     const meta = messageMeta(message);
     if (meta) node.append(this.el('div', 'ola-result-meta', meta));
     if (changeId !== undefined) {
@@ -170,6 +176,23 @@ export class AssistantView {
       this.actionNodes.set(changeId, actions);
     }
     return node;
+  }
+
+  private renderProposal(message: ProposalMessage): HTMLElement[] {
+    const { command } = message;
+    const parts: HTMLElement[] = [];
+    if (message.plan) parts.push(this.el('div', 'ola-result-plan', message.plan));
+    if (command.reason) parts.push(this.el('div', 'ola-result-reason', command.reason));
+    switch (command.operation) {
+      case DocumentOperation.InsertBefore:
+      case DocumentOperation.InsertAfter:
+      case DocumentOperation.Replace:
+        parts.push(this.el('div', 'ola-result-body', command.content));
+        break;
+      case DocumentOperation.Delete:
+        break;
+    }
+    return parts;
   }
 
   private showWelcome(): void {

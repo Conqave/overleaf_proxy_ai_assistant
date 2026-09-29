@@ -1,10 +1,10 @@
 import {
   AssistantMessageKind,
   type ConversationMessage,
-  type ProposalSummary,
   type ReplyMessage,
 } from '../../domain/conversation';
-import { DocumentOperation } from '../../domain/document-command';
+import { createDocumentCommand, type DocumentCommand } from '../../domain/document-command';
+import { InvalidDocumentCommandError } from '../../domain/errors';
 import type { ConversationRepository } from '../../ports/conversation-repository';
 import { PersistenceError } from '../../ports/errors';
 
@@ -87,9 +87,8 @@ function parseMessages(data: unknown): ConversationMessage[] {
 function parseMessage(value: unknown): ConversationMessage {
   const fields = getFields(value);
   const id = getString(fields, 'id');
-  const text = getString(fields, 'text');
   const role = fields.get('role');
-  if (role === 'user') return { id, role, text };
+  if (role === 'user') return { id, role, text: getString(fields, 'text') };
   if (role !== 'assistant') throw new UnknownStoredFormatError('unknown role');
   const kind = fields.get('kind');
   if (kind === AssistantMessageKind.Proposal) {
@@ -97,34 +96,28 @@ function parseMessage(value: unknown): ConversationMessage {
       id,
       role,
       kind,
-      text,
+      command: parseCommand(fields.get('command')),
       plan: getString(fields, 'plan'),
-      proposal: parseProposal(fields.get('proposal')),
     };
   }
   if (!isReplyKind(kind)) throw new UnknownStoredFormatError('unknown message kind');
-  return { id, role, kind, text };
+  return { id, role, kind, text: getString(fields, 'text') };
 }
 
-function parseProposal(value: unknown): ProposalSummary {
+function parseCommand(value: unknown): DocumentCommand {
   const fields = getFields(value);
-  const operation = fields.get('operation');
-  const lineNumber = getPositiveInteger(fields, 'lineNumber');
-  const lineText = getString(fields, 'lineText');
-  switch (operation) {
-    case DocumentOperation.InsertBefore:
-    case DocumentOperation.InsertAfter:
-      return { operation, lineNumber, lineText };
-    case DocumentOperation.Replace:
-    case DocumentOperation.Delete:
-      return {
-        operation,
-        lineNumber,
-        lineText,
-        lineCount: getPositiveInteger(fields, 'lineCount'),
-      };
-    default:
-      throw new UnknownStoredFormatError('unknown operation');
+  const input = {
+    operation: fields.get('operation'),
+    target: fields.get('target'),
+    lineCount: fields.get('lineCount'),
+    content: fields.get('content'),
+    reason: fields.get('reason'),
+  };
+  try {
+    return createDocumentCommand(input);
+  } catch (error) {
+    if (!(error instanceof InvalidDocumentCommandError)) throw error;
+    throw new UnknownStoredFormatError(`invalid command: ${error.message}`, { cause: error });
   }
 }
 
@@ -138,13 +131,5 @@ function getFields(value: unknown): Map<string, unknown> {
 function getString(fields: Map<string, unknown>, key: string): string {
   const value = fields.get(key);
   if (typeof value !== 'string') throw new UnknownStoredFormatError(`${key} is not text`);
-  return value;
-}
-
-function getPositiveInteger(fields: Map<string, unknown>, key: string): number {
-  const value = fields.get(key);
-  if (typeof value !== 'number' || !Number.isInteger(value) || value < 1) {
-    throw new UnknownStoredFormatError(`${key} is not a positive integer`);
-  }
   return value;
 }

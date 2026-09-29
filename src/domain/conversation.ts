@@ -1,10 +1,4 @@
-import {
-  DocumentOperation,
-  type AnchorOperation,
-  type DocumentCommand,
-  type RangeOperation,
-} from './document-command';
-import type { DocumentTarget } from './document-target';
+import type { DocumentCommand } from './document-command';
 
 export const AssistantMessageKind = {
   Greeting: 'greeting',
@@ -21,24 +15,6 @@ export interface UserMessage {
   readonly text: string;
 }
 
-export type ProposalSummary = DocumentTarget &
-  (
-    | { readonly operation: AnchorOperation }
-    | { readonly operation: RangeOperation; readonly lineCount: number }
-  );
-
-export function summarizeProposal(command: DocumentCommand): ProposalSummary {
-  const { lineNumber, lineText } = command.target;
-  switch (command.operation) {
-    case DocumentOperation.InsertBefore:
-    case DocumentOperation.InsertAfter:
-      return { operation: command.operation, lineNumber, lineText };
-    case DocumentOperation.Replace:
-    case DocumentOperation.Delete:
-      return { operation: command.operation, lineNumber, lineText, lineCount: command.lineCount };
-  }
-}
-
 export interface ReplyMessage {
   readonly id: string;
   readonly role: 'assistant';
@@ -50,9 +26,8 @@ export interface ProposalMessage {
   readonly id: string;
   readonly role: 'assistant';
   readonly kind: typeof AssistantMessageKind.Proposal;
-  readonly text: string;
+  readonly command: DocumentCommand;
   readonly plan: string;
-  readonly proposal: ProposalSummary;
 }
 
 export type AssistantMessage = ReplyMessage | ProposalMessage;

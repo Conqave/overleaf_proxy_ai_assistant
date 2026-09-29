@@ -128,22 +128,23 @@ describe('HandleAssistantRequest', () => {
       .willReply({ kind: 'answer', text: 'ok' });
     await send('hello');
     await send('second?');
-    expect(assistant.planRequests[0]!.conversation.map((m) => m.text)).toEqual([
-      'hello',
-      'Tell me what to change, explain, or fix in this Overleaf document.',
+    expect(assistant.planRequests[0]!.conversation).toMatchObject([
+      { role: 'user', text: 'hello' },
+      { role: 'assistant', kind: 'greeting' },
     ]);
   });
 
   it('proposes an edit as a previewed pending change', async () => {
     assistant.willPlan({ intent: 'edit', needs: [], reason: '' }).willReply(editReply());
     const result = await send('add more numbers');
-    expect(result.message).toMatchObject({
-      kind: 'proposal',
-      text: 'Adds detail.\n\nMore numbers.',
-      plan: 'After results.',
-      proposal: { operation: 'insert_after', lineNumber: 4, lineText: 'Numbers.' },
-    });
     const change = pendingChanges.get(result.changeId!);
+    expect(result.message).toEqual({
+      id: change.messageId,
+      role: 'assistant',
+      kind: 'proposal',
+      command: change.edit.command,
+      plan: 'After results.',
+    });
     expect(change.status).toBe('previewed');
     expect(editor.preview).toBe(change.edit);
     expect(assistant.replyRequests[0]!.evidence.document).toEqual(editor.readDocument());

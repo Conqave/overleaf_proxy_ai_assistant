@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { createDocumentSnapshot } from '../../../src/domain/document';
+import { createDocumentCommand } from '../../../src/domain/document-command';
 import { InvariantViolation } from '../../../src/domain/errors';
 import { AssistantRequestTooLargeError } from '../../../src/ports/errors';
 import {
@@ -37,6 +38,27 @@ describe('plan exchange', () => {
     expect(exchange.request.prompt).toContain('[user] message 3');
     expect(exchange.request.prompt).not.toContain('[user] message 2\n');
     expect(exchange.parse('{"intent":"summary"}')).toMatchObject({ intent: 'summary' });
+  });
+});
+
+describe('conversation history', () => {
+  it('shows a proposal to the model as its operation, reason and content', () => {
+    const proposal = {
+      id: 'p',
+      role: 'assistant' as const,
+      kind: 'proposal' as const,
+      command: createDocumentCommand({
+        operation: 'replace',
+        target: { lineNumber: 2, lineText: 'Body.' },
+        content: 'New body.',
+        reason: 'Clearer.',
+      }),
+      plan: 'p',
+    };
+    const exchange = createPlanExchange({ message: 'm', conversation: [proposal] }, budget);
+    expect(exchange.request.prompt).toContain(
+      '[assistant] Proposed replace at line 2: Clearer.\nNew body.',
+    );
   });
 });
 

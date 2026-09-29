@@ -1,32 +1,34 @@
 import { describe, expect, it } from 'vitest';
-import type { AssistantMessage, ProposalSummary } from '../../../src/domain/conversation';
-import { createDocumentCommand } from '../../../src/domain/document-command';
+import type { AssistantMessage } from '../../../src/domain/conversation';
+import {
+  createDocumentCommand,
+  type DocumentCommandInput,
+} from '../../../src/domain/document-command';
 import { appliedNotice, messageMeta } from '../../../src/presentation/message-format';
 
-const proposal = (summary: ProposalSummary): AssistantMessage => ({
+const proposal = (input: DocumentCommandInput): AssistantMessage => ({
   id: '1',
   role: 'assistant',
   kind: 'proposal',
-  text: '',
+  command: createDocumentCommand(input),
   plan: '',
-  proposal: summary,
 });
 const target = { lineNumber: 3, lineText: '\\section{A}' };
 
 describe('messageMeta', () => {
   it('names the anchor of an insertion', () => {
-    expect(messageMeta(proposal({ operation: 'insert_after', ...target }))).toBe(
+    expect(messageMeta(proposal({ operation: 'insert_after', target, content: 'x' }))).toBe(
       'Anchor: line 3: \\section{A}',
     );
   });
 
   it('names the line or the range of a replacement or deletion', () => {
-    expect(messageMeta(proposal({ operation: 'delete', ...target, lineCount: 1 }))).toBe(
+    expect(messageMeta(proposal({ operation: 'delete', target, lineCount: 1 }))).toBe(
       'Line 3: \\section{A}',
     );
-    expect(messageMeta(proposal({ operation: 'replace', ...target, lineCount: 3 }))).toBe(
-      'Lines 3–5, starting: \\section{A}',
-    );
+    expect(
+      messageMeta(proposal({ operation: 'replace', target, lineCount: 3, content: 'x' })),
+    ).toBe('Lines 3–5, starting: \\section{A}');
   });
 });
 

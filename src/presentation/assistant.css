@@ -220,6 +220,9 @@
   font-size: 12px;
   line-height: 1.4;
 }
+#ola-root .ola-result-reason {
+  margin-bottom: 8px;
+}
 #ola-root .ola-result-body {
   padding: 10px;
   border-radius: 8px;
