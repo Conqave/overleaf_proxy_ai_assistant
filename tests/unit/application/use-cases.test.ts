@@ -1,10 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { ApplyDocumentChange } from '../../../src/application/apply-document-change';
 import { ConversationLog } from '../../../src/application/conversation-log';
-import {
-  RestoreConversation,
-  StartNewConversation,
-} from '../../../src/application/conversation-session';
+import { StartNewConversation } from '../../../src/application/conversation-session';
 import {
   ChangeNoLongerPendingError,
   EmptyRequestError,
@@ -330,7 +327,7 @@ describe('preview / apply / reject', () => {
 describe('conversation', () => {
   it('restores and starts a new conversation', async () => {
     repository.stored = [{ id: 'a', role: 'user', text: 'old' }];
-    expect(new RestoreConversation({ conversation }).execute()).toHaveLength(1);
+    expect(conversation.restore()).toHaveLength(1);
     const change = pendingChanges.get(await proposeEdit());
     new StartNewConversation({ conversation, pendingChanges, editor }).execute();
     expect(conversation.messages()).toHaveLength(0);

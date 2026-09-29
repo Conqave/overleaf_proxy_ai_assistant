@@ -1,5 +1,4 @@
 import type { ConversationMessage } from '../domain/conversation';
-import type { OperationalError } from '../domain/errors';
 import { PersistenceError } from '../ports/errors';
 import type { ConversationRepository } from '../ports/conversation-repository';
 
@@ -53,7 +52,7 @@ export class ConversationLog {
     }
   }
 
-  takePersistenceFailure(): OperationalError | null {
+  takePersistenceFailure(): PersistenceError | null {
     const failure = this.persistenceFailure;
     this.persistenceFailure = null;
     return failure;

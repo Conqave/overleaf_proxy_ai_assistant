@@ -1,8 +1,6 @@
 import type { ApplyDocumentChange } from '../application/apply-document-change';
-import type {
-  RestoreConversation,
-  StartNewConversation,
-} from '../application/conversation-session';
+import type { ConversationLog } from '../application/conversation-log';
+import type { StartNewConversation } from '../application/conversation-session';
 import type { HandleAssistantRequest } from '../application/handle-assistant-request';
 import type { RejectDocumentChange } from '../application/reject-document-change';
 import { InvariantViolation, OperationalError } from '../domain/errors';
@@ -13,9 +11,8 @@ export interface UseCases {
   handleRequest: HandleAssistantRequest;
   applyChange: ApplyDocumentChange;
   rejectChange: RejectDocumentChange;
-  restoreConversation: RestoreConversation;
   startNewConversation: StartNewConversation;
-  takePersistenceFailure: () => OperationalError | null;
+  conversation: Pick<ConversationLog, 'restore' | 'takePersistenceFailure'>;
 }
 
 export class AssistantController implements ViewEvents {
@@ -26,7 +23,7 @@ export class AssistantController implements ViewEvents {
   attach(view: AssistantView): void {
     this.view = view;
     this.guard(() => {
-      view.showConversation(this.useCases.restoreConversation.execute());
+      view.showConversation(this.useCases.conversation.restore());
     });
   }
 
@@ -113,7 +110,7 @@ export class AssistantController implements ViewEvents {
   }
 
   private reportPersistence(): void {
-    const failure = this.useCases.takePersistenceFailure();
+    const failure = this.useCases.conversation.takePersistenceFailure();
     if (failure) this.requireView().showNotice(failure.message, 'error');
   }
 

@@ -7,13 +7,12 @@ import { AssistantView } from '../../../src/presentation/assistant-view';
 function setup(applyError: Error) {
   const { window } = new JSDOM('<!doctype html><html><head></head><body></body></html>');
   const useCases = {
-    restoreConversation: { execute: () => [] },
+    conversation: { restore: () => [], takePersistenceFailure: () => null },
     applyChange: {
       execute: () => {
         throw applyError;
       },
     },
-    takePersistenceFailure: () => null,
   } as unknown as UseCases;
   const controller = new AssistantController(useCases);
   controller.attach(new AssistantView(window.document, controller));

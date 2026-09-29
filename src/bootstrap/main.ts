@@ -1,6 +1,6 @@
 import { ApplyDocumentChange } from '../application/apply-document-change';
 import { ConversationLog } from '../application/conversation-log';
-import { RestoreConversation, StartNewConversation } from '../application/conversation-session';
+import { StartNewConversation } from '../application/conversation-session';
 import { HandleAssistantRequest } from '../application/handle-assistant-request';
 import { PendingChanges } from '../application/pending-change';
 import { RejectDocumentChange } from '../application/reject-document-change';
@@ -48,9 +48,8 @@ function compose(
     }),
     applyChange: new ApplyDocumentChange({ editor, pendingChanges }),
     rejectChange: new RejectDocumentChange({ editor, pendingChanges, conversation }),
-    restoreConversation: new RestoreConversation({ conversation }),
     startNewConversation: new StartNewConversation({ conversation, pendingChanges, editor }),
-    takePersistenceFailure: () => conversation.takePersistenceFailure(),
+    conversation,
   });
 
   controller.attach(new AssistantView(window.document, controller));
