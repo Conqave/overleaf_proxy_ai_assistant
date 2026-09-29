@@ -22,7 +22,7 @@ describe('parsePlanResponse', () => {
     ['empty response', ''],
     ['whitespace only', '  \n '],
     ['invalid JSON', '{"intent": "summary",'],
-    ['prose', 'Sure! The document is about...'],
+    ['prose', 'Sure! The document is about sections.'],
     ['markdown fenced JSON', '```json\n{"intent":"summary"}\n```'],
     ['JSON array', '[{"intent":"summary"}]'],
     ['unknown intent', json({ intent: 'insert' })],

@@ -54,7 +54,7 @@ export class AssistantView {
     labelRow.append(this.el('span', undefined, 'Command'), this.status);
     this.input = this.el('textarea', 'ola-textarea');
     this.input.placeholder =
-      'Describe what you want: explain an error, improve text, insert a table, delete a line...';
+      'Describe what you want: explain an error, improve text, insert a table or delete a line.';
     this.input.addEventListener('keydown', (event) => {
       if (event.key === 'Enter' && !event.shiftKey) {
         event.preventDefault();

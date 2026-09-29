@@ -91,7 +91,7 @@ const EDIT_SYSTEM = lines(
   '- Do not target \\begin{document}, \\maketitle, \\tableofcontents or preamble lines unless the user asks for that location.',
   '- New sections go after the end of the closest related section; with no sections yet, after \\maketitle.',
   '- Explanatory text goes before the table, figure, equation or listing it describes; captions and labels go inside their environment.',
-  '- "after X" / "before X": target the line containing X. For a whole environment, target its \\end{...} line (after) or its \\begin{...} line (before).',
+  '- "after X" / "before X": target the line containing X. For a whole environment, target its \\end{name} line (after) or its \\begin{name} line (before).',
   '- Selected text, when given, is what the user means by "this", "zaznaczony", "the selection": change the line that contains it without asking.',
   '- When the request covers several consecutive lines, use one replace or delete with LINE and END_LINE instead of asking which line; when several places could match, choose the one most specifically about the request.',
   'Content:',
@@ -249,7 +249,7 @@ export function compact(text: string, maxChars: number): string {
   }
   const keep = Math.floor((maxChars - 64) / 2);
   const omitted = text.length - 2 * keep;
-  return `${text.slice(0, keep)}\n\n[...AUTOCOMPACTED... omitted ${String(omitted)} chars ...]\n\n${text.slice(-keep)}`;
+  return `${text.slice(0, keep)}\n\n[AUTOCOMPACTED: omitted ${String(omitted)} chars]\n\n${text.slice(-keep)}`;
 }
 
 function createTooLargeError(): AssistantRequestTooLargeError {

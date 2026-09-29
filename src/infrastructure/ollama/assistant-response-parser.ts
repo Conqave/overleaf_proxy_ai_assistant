@@ -100,7 +100,7 @@ const EDIT_FIELD = new RegExp(`^(${EDIT_FIELDS.join('|')}):(?: (.*))?$`);
 function parseEditReply(text: string): { fields: Map<string, string>; content?: string } {
   if (text.startsWith('{')) {
     throw new InvalidAssistantResponse(
-      'the reply is JSON; write the plain header lines instead (OPERATION: …, LINE: …), without braces or quotes',
+      'the reply is JSON; write the plain header lines instead (OPERATION: <operation>, LINE: <number>), without braces or quotes',
     );
   }
   const rows = text.split(/\r?\n/);

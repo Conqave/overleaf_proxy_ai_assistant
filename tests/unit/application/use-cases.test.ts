@@ -111,7 +111,7 @@ describe('HandleAssistantRequest', () => {
     editor.logs = 'Undefined control sequence';
     assistant
       .willPlan({ intent: 'explain', needs: ['line_context', 'selection', 'logs'], reason: '' })
-      .willReply({ kind: 'answer', text: 'Because...' });
+      .willReply({ kind: 'answer', text: 'Because.' });
     const result = await send('why does this fail?');
     expect(result.message.kind).toBe('explanation');
     expect(assistant.replyRequests[0]!.evidence).toEqual({

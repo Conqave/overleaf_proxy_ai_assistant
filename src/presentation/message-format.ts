@@ -71,7 +71,7 @@ export function progressStatus(progress: RequestProgress): string {
   switch (progress.stage) {
     case 'received':
     case 'planning':
-      return 'Hans is reading what it needs first...';
+      return 'Hans is reading what it needs first.';
     case 'answering': {
       const parts = progress.plan.needs.map((need) => NEED_STATUS[need]);
       return STATUS_LIST.format([DOCUMENT_STATUS, ...parts]);
