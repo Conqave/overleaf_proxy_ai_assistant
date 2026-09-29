@@ -1,7 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { createDocumentSnapshot } from '../../../src/domain/document';
 import { createDocumentCommand } from '../../../src/domain/document-command';
-import { DocumentRangeError, DocumentTargetNotFoundError } from '../../../src/domain/errors';
+import {
+  DocumentConflictError,
+  DocumentRangeError,
+  DocumentTargetNotFoundError,
+} from '../../../src/domain/errors';
 import { ResolvedEdit } from '../../../src/domain/resolved-edit';
 
 const target = { lineNumber: 2, lineText: '\\section{Introduction}' };
@@ -38,5 +42,21 @@ describe('ResolvedEdit.resolve', () => {
     const missing = { lineNumber: 1, lineText: 'nowhere' };
     const command = createDocumentCommand({ operation: 'delete', target: missing, lineCount: 1 });
     expect(() => ResolvedEdit.resolve(snapshot, command)).toThrow(DocumentTargetNotFoundError);
+  });
+
+  it('accepts only the document it was resolved against', () => {
+    const edit = ResolvedEdit.resolve(
+      snapshot,
+      createDocumentCommand({ operation: 'delete', target, lineCount: 1 }),
+    );
+    expect(() => {
+      edit.assertCurrent(createDocumentSnapshot([...snapshot.lines]));
+    }).not.toThrow();
+    expect(() => {
+      edit.assertCurrent(createDocumentSnapshot([...snapshot.lines.slice(0, -1), 'c!']));
+    }).toThrow(DocumentConflictError);
+    expect(() => {
+      edit.assertCurrent(createDocumentSnapshot(['a\n\\section{Introduction}', 'b', 'c']));
+    }).toThrow(DocumentConflictError);
   });
 });

@@ -1,11 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { createDocumentSnapshot } from '../../../src/domain/document';
-import {
-  assertSnapshotCurrent,
-  createDocumentTarget,
-  resolveTarget,
-} from '../../../src/domain/document-target';
-import { DocumentConflictError, DocumentTargetNotFoundError } from '../../../src/domain/errors';
+import { createDocumentTarget, resolveTarget } from '../../../src/domain/document-target';
+import { DocumentTargetNotFoundError } from '../../../src/domain/errors';
 
 const snapshot = createDocumentSnapshot([
   '\\section{A}',
@@ -72,24 +68,5 @@ describe('resolveTarget', () => {
     expect(() => resolveTarget(snapshot, createDocumentTarget(99, ''))).toThrow(
       DocumentTargetNotFoundError,
     );
-  });
-});
-
-describe('assertSnapshotCurrent', () => {
-  it('accepts the same content and rejects any change', () => {
-    const same = createDocumentSnapshot([...snapshot.lines]);
-    const changed = createDocumentSnapshot([...snapshot.lines.slice(0, -1), 'dup!']);
-    expect(() => {
-      assertSnapshotCurrent(snapshot, same);
-    }).not.toThrow();
-    expect(() => {
-      assertSnapshotCurrent(snapshot, changed);
-    }).toThrow(DocumentConflictError);
-  });
-
-  it('distinguishes line splits from joins', () => {
-    expect(() => {
-      assertSnapshotCurrent(createDocumentSnapshot(['a', 'b']), createDocumentSnapshot(['a\nb']));
-    }).toThrow(DocumentConflictError);
   });
 });

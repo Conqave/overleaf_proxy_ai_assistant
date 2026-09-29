@@ -1,7 +1,7 @@
-import type { DocumentSnapshot } from './document';
+import { isSameDocument, type DocumentSnapshot } from './document';
 import { DocumentOperation, type DocumentCommand } from './document-command';
 import { resolveTarget } from './document-target';
-import { DocumentRangeError } from './errors';
+import { DocumentConflictError, DocumentRangeError } from './errors';
 
 export class ResolvedEdit {
   private constructor(
@@ -23,5 +23,13 @@ export class ResolvedEdit {
       }
     }
     return new ResolvedEdit(Object.freeze({ ...command, target }), document);
+  }
+
+  assertCurrent(current: DocumentSnapshot): void {
+    if (!isSameDocument(this.document, current)) {
+      throw new DocumentConflictError(
+        'The document changed after the suggestion was made. Ask again to get a fresh suggestion.',
+      );
+    }
   }
 }

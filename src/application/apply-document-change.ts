@@ -1,5 +1,4 @@
 import type { DocumentCommand } from '../domain/document-command';
-import { assertSnapshotCurrent } from '../domain/document-target';
 import type { EditorPort } from '../ports/editor-port';
 import type { PendingChanges } from './pending-change';
 
@@ -12,7 +11,7 @@ export class ApplyDocumentChange {
     change.approve();
     try {
       editor.clearPreview();
-      assertSnapshotCurrent(change.edit.document, editor.readDocument());
+      change.edit.assertCurrent(editor.readDocument());
       editor.apply(change.edit);
     } catch (error) {
       change.markFailed();

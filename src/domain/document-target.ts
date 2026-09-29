@@ -1,9 +1,5 @@
-import { isSameDocument, type DocumentSnapshot } from './document';
-import {
-  DocumentConflictError,
-  DocumentTargetNotFoundError,
-  InvalidDocumentCommandError,
-} from './errors';
+import type { DocumentSnapshot } from './document';
+import { DocumentTargetNotFoundError, InvalidDocumentCommandError } from './errors';
 
 export interface DocumentTarget {
   readonly lineNumber: number;
@@ -51,12 +47,4 @@ export function resolveTarget(
     );
   }
   return Object.freeze({ lineNumber: requested.lineNumber, lineText: atNumber });
-}
-
-export function assertSnapshotCurrent(expected: DocumentSnapshot, current: DocumentSnapshot): void {
-  if (!isSameDocument(expected, current)) {
-    throw new DocumentConflictError(
-      'The document changed after the suggestion was made. Ask again to get a fresh suggestion.',
-    );
-  }
 }

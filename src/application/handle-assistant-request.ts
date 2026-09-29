@@ -8,7 +8,6 @@ import type {
 } from '../domain/conversation';
 import type { DocumentSnapshot } from '../domain/document';
 import type { DocumentCommand } from '../domain/document-command';
-import { assertSnapshotCurrent } from '../domain/document-target';
 import { InvariantViolation } from '../domain/errors';
 import type { ResolvedEdit } from '../domain/resolved-edit';
 import type { AssistantPort, GatheredEvidence } from '../ports/assistant-port';
@@ -154,7 +153,7 @@ export class HandleAssistantRequest {
   private showPreview(change: PendingDocumentChange): void {
     const { editor } = this.deps;
     try {
-      assertSnapshotCurrent(change.edit.document, editor.readDocument());
+      change.edit.assertCurrent(editor.readDocument());
       editor.showPreview(change.edit);
     } catch (error) {
       change.discard();
