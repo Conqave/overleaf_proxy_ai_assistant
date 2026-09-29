@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import type { EditorView } from '@codemirror/view';
-import { editorLines, openBrowser } from '../support/browser';
+import { editorLines, FIXTURE_HTML, openBrowser } from '../support/browser';
 import { FakeOllama } from '../support/fake-ollama';
 
 const BUNDLE = new URL('../../dist/overleaf-ai-assistant.js', import.meta.url);
@@ -86,6 +86,18 @@ describe('assistant runtime', () => {
     ollama.config = { model: '' };
     const { doc } = await start({ ollama });
     expect(doc.getElementById('ola-root')).toBeNull();
+  });
+
+  it('does not start on a page that names no user', async () => {
+    const browser = openBrowser({
+      html: FIXTURE_HTML.replace(/<meta name="ol-user_id"[^>]*>/, ''),
+    });
+    await browser.settle();
+    browser.inject(readFileSync(BUNDLE, 'utf8'));
+    browser.openEditor();
+    await browser.settle();
+    expect(browser.document.getElementById('ola-root')).toBeNull();
+    expect(browser.ollama.calls).toHaveLength(0);
   });
 
   it('asks for a command when the input is empty', async () => {

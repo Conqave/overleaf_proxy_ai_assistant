@@ -10,7 +10,10 @@ import { OllamaClient } from '../infrastructure/ollama/ollama-client';
 import { preloadOllamaModel } from '../infrastructure/ollama/ollama-preload';
 import { OverleafEditorAdapter } from '../infrastructure/overleaf/overleaf-editor-adapter';
 import { OverleafEditorBridge } from '../infrastructure/overleaf/overleaf-editor-bridge';
-import { getPageIdentity } from '../infrastructure/overleaf/overleaf-page';
+import {
+  getPageIdentity,
+  MissingPageIdentityError,
+} from '../infrastructure/overleaf/overleaf-page';
 import { LocalStorageConversationRepository } from '../infrastructure/persistence/local-storage-conversation-repository';
 import { AssistantController } from '../presentation/assistant-controller';
 import { AssistantView } from '../presentation/assistant-view';
@@ -21,7 +24,7 @@ function compose(
   config: AssistantConfig,
   bridge: OverleafEditorBridge,
 ): void {
-  if (AssistantView.isMounted(window.document)) return;
+  const identity = getPageIdentity(window.document);
   const editor = new OverleafEditorAdapter(bridge, window.document);
   const client = new OllamaClient(
     {
@@ -34,7 +37,7 @@ function compose(
   );
   const assistant = new OllamaAssistant(client);
   const conversation = new ConversationLog(
-    new LocalStorageConversationRepository(window, getPageIdentity(window.document)),
+    new LocalStorageConversationRepository(window, identity),
   );
   const pendingChanges = new PendingChanges();
 
@@ -57,17 +60,23 @@ function compose(
 }
 
 function start(window: Window & typeof globalThis): void {
-  if (AssistantView.isMounted(window.document)) return;
   const bridge = new OverleafEditorBridge();
-  bridge.install(window);
+  const uninstall = bridge.install(window);
   bridge
     .whenReady()
     .then(() => loadConfig(window.fetch.bind(window)))
     .then((config) => {
+      if (AssistantView.isMounted(window.document)) {
+        uninstall();
+        return;
+      }
       compose(window, config, bridge);
     })
     .catch((error: unknown) => {
-      if (!(error instanceof ConfigurationError)) throw error;
+      if (!(error instanceof ConfigurationError || error instanceof MissingPageIdentityError)) {
+        throw error;
+      }
+      uninstall();
       console.error('[overleaf-ai-assistant] not started:', error.message);
     });
 }
