@@ -32,7 +32,7 @@ const VALID_ENV = {
 
 function validate(env: Record<string, string>) {
   const result = spawnSync('sh', ['-c', `. "${ENVSH}" && env`], {
-    env: { PATH: process.env.PATH ?? '', ...env },
+    env: { PATH: process.env.PATH, ...env },
     encoding: 'utf8',
   });
   const vars = Object.fromEntries(
@@ -123,7 +123,12 @@ const OVERLEAF_CSP =
 
 describe.runIf(hasBinary('nginx') && hasBinary('envsubst'))('nginx proxy', () => {
   const servers: Server[] = [];
-  const ollamaRequests: { method: string; url: string; host: string; origin: string }[] = [];
+  const ollamaRequests: {
+    method: string | undefined;
+    url: string | undefined;
+    host: string | undefined;
+    origin: string | undefined;
+  }[] = [];
   let base = '';
   let prefix = '';
 
@@ -147,10 +152,10 @@ describe.runIf(hasBinary('nginx') && hasBinary('envsubst'))('nginx proxy', () =>
     });
     const ollama = await listen((req, res) => {
       ollamaRequests.push({
-        method: req.method ?? '',
-        url: req.url ?? '',
-        host: req.headers.host ?? '',
-        origin: req.headers.origin ?? '',
+        method: req.method,
+        url: req.url,
+        host: req.headers.host,
+        origin: req.headers.origin,
       });
       res.setHeader('Content-Type', 'application/json');
       res.end(req.url === '/api/version' ? '{"version":"0"}' : '{"response":"{}"}');
@@ -230,7 +235,7 @@ describe.runIf(hasBinary('nginx') && hasBinary('envsubst'))('nginx proxy', () =>
     expect(ollamaRequests.at(-1)).toMatchObject({
       method: 'POST',
       url: '/api/generate',
-      origin: '',
+      origin: undefined,
     });
     expect(ollamaRequests.at(-1)!.host).toMatch(/^127\.0\.0\.1:\d+$/);
     expect((await fetch(`${base}/ollama/main/api/generate`)).status).toBe(403);
