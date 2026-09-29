@@ -1,6 +1,7 @@
 import { readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { TestFixtureError } from '../support/test-errors';
 
 const SRC = path.resolve(import.meta.dirname, '../../src');
 
@@ -21,7 +22,11 @@ function sourceFiles(dir: string): string[] {
   });
 }
 
-const layerOf = (file: string) => path.relative(SRC, file).split(path.sep)[0] ?? '';
+const layerOf = (file: string): string => {
+  const [layer] = path.relative(SRC, file).split(path.sep);
+  if (layer === undefined) throw new TestFixtureError(`${file} is outside ${SRC}`);
+  return layer;
+};
 const files = sourceFiles(SRC);
 const tsFiles = files.filter((file) => file.endsWith('.ts') && !file.endsWith('.d.ts'));
 

@@ -55,8 +55,8 @@ describe('parseEditResponse', () => {
       ...overrides,
     };
     const head = Object.entries(fields)
-      .filter(([, value]) => value !== null)
-      .map(([name, value]) => `${name}: ${value ?? ''}`);
+      .filter((entry): entry is [string, string] => entry[1] !== null)
+      .map(([name, value]) => `${name}: ${value}`);
     return [...head, ...(content === '' ? [] : ['CONTENT:', content])].join('\n');
   };
 
