@@ -12,8 +12,6 @@ export interface OllamaClientConfig {
   readonly timeoutMs: number;
 }
 
-export type FetchFunction = (input: string, init: RequestInit) => Promise<Response>;
-
 export interface GenerateRequest {
   readonly system: string;
   readonly prompt: string;
@@ -24,7 +22,7 @@ const TEMPERATURE = 0.2;
 export class OllamaClient {
   constructor(
     private readonly config: OllamaClientConfig,
-    private readonly fetch: FetchFunction,
+    private readonly fetchFn: typeof fetch,
   ) {}
 
   generate(request: GenerateRequest): Promise<string> {
@@ -73,7 +71,7 @@ export class OllamaClient {
 
   private async post(body: Record<string, unknown>, signal: AbortSignal): Promise<Response> {
     try {
-      return await this.fetch(this.config.endpoint, {
+      return await this.fetchFn(this.config.endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ model: this.config.model, stream: false, keep_alive: -1, ...body }),
