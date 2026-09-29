@@ -13,7 +13,6 @@ export interface OpenEditor {
 
 export class OverleafEditorBridge {
   private current: OpenEditor | null = null;
-  private preview: ChangePreview | null = null;
   private readonly ready = Promise.withResolvers<undefined>();
 
   install(window: Window): () => void {
@@ -35,7 +34,7 @@ export class OverleafEditorBridge {
   }
 
   private extend({ CodeMirror: cm, extensions }: ExtensionsEventDetail): void {
-    const preview = (this.preview ??= createChangePreview(cm));
+    const preview = createChangePreview(cm);
     extensions.push(
       preview.extension,
       cm.ViewPlugin.define((view) => this.track({ view, preview })),
