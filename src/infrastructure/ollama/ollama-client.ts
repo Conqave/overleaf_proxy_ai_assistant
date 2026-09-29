@@ -25,6 +25,10 @@ export class OllamaClient {
     private readonly fetchFn: typeof fetch,
   ) {}
 
+  get contextTokens(): number {
+    return this.config.contextTokens;
+  }
+
   generate(request: GenerateRequest): Promise<string> {
     return this.withTimeout(async (signal) => {
       const response = await this.post(

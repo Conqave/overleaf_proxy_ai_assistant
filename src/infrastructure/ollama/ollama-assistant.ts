@@ -15,19 +15,16 @@ import type { OllamaClient } from './ollama-client';
 export class OllamaAssistant implements AssistantPort {
   private readonly promptBudget: number;
 
-  constructor(
-    private readonly client: OllamaClient,
-    contextTokens: number,
-  ) {
-    this.promptBudget = getPromptBudget(contextTokens);
+  constructor(private readonly client: OllamaClient) {
+    this.promptBudget = getPromptBudget(client.contextTokens);
   }
 
-  plan(request: PlanningRequest): Promise<AssistantPlan> {
-    return this.exchange(createPlanExchange(request, this.promptBudget));
+  async plan(request: PlanningRequest): Promise<AssistantPlan> {
+    return await this.exchange(createPlanExchange(request, this.promptBudget));
   }
 
-  reply(request: ReplyRequest): Promise<AssistantReply> {
-    return this.exchange(createReplyExchange(request, this.promptBudget));
+  async reply(request: ReplyRequest): Promise<AssistantReply> {
+    return await this.exchange(createReplyExchange(request, this.promptBudget));
   }
 
   private async exchange<T>(exchange: ProtocolExchange<T>): Promise<T> {

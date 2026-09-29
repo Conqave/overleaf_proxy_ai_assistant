@@ -32,7 +32,7 @@ function compose(
     },
     window.fetch.bind(window),
   );
-  const assistant = new OllamaAssistant(client, config.contextTokens);
+  const assistant = new OllamaAssistant(client);
   const conversation = new ConversationLog(
     new LocalStorageConversationRepository(window, getPageIdentity(window.document)),
   );

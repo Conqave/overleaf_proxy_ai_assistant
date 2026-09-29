@@ -1,11 +1,15 @@
 import { describe, expect, it, vi } from 'vitest';
 import { OllamaAssistant } from '../../../src/infrastructure/ollama/ollama-assistant';
 import { OllamaClient } from '../../../src/infrastructure/ollama/ollama-client';
-import { MIN_CONTEXT_TOKENS } from '../../../src/infrastructure/ollama/assistant-protocol';
+import {
+  getPromptBudget,
+  MIN_CONTEXT_TOKENS,
+} from '../../../src/infrastructure/ollama/assistant-protocol';
 import { preloadOllamaModel } from '../../../src/infrastructure/ollama/ollama-preload';
 import {
   AssistantHttpError,
   AssistantProtocolError,
+  AssistantRequestTooLargeError,
   AssistantResponseContractError,
   AssistantTimeoutError,
   AssistantUnreachableError,
@@ -16,12 +20,12 @@ import { createDocumentSnapshot } from '../../../src/domain/document';
 const config = {
   endpoint: '/ollama/main/api/generate',
   model: 'm',
-  contextTokens: 4_096,
+  contextTokens: MIN_CONTEXT_TOKENS,
   timeoutMs: 50,
 };
 const make = (ollama: FakeOllama) => {
   const client = new OllamaClient(config, ollama.fetch as never);
-  return { client, assistant: new OllamaAssistant(client, MIN_CONTEXT_TOKENS) };
+  return { client, assistant: new OllamaAssistant(client) };
 };
 const plan = (value: unknown) => ({ response: JSON.stringify(value) });
 
@@ -37,7 +41,7 @@ describe('OllamaClient', () => {
         keep_alive: -1,
         system: 'S',
         prompt: 'P',
-        options: { num_ctx: 4_096, temperature: 0.2 },
+        options: { num_ctx: MIN_CONTEXT_TOKENS, temperature: 0.2 },
       },
     });
   });
@@ -151,6 +155,21 @@ describe('OllamaAssistant', () => {
       intent: 'summary',
     });
     expect(ollama.promptCalls).toHaveLength(1);
+  });
+
+  it('sizes its prompts to the context window of its client', async () => {
+    const long = { message: 'm'.repeat(getPromptBudget(MIN_CONTEXT_TOKENS)), conversation: [] };
+    await expect(make(new FakeOllama()).assistant.plan(long)).rejects.toThrow(
+      AssistantRequestTooLargeError,
+    );
+    const ollama = new FakeOllama().reply(plan({ intent: 'summary' }));
+    const wide = new OllamaClient(
+      { ...config, contextTokens: 2 * MIN_CONTEXT_TOKENS },
+      ollama.fetch as never,
+    );
+    await expect(new OllamaAssistant(wide).plan(long)).resolves.toMatchObject({
+      intent: 'summary',
+    });
   });
 
   it('retries once, asking again for the format of the exchange', async () => {

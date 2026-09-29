@@ -97,7 +97,7 @@ describe.runIf(OLLAMA_URL)(`Ollama contract (${MODEL})`, () => {
     { endpoint: OLLAMA_URL ?? '', model: MODEL, contextTokens: CONTEXT_TOKENS, timeoutMs: 300_000 },
     (input, init) => fetch(input, init),
   );
-  const assistant = new OllamaAssistant(client, CONTEXT_TOKENS);
+  const assistant = new OllamaAssistant(client);
 
   it.each(CASES)(
     '$request',
