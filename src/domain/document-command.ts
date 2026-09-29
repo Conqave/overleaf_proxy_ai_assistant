@@ -83,6 +83,6 @@ function parseTarget(value: unknown): DocumentTarget {
   if (typeof value !== 'object' || value === null) {
     throw new InvalidDocumentCommandError('target is required');
   }
-  const { lineNumber, lineText } = value as { lineNumber?: unknown; lineText?: unknown };
-  return createDocumentTarget(lineNumber, lineText);
+  const fields = new Map(Object.entries(value));
+  return createDocumentTarget(fields.get('lineNumber'), fields.get('lineText'));
 }
