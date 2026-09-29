@@ -3,12 +3,8 @@
   right: 20px;
   bottom: 20px;
   z-index: 99999;
-  width: 380px;
   color: #fff;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif;
-  left: auto;
-  top: auto;
-  display: block;
 }
 #ola-root * {
   box-sizing: border-box;
@@ -98,20 +94,12 @@
   font-size: 12px;
   font-weight: 700;
 }
-#ola-root .ola-labelRow {
+#ola-root .ola-label-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 10px;
   min-height: 20px;
-}
-#ola-root .ola-labelRow .ola-status {
-  position: static;
-  margin-left: auto;
-  min-height: 0;
-  max-width: 60%;
-  text-align: right;
-  pointer-events: none;
 }
 #ola-root .ola-textarea {
   width: 100%;
@@ -126,10 +114,6 @@
   font-size: 13px;
   outline: none;
 }
-#ola-root .ola-sendRow {
-  display: flex;
-  gap: 6px;
-}
 #ola-root .ola-btn {
   border: 0;
   border-radius: 999px;
@@ -143,13 +127,15 @@
 }
 #ola-root .ola-send {
   background: #27ae60;
-  flex: 1;
 }
 #ola-root .ola-status {
-  min-height: 20px;
+  margin-left: auto;
+  max-width: 60%;
   color: rgba(255, 255, 255, 0.8);
   font-size: 12px;
   line-height: 1.45;
+  text-align: right;
+  pointer-events: none;
 }
 #ola-root .ola-status.is-empty {
   display: none;
@@ -259,12 +245,6 @@
   font-weight: 700;
 }
 @media (max-width: 760px) {
-  #ola-root {
-    left: 12px;
-    right: 12px;
-    bottom: 12px;
-    width: auto;
-  }
   #ola-root .ola-badge {
     right: 12px;
     bottom: 12px;

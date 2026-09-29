@@ -56,7 +56,7 @@ export class AssistantView {
     this.chat = this.el('div', 'ola-chat');
 
     this.status = this.el('div', 'ola-status is-empty');
-    const labelRow = this.el('div', 'ola-labelRow');
+    const labelRow = this.el('div', 'ola-label-row');
     labelRow.append(this.el('span', undefined, VIEW_TEXT.inputLabel), this.status);
     this.input = this.el('textarea', 'ola-textarea');
     this.input.placeholder = VIEW_TEXT.inputPlaceholder;
@@ -74,11 +74,8 @@ export class AssistantView {
     this.sendButton.addEventListener('click', () => {
       this.submit();
     });
-    const sendRow = this.el('div', 'ola-sendRow');
-    sendRow.append(this.sendButton);
-
     const body = this.el('div', 'ola-body');
-    body.append(label, sendRow);
+    body.append(label, this.sendButton);
     const panel = this.el('section', 'ola-panel');
     panel.append(head, this.chat, body);
     this.root.append(panel, badge);
@@ -144,7 +141,7 @@ export class AssistantView {
   }
 
   private renderAssistant(message: AssistantMessage, changeId?: string): HTMLElement {
-    const node = this.el('div', 'ola-msg ola-ai ola-result');
+    const node = this.el('div', 'ola-msg ola-ai');
     node.append(this.el('div', 'ola-result-title', messageTitle(message)));
     switch (message.kind) {
       case AssistantMessageKind.Greeting:
