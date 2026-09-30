@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { EditorView } from '@codemirror/view';
+import { MIN_CONTEXT_TOKENS } from '../../src/infrastructure/ollama/assistant-protocol';
 import { type Browser, editorLines, openBrowser } from '../support/browser';
 import { FakeOllama } from '../support/fake-ollama';
 
@@ -172,7 +173,9 @@ describe('assistant runtime', () => {
     const { send, messages } = await start({ ollama });
     await send('o czym jest dokument?');
     expect(ollama.promptCalls[1]!.body.prompt).toContain('This report describes the experiment.');
-    expect(ollama.promptCalls.every((c) => c.body.options?.num_ctx === 16_384)).toBe(true);
+    expect(ollama.promptCalls.every((c) => c.body.options?.num_ctx === MIN_CONTEXT_TOKENS)).toBe(
+      true,
+    );
     expect(messages().at(-1)).toBe('Document summaryAn experiment report.');
   });
 
