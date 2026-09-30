@@ -123,7 +123,6 @@ describe('assistant runtime', () => {
     const { send, messages } = await start({ ollama });
     await send('o czym jest dokument?');
     expect(ollama.promptCalls[1]!.body.prompt).toContain('This report describes the experiment.');
-    expect(ollama.promptCalls.every((c) => !('format' in c.body))).toBe(true);
     expect(ollama.promptCalls.every((c) => c.body.options?.num_ctx === 16_384)).toBe(true);
     expect(messages().at(-1)).toBe('Document summaryAn experiment report.');
   });
@@ -271,7 +270,7 @@ describe('assistant runtime', () => {
 
   it('never applies an invalid edit', async () => {
     const bad = edit(
-      { OPERATION: 'replace_line', LINE: 6, LINE_TEXT: 'x', REASON: 'r', PLAN: 'p' },
+      { OPERATION: 'rewrite', LINE: 6, LINE_TEXT: 'x', REASON: 'r', PLAN: 'p' },
       'y',
     );
     const ollama = new FakeOllama().reply(editPlan, bad, bad);

@@ -76,7 +76,7 @@ describe('LocalStorageConversationRepository', () => {
   it.each([
     ['invalid JSON', '[{'],
     ['not an array', '{}'],
-    ['legacy v1 shape', JSON.stringify([{ text: 'hi', cls: 'ola-user' }])],
+    ['message without id and role', JSON.stringify([{ text: 'hi', cls: 'ola-user' }])],
     ['unknown kind', JSON.stringify([{ id: '1', role: 'assistant', kind: 'x', text: '' }])],
     [
       'proposal without its command',

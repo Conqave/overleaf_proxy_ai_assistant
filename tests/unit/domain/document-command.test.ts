@@ -58,7 +58,6 @@ describe('createDocumentCommand', () => {
     ['non-string content', { operation: 'insert_before', target, content: 42 }],
     ['unexpected content', { operation: 'delete', lineCount: 1, target, content: 'x' }],
     ['unknown operation', { operation: 'explain', target, content: 'x' }],
-    ['legacy operation name', { operation: 'replace_line', target, content: 'x' }],
     ['zero line', { operation: 'delete', lineCount: 1, target: { lineNumber: 0, lineText: 'a' } }],
     [
       'fractional line',

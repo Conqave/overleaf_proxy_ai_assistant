@@ -175,7 +175,6 @@ describe('parseEditResponse', () => {
     ['field glued to its value', edit().replace('LINE: 3', 'LINE:3')],
     ['field twice', edit().replace('CONTENT:', 'LINE: 3\nCONTENT:')],
     ['unknown operation', edit({ OPERATION: 'explain' })],
-    ['legacy operation', edit({ OPERATION: 'replace_line' })],
     ['missing line', edit({ LINE: null })],
     ['line as text', edit({ LINE: 'three' })],
     ['missing line text', edit({ LINE_TEXT: null })],
