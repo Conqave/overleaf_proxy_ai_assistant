@@ -22,3 +22,11 @@ export class AssistantRequestTooLargeError extends OperationalError {}
 export class EditorUnavailableError extends OperationalError {}
 
 export class PersistenceError extends OperationalError {}
+
+export class ProjectUnavailableError extends OperationalError {}
+
+export class ProjectFileReadError extends OperationalError {}
+
+export class FileOpenTimeoutError extends OperationalError {}
+
+export class CompileTimeoutError extends OperationalError {}
