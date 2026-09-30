@@ -28,6 +28,8 @@ const VALID_ENV = {
   OVERLEAF_UPSTREAM: '127.0.0.1:8081',
   OLLAMA_UPSTREAM: '127.0.0.1:11434',
   OLLAMA_MODEL: 'gpt-oss:20b',
+  OLLAMA_REQUEST_TIMEOUT_MS: '900000',
+  OLLAMA_CONTEXT_TOKENS: '128000',
 };
 
 function validate(env: Record<string, string>) {
@@ -63,12 +65,20 @@ describe('deployment configuration', () => {
     );
   });
 
-  it('applies documented defaults and derives the proxy timeout', () => {
+  it('accepts the example configuration', () => {
+    const example = Object.fromEntries(
+      readFileSync(path.join(ROOT, '.env.example'), 'utf8')
+        .trim()
+        .split('\n')
+        .map((line) => [line.slice(0, line.indexOf('=')), line.slice(line.indexOf('=') + 1)]),
+    );
+    expect(validate(example).status).toBe(0);
+  });
+
+  it('derives the proxy timeout from the request timeout', () => {
     const { status, vars } = validate(VALID_ENV);
     expect(status).toBe(0);
     expect(vars).toMatchObject({
-      OLLAMA_REQUEST_TIMEOUT_MS: '900000',
-      OLLAMA_CONTEXT_TOKENS: '128000',
       OLLAMA_PROXY_TIMEOUT_S: '930',
       ASSISTANT_OLLAMA_PATH: '/ollama/main/api/generate',
     });
@@ -83,6 +93,16 @@ describe('deployment configuration', () => {
     ['upstream without port', { ...VALID_ENV, OLLAMA_UPSTREAM: 'ollama' }, 'must be host:port'],
     ['missing model', { ...VALID_ENV, OLLAMA_MODEL: '' }, 'OLLAMA_MODEL is required'],
     ['model with quotes', { ...VALID_ENV, OLLAMA_MODEL: 'a"b' }, 'unsupported characters'],
+    [
+      'missing request timeout',
+      { ...VALID_ENV, OLLAMA_REQUEST_TIMEOUT_MS: '' },
+      'OLLAMA_REQUEST_TIMEOUT_MS is required',
+    ],
+    [
+      'missing context window',
+      { ...VALID_ENV, OLLAMA_CONTEXT_TOKENS: '' },
+      'OLLAMA_CONTEXT_TOKENS is required',
+    ],
     ['non-numeric timeout', { ...VALID_ENV, OLLAMA_REQUEST_TIMEOUT_MS: '15m' }, 'positive integer'],
     ['too small context window', { ...VALID_ENV, OLLAMA_CONTEXT_TOKENS: '8000' }, 'at least'],
     [
