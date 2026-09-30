@@ -12,6 +12,7 @@ import {
 import { HandleAssistantRequest } from '../../../src/application/handle-assistant-request';
 import { PendingChanges, PendingDocumentChange } from '../../../src/application/pending-change';
 import { RejectDocumentChange } from '../../../src/application/reject-document-change';
+import { FIX_REQUEST, ReviewAppliedChange } from '../../../src/application/review-applied-change';
 import type { AgentDecision, ToolCall } from '../../../src/domain/agent-action';
 import { AGENT_POLICY } from '../../../src/domain/agent-policy';
 import { createDocumentSnapshot } from '../../../src/domain/document';
@@ -54,6 +55,7 @@ let pendingChanges: PendingChanges;
 let handle: HandleAssistantRequest;
 let apply: ApplyDocumentChange;
 let reject: RejectDocumentChange;
+let review: ReviewAppliedChange;
 let progress: AgentProgress[];
 
 const record = (p: AgentProgress) => {
@@ -122,6 +124,7 @@ beforeEach(() => {
   });
   apply = new ApplyDocumentChange({ editor, project, pendingChanges });
   reject = new RejectDocumentChange({ editor, pendingChanges, conversation });
+  review = new ReviewAppliedChange({ project, conversation, handleRequest: handle });
   progress = [];
 });
 
@@ -463,6 +466,39 @@ describe('preview / apply / reject', () => {
     editor.available = false;
     await expect(apply.execute(changeId, record)).rejects.toThrow(EditorUnavailableError);
     await expect(apply.execute(changeId, record)).rejects.toThrow('it was failed');
+  });
+});
+
+describe('ReviewAppliedChange', () => {
+  it('reports a clean compilation without asking the agent', async () => {
+    project.willCompile([{ level: 'warning', message: 'Overfull \\hbox.' }]);
+    await expect(review.execute(record)).resolves.toEqual({ kind: 'compiled' });
+    expect(agent.requests).toHaveLength(0);
+    expect(progress).toEqual([{ stage: 'compiling' }]);
+  });
+
+  it('asks the agent for a fix with the compile result already in the transcript', async () => {
+    const diagnostics = [
+      { level: 'error' as const, message: 'Undefined control sequence.', path: 'main.tex' },
+    ];
+    project.willCompile(diagnostics);
+    agent.will(mainEdit());
+    const outcome = await review.execute(record);
+    expect(outcome).toMatchObject({ kind: 'fix', result: { message: { kind: 'proposal' } } });
+    expect(agent.requests[0]).toMatchObject({
+      message: FIX_REQUEST,
+      transcript: [{ call: { tool: 'compile' }, result: { tool: 'compile', diagnostics } }],
+    });
+    expect(project.compileCalls).toBe(1);
+  });
+
+  it('drops the review when the conversation was reset during compilation', async () => {
+    project.compile = () => {
+      new StartNewConversation({ conversation, pendingChanges, editor }).execute();
+      return Promise.resolve([{ level: 'error' as const, message: 'x' }]);
+    };
+    await expect(review.execute(record)).rejects.toThrow(RequestSupersededError);
+    expect(agent.requests).toHaveLength(0);
   });
 });
 

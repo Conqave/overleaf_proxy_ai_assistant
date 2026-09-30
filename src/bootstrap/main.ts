@@ -4,6 +4,7 @@ import { StartNewConversation } from '../application/conversation-session';
 import { HandleAssistantRequest } from '../application/handle-assistant-request';
 import { PendingChanges } from '../application/pending-change';
 import { RejectDocumentChange } from '../application/reject-document-change';
+import { ReviewAppliedChange } from '../application/review-applied-change';
 import { createUuid } from '../infrastructure/browser/uuid';
 import { OllamaClient } from '../infrastructure/ollama/ollama-client';
 import { preloadOllamaModel } from '../infrastructure/ollama/ollama-preload';
@@ -55,6 +56,7 @@ function compose(
   const controller = new AssistantController({
     handleRequest,
     applyChange: new ApplyDocumentChange({ editor, project, pendingChanges }),
+    reviewChange: new ReviewAppliedChange({ project, conversation, handleRequest }),
     rejectChange: new RejectDocumentChange({ editor, pendingChanges, conversation }),
     startNewConversation: new StartNewConversation({ conversation, pendingChanges, editor }),
     conversation,

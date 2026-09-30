@@ -4,10 +4,12 @@ import type { StartNewConversation } from '../application/conversation-session';
 import type { HandleAssistantRequest } from '../application/handle-assistant-request';
 import type { AgentProgress } from '../application/agent-progress';
 import type { RejectDocumentChange } from '../application/reject-document-change';
+import type { ReviewAppliedChange } from '../application/review-applied-change';
 import { InvariantViolation, OperationalError } from '../domain/errors';
 import type { AssistantView, ViewEvents } from './assistant-view';
 import {
   appliedNotice,
+  COMPILED,
   errorNotice,
   INTERNAL_ERROR,
   progressStatus,
@@ -17,6 +19,7 @@ import {
 export interface UseCases {
   handleRequest: HandleAssistantRequest;
   applyChange: ApplyDocumentChange;
+  reviewChange: ReviewAppliedChange;
   rejectChange: RejectDocumentChange;
   startNewConversation: StartNewConversation;
   conversation: Pick<ConversationLog, 'restore' | 'takePersistenceFailure'>;
@@ -69,6 +72,14 @@ export class AssistantController implements ViewEvents {
       try {
         const change = await this.useCases.applyChange.execute(changeId, onProgress);
         view.showNotice(appliedNotice(change), 'info');
+        const outcome = await this.useCases.reviewChange.execute(onProgress);
+        switch (outcome.kind) {
+          case 'compiled':
+            view.showNotice(COMPILED, 'info');
+            break;
+          case 'fix':
+            view.appendMessage(outcome.result.message, outcome.result.changeId);
+        }
       } finally {
         view.setBusy(false);
         view.setStatus('');

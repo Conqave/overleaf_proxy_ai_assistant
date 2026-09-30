@@ -6,6 +6,7 @@ import { StartNewConversation } from '../../../src/application/conversation-sess
 import { HandleAssistantRequest } from '../../../src/application/handle-assistant-request';
 import { PendingChanges } from '../../../src/application/pending-change';
 import { RejectDocumentChange } from '../../../src/application/reject-document-change';
+import { ReviewAppliedChange } from '../../../src/application/review-applied-change';
 import { createDocumentSnapshot } from '../../../src/domain/document';
 import { createDocumentCommand } from '../../../src/domain/document-command';
 import { InvariantViolation } from '../../../src/domain/errors';
@@ -51,15 +52,17 @@ async function proposeBibEdit() {
   );
   const conversation = new ConversationLog(new InMemoryConversationRepository());
   const pendingChanges = new PendingChanges();
+  const handleRequest = new HandleAssistantRequest({
+    agent,
+    project,
+    editor,
+    conversation,
+    pendingChanges,
+    newId: sequentialIds(),
+  });
   const controller = new AssistantController({
-    handleRequest: new HandleAssistantRequest({
-      agent,
-      project,
-      editor,
-      conversation,
-      pendingChanges,
-      newId: sequentialIds(),
-    }),
+    handleRequest,
+    reviewChange: new ReviewAppliedChange({ project, conversation, handleRequest }),
     applyChange: new ApplyDocumentChange({ editor, project, pendingChanges }),
     rejectChange: new RejectDocumentChange({ editor, pendingChanges, conversation }),
     startNewConversation: new StartNewConversation({ conversation, pendingChanges, editor }),
@@ -73,14 +76,26 @@ async function proposeBibEdit() {
   }
   const texts = (selector: string) =>
     Array.from(window.document.querySelectorAll(selector)).map((n) => n.textContent);
-  return { controller, editor, documents, changeId: proposal.id, texts };
+  return { controller, editor, project, agent, documents, changeId: proposal.id, texts };
 }
 
 describe('AssistantController apply', () => {
-  it('reports the applied file', async () => {
-    const { controller, changeId, texts } = await proposeBibEdit();
+  it('reports the applied file and a clean compilation', async () => {
+    const { controller, project, changeId, texts } = await proposeBibEdit();
+    project.willCompile([]);
     await controller.apply(changeId);
-    expect(texts('.ola-system')).toEqual(['Done. Inserted after the selected anchor in refs.bib.']);
+    expect(texts('.ola-system')).toEqual([
+      'Done. Inserted after the selected anchor in refs.bib.',
+      'Compiled without errors.',
+    ]);
+  });
+
+  it('shows the fix proposed after a failed compilation', async () => {
+    const { controller, project, agent, changeId, texts } = await proposeBibEdit();
+    project.willCompile([{ level: 'error', message: 'Missing } inserted.' }]);
+    agent.will({ kind: 'reply', reply: { kind: 'answer', text: 'Add a closing brace.' } });
+    await controller.apply(changeId);
+    expect(texts('.ola-result-body').at(-1)).toBe('Add a closing brace.');
   });
 
   it('shows expected failures and continues', async () => {
