@@ -18,3 +18,19 @@ export class DocumentTargetNotFoundError extends OperationalError {}
 export class DocumentConflictError extends OperationalError {}
 
 export class DocumentRangeError extends OperationalError {}
+
+export class InvalidProjectPathError extends NamedError {}
+
+export class InvalidProjectTreeError extends NamedError {}
+
+export class InvalidToolCallError extends NamedError {}
+
+export class ToolBudgetExhaustedError extends NamedError {}
+
+export class RepeatedToolCallError extends NamedError {}
+
+export class UnreadFileEditError extends NamedError {}
+
+export class ProjectFileNotFoundError extends OperationalError {}
+
+export class NotATextFileError extends OperationalError {}
