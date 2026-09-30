@@ -24,7 +24,7 @@ const config = {
   timeoutMs: 50,
 };
 const make = (ollama: FakeOllama) => {
-  const client = new OllamaClient(config, ollama.fetch as never);
+  const client = new OllamaClient(config, ollama.fetch);
   return { client, assistant: new OllamaAssistant(client) };
 };
 const plan = (value: unknown) => ({ response: JSON.stringify(value) });
@@ -165,7 +165,7 @@ describe('OllamaAssistant', () => {
     const ollama = new FakeOllama().reply(plan({ intent: 'summary' }));
     const wide = new OllamaClient(
       { ...config, contextTokens: 2 * MIN_CONTEXT_TOKENS },
-      ollama.fetch as never,
+      ollama.fetch,
     );
     await expect(new OllamaAssistant(wide).plan(long)).resolves.toMatchObject({
       intent: 'summary',

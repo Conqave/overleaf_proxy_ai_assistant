@@ -37,11 +37,17 @@ export class FakeOllama {
     contextTokens: 16_384,
   };
 
-  readonly fetch = async (url: string, init: RequestInit & { body: string }): Promise<Response> => {
+  readonly fetch: typeof fetch = async (url, init) => {
+    if (typeof url !== 'string') {
+      throw new UnexpectedFakeCallError('Ollama was called with a non-string URL');
+    }
     if (url === '/overleaf-ai-assistant/config.json') {
       return this.config
         ? new Response(JSON.stringify(this.config), { status: 200 })
         : new Response('missing', { status: 404 });
+    }
+    if (typeof init?.body !== 'string') {
+      throw new UnexpectedFakeCallError(`Ollama was called at ${url} without a JSON body`);
     }
     const body = JSON.parse(init.body) as OllamaCall['body'];
     this.calls.push({ url, body });

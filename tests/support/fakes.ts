@@ -16,6 +16,7 @@ export class FakeEditor implements EditorPort {
   cursorLine = 1;
   logs = '';
   preview: ResolvedEdit | null = null;
+  applyFailure: Error | null = null;
   applied: DocumentCommand[] = [];
 
   constructor(public lines: string[]) {}
@@ -42,6 +43,7 @@ export class FakeEditor implements EditorPort {
   }
   apply({ command }: ResolvedEdit): void {
     this.ensureAvailable();
+    if (this.applyFailure) throw this.applyFailure;
     const index = command.target.lineNumber - 1;
     const content = 'content' in command ? command.content.split('\n') : [];
     switch (command.operation) {
