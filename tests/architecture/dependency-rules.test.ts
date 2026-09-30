@@ -14,12 +14,28 @@ const ALLOWED: Record<string, readonly string[]> = {
   bootstrap: ['bootstrap', 'presentation', 'application', 'infrastructure', 'ports', 'domain'],
 };
 
+const STATIC_REFERENCE =
+  /^\s*(?:import|export)\s+(type\s+)?(?:[^'";]*?\sfrom\s+)?['"]([^'"]+)['"]/gm;
+const DYNAMIC_REFERENCE = /\bimport\(\s*['"]([^'"]+)['"]\s*\)/g;
+
 function sourceFiles(dir: string): string[] {
   return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
     const full = path.join(dir, entry.name);
     if (entry.isDirectory()) return sourceFiles(full);
-    return /\.(ts|css)$/.test(entry.name) ? [full] : [];
+    return entry.name.endsWith('.ts') && !entry.name.endsWith('.d.ts') ? [full] : [];
   });
+}
+
+function importsOf(source: string): { target: string; typeOnly: boolean }[] {
+  const staticReferences = [...source.matchAll(STATIC_REFERENCE)].map((m) => ({
+    target: m[2]!,
+    typeOnly: m[1] !== undefined,
+  }));
+  const dynamicReferences = [...source.matchAll(DYNAMIC_REFERENCE)].map((m) => ({
+    target: m[1]!,
+    typeOnly: false,
+  }));
+  return [...staticReferences, ...dynamicReferences];
 }
 
 const layerOf = (file: string): string => {
@@ -27,27 +43,44 @@ const layerOf = (file: string): string => {
   if (layer === undefined) throw new TestFixtureError(`${file} is outside ${SRC}`);
   return layer;
 };
-const files = sourceFiles(SRC);
-const tsFiles = files.filter((file) => file.endsWith('.ts') && !file.endsWith('.d.ts'));
+const tsFiles = sourceFiles(SRC);
 
 const edges = tsFiles.flatMap((file) =>
-  [...readFileSync(file, 'utf8').matchAll(/^import\s(type\s)?[^'"]*['"]([^'"]+)['"]/gm)].map(
-    (m) => {
-      const target = m[2]!;
-      return {
-        from: path.relative(SRC, file),
-        target,
-        typeOnly: m[1] !== undefined,
-        layer: target.startsWith('.') ? layerOf(path.resolve(path.dirname(file), target)) : null,
-      };
-    },
-  ),
+  importsOf(readFileSync(file, 'utf8')).map(({ target, typeOnly }) => ({
+    from: path.relative(SRC, file),
+    target,
+    typeOnly,
+    layer: target.startsWith('.') ? layerOf(path.resolve(path.dirname(file), target)) : null,
+  })),
 );
 
 describe('dependency rules', () => {
   it('every source file belongs to a known layer', () => {
-    const unknown = tsFiles.map(layerOf).filter((layer) => !(layer in ALLOWED));
-    expect(unknown.filter((layer) => !layer.endsWith('.d.ts'))).toEqual([]);
+    expect(tsFiles.map(layerOf).filter((layer) => !(layer in ALLOWED))).toEqual([]);
+  });
+
+  it('recognises every form of module reference', () => {
+    const source = [
+      "import { a } from './a';",
+      "import type { B } from './b';",
+      "import './c';",
+      "import {\n  d,\n} from './d';",
+      "export { e } from './e';",
+      "export type { F } from './f';",
+      "export * from './g';",
+      "const h = await import('./h');",
+      "export const i = 'not a module';",
+    ].join('\n');
+    expect(importsOf(source)).toEqual([
+      { target: './a', typeOnly: false },
+      { target: './b', typeOnly: true },
+      { target: './c', typeOnly: false },
+      { target: './d', typeOnly: false },
+      { target: './e', typeOnly: false },
+      { target: './f', typeOnly: true },
+      { target: './g', typeOnly: false },
+      { target: './h', typeOnly: false },
+    ]);
   });
 
   it('imports point only inward', () => {
