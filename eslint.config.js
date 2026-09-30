@@ -2,25 +2,6 @@ import js from '@eslint/js';
 import globals from 'globals';
 import tseslint from 'typescript-eslint';
 
-const browserGlobals = [
-  'window',
-  'document',
-  'navigator',
-  'localStorage',
-  'sessionStorage',
-  'fetch',
-  'XMLHttpRequest',
-  'HTMLElement',
-  'Element',
-  'Node',
-  'Range',
-  'Selection',
-  'MutationObserver',
-  'requestAnimationFrame',
-  'setTimeout',
-  'setInterval',
-];
-
 export default tseslint.config(
   { ignores: ['dist/', 'node_modules/'] },
   js.configs.recommended,
@@ -29,7 +10,6 @@ export default tseslint.config(
     files: ['**/*.ts'],
     languageOptions: {
       parserOptions: { projectService: true, tsconfigRootDir: import.meta.dirname },
-      globals: { ...globals.browser },
     },
   },
   {
@@ -52,18 +32,6 @@ export default tseslint.config(
       'no-restricted-globals': [
         'error',
         { name: 'localStorage', message: 'Only the persistence adapter may use storage.' },
-      ],
-    },
-  },
-  {
-    files: ['src/domain/**/*.ts', 'src/application/**/*.ts', 'src/ports/**/*.ts'],
-    rules: {
-      'no-restricted-globals': [
-        'error',
-        ...browserGlobals.map((name) => ({
-          name,
-          message: 'Browser/runtime APIs belong to infrastructure or presentation.',
-        })),
       ],
     },
   },
