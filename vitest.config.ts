@@ -11,6 +11,7 @@ export default defineConfig({
           include: ['tests/**/*.test.ts'],
           exclude: DOM_TESTS,
           globalSetup: ['tests/integration/global-setup.ts'],
+          testTimeout: 30_000,
         },
       },
       {

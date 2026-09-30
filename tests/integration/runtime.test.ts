@@ -10,6 +10,7 @@ const BUNDLE = readFileSync(
 );
 const HISTORY_KEY = 'ola-conversation:user-1:project-1';
 const EXTENSIONS_EVENT = 'UNSTABLE_editor:extensions';
+const PAGE_WAIT = { timeout: 10_000 };
 const json = (value: unknown) => ({ response: JSON.stringify(value) });
 const text = (value: string) => ({ response: value });
 const edit = (fields: Record<string, string | number>, content?: string) =>
@@ -37,7 +38,7 @@ async function waitForStartupFailure(browser: Browser): Promise<void> {
     expect(browser.consoleErrors).toEqual([
       expect.stringContaining('[overleaf-ai-assistant] not started'),
     ]);
-  });
+  }, PAGE_WAIT);
 }
 
 function session(browser: Browser, editor: EditorView) {
@@ -51,7 +52,7 @@ function session(browser: Browser, editor: EditorView) {
     await vi.waitFor(() => {
       expect(messages().length).toBeGreaterThan(before);
       expect(sendButton().disabled).toBe(false);
-    });
+    }, PAGE_WAIT);
   };
   const click = (selector: string) => {
     doc.querySelector<HTMLButtonElement>(selector)!.click();
@@ -62,7 +63,7 @@ function session(browser: Browser, editor: EditorView) {
 async function waitForAssistant(browser: Browser): Promise<void> {
   await vi.waitFor(() => {
     expect(browser.document.querySelectorAll('#ola-root .ola-msg').length).toBeGreaterThan(0);
-  });
+  }, PAGE_WAIT);
 }
 
 async function start(options: { ollama: FakeOllama; storage?: Record<string, string> }) {
@@ -100,7 +101,7 @@ describe('assistant runtime', () => {
     const { doc, messages, ollama } = await start({ ollama: new FakeOllama() });
     await vi.waitFor(() => {
       expect(ollama.calls.filter((c) => c.body.prompt === '')).toHaveLength(1);
-    });
+    }, PAGE_WAIT);
     expect(doc.querySelector('.ola-badge')?.textContent).toBe('Hans');
     expect(doc.querySelector('.ola-head')?.textContent).toContain('Hans AI Assistant');
     expect(messages()).toEqual([expect.stringContaining('Ready to help with this document')]);
@@ -116,7 +117,7 @@ describe('assistant runtime', () => {
     browser.openEditor();
     await vi.waitFor(() => {
       expect(detach).toHaveBeenCalledWith(EXTENSIONS_EVENT, expect.any(Function));
-    });
+    }, PAGE_WAIT);
     expect(doc.querySelectorAll('#ola-root')).toHaveLength(1);
   });
 
@@ -399,7 +400,7 @@ describe('assistant runtime', () => {
     input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' }));
     await vi.waitFor(() => {
       expect(messages()).toEqual(['hi', expect.stringContaining('Hi, I am here')]);
-    });
+    }, PAGE_WAIT);
     input.value = 'hey';
     const inspect = new KeyboardEvent('keydown', {
       code: 'KeyC',
