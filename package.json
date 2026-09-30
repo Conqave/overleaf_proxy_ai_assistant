@@ -8,11 +8,13 @@
     "lint": "eslint --max-warnings 0 .",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "test": "vitest run",
-    "test:unit": "vitest run tests/unit",
-    "test:integration": "vitest run tests/integration tests/deploy tests/architecture",
-    "test:contract": "vitest run tests/contract",
-    "check": "npm run format:check && npm run lint && npm run typecheck && npm run test && npm run build"
+    "test": "npm run build && vitest run --project unit --project dom --project architecture --project integration --project deploy",
+    "test:unit": "vitest run --project unit --project dom",
+    "test:architecture": "vitest run --project architecture",
+    "test:integration": "npm run build && vitest run --project integration",
+    "test:deploy": "npm run build && vitest run --project deploy",
+    "test:contract": "vitest run --project contract",
+    "check": "npm run format:check && npm run lint && npm run typecheck && npm run test"
   },
   "devDependencies": {
     "@codemirror/state": "^6.7.6",

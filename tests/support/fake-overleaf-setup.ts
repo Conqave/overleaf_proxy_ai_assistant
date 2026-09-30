@@ -1,7 +1,6 @@
-import { execFileSync } from 'node:child_process';
 import { build } from 'esbuild';
 import type { TestProject } from 'vitest/node';
-import { TestFixtureError } from '../support/test-errors';
+import { TestFixtureError } from './test-errors';
 
 declare module 'vitest' {
   export interface ProvidedContext {
@@ -10,7 +9,6 @@ declare module 'vitest' {
 }
 
 export default async function setup(project: TestProject): Promise<void> {
-  execFileSync('node', ['scripts/build.mjs'], { stdio: 'inherit' });
   const page = await build({
     entryPoints: ['tests/support/fake-overleaf-page.ts'],
     bundle: true,

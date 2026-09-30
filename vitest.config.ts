@@ -7,11 +7,9 @@ export default defineConfig({
     projects: [
       {
         test: {
-          name: 'node',
-          include: ['tests/**/*.test.ts'],
+          name: 'unit',
+          include: ['tests/unit/**/*.test.ts'],
           exclude: DOM_TESTS,
-          globalSetup: ['tests/integration/global-setup.ts'],
-          testTimeout: 30_000,
         },
       },
       {
@@ -19,6 +17,32 @@ export default defineConfig({
           name: 'dom',
           include: DOM_TESTS,
           environment: 'jsdom',
+        },
+      },
+      {
+        test: {
+          name: 'architecture',
+          include: ['tests/architecture/**/*.test.ts'],
+        },
+      },
+      {
+        test: {
+          name: 'integration',
+          include: ['tests/integration/**/*.test.ts'],
+          globalSetup: ['tests/support/fake-overleaf-setup.ts'],
+          testTimeout: 30_000,
+        },
+      },
+      {
+        test: {
+          name: 'deploy',
+          include: ['tests/deploy/**/*.test.ts'],
+        },
+      },
+      {
+        test: {
+          name: 'contract',
+          include: ['tests/contract/**/*.test.ts'],
         },
       },
     ],

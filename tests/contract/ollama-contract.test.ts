@@ -7,7 +7,6 @@ import { OllamaClient } from '../../src/infrastructure/ollama/ollama-client';
 import type { GatheredEvidence } from '../../src/ports/assistant-port';
 import { TestFixtureError } from '../support/test-errors';
 
-const OLLAMA_URL = process.env.OLLAMA_CONTRACT_URL;
 const CASE_TIMEOUT_MS = 300_000;
 
 const source = readFileSync(new URL('../fixtures/overleaf-example.tex', import.meta.url), 'utf8');
@@ -23,7 +22,7 @@ const lineText = (lineNumber: number): string => {
 function requireEnv(name: string): string {
   const value = process.env[name];
   if (value === undefined || value === '') {
-    throw new TestFixtureError(`${name} must be set together with OLLAMA_CONTRACT_URL`);
+    throw new TestFixtureError(`${name} must be set to run the Ollama contract tests`);
   }
   return value;
 }
@@ -118,7 +117,7 @@ function createContractAssistant(): OllamaAssistant {
   return new OllamaAssistant(client);
 }
 
-describe.runIf(OLLAMA_URL)('Ollama contract', () => {
+describe('Ollama contract', () => {
   let assistant: OllamaAssistant;
 
   beforeAll(() => {
