@@ -1,44 +1,45 @@
 import { readFileSync } from 'node:fs';
 import type { EditorView } from '@codemirror/view';
-import { JSDOM } from 'jsdom';
+import { JSDOM, VirtualConsole } from 'jsdom';
 import { inject } from 'vitest';
-import { FakeOllama } from './fake-ollama';
+import type { FakeOllama } from './fake-ollama';
 
-export const FIXTURE_HTML = readFileSync(
+const FIXTURE_HTML = readFileSync(
   new URL('../fixtures/overleaf-editor.html', import.meta.url),
   'utf8',
 );
 
 export interface Browser {
-  dom: JSDOM;
   window: JSDOM['window'];
   document: Document;
   ollama: FakeOllama;
+  consoleErrors: string[];
   inject(source: string): void;
   openEditor(text?: string): EditorView;
-  settle(): Promise<void>;
+  close(): void;
 }
 
-export function openBrowser(
-  options: { html?: string; ollama?: FakeOllama; storage?: Record<string, string> } = {},
-): Browser {
-  const dom = new JSDOM(options.html ?? FIXTURE_HTML, {
+export function openBrowser(ollama: FakeOllama): Browser {
+  const consoleErrors: string[] = [];
+  const virtualConsole = new VirtualConsole();
+  virtualConsole.on('error', (...args: unknown[]) => {
+    consoleErrors.push(args.map(String).join(' '));
+  });
+  virtualConsole.forwardTo(console);
+  const dom = new JSDOM(FIXTURE_HTML, {
     url: 'http://overleaf.test/project/1',
     runScripts: 'outside-only',
     pretendToBeVisual: true,
+    virtualConsole,
   });
   const window = dom.window;
-  const ollama = options.ollama ?? new FakeOllama();
-  for (const [key, value] of Object.entries(options.storage ?? {})) {
-    window.localStorage.setItem(key, value);
-  }
   Object.assign(window, { fetch: ollama.fetch, Response });
   let overleafLoaded = false;
   return {
-    dom,
     window,
     document: window.document,
     ollama,
+    consoleErrors,
     inject(source) {
       window.eval(source);
     },
@@ -47,10 +48,8 @@ export function openBrowser(
       overleafLoaded = true;
       return (window as unknown as Window).fakeOverleaf.open(text);
     },
-    async settle() {
-      for (let i = 0; i < 20; i += 1) {
-        await new Promise((resolve) => setTimeout(resolve, 5));
-      }
+    close() {
+      window.close();
     },
   };
 }
