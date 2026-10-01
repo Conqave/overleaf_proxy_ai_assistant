@@ -1,11 +1,6 @@
-import {
-  AgentTool,
-  type AgentReply,
-  type ProjectEdit,
-  type ToolCall,
-} from '../domain/agent-action';
+import type { AgentReply, ProjectEdit } from '../domain/agent-action';
 import { checkToolCall } from '../domain/agent-policy';
-import type { AgentTurn, ToolResult } from '../domain/agent-transcript';
+import type { AgentTurn } from '../domain/agent-transcript';
 import type {
   AssistantMessage,
   GreetingMessage,
@@ -13,8 +8,6 @@ import type {
   ReplyMessage,
   UserMessage,
 } from '../domain/conversation';
-import { findTextFile, listTextFiles } from '../domain/project-file';
-import { searchProject } from '../domain/project-search';
 import type { AgentPort, AgentWorkspace, ContextUsage } from '../ports/agent-port';
 import type { EditorPort } from '../ports/editor-port';
 import type { ProjectPort } from '../ports/project-port';
@@ -23,6 +16,7 @@ import type { ConversationLog } from './conversation-log';
 import { EmptyRequestError, RequestInProgressError, RequestSupersededError } from './errors';
 import { isGreetingOnly } from './greeting-policy';
 import { PendingDocumentChange, type PendingChanges } from './pending-change';
+import { ProjectTools } from './project-tools';
 import { showProjectFile } from './show-project-file';
 
 export interface AssistantRequestResult {
@@ -33,6 +27,7 @@ export interface AssistantRequestResult {
 
 export class HandleAssistantRequest {
   private running = false;
+  private readonly tools: ProjectTools;
 
   constructor(
     private readonly deps: {
@@ -43,7 +38,9 @@ export class HandleAssistantRequest {
       pendingChanges: PendingChanges;
       newId: () => string;
     },
-  ) {}
+  ) {
+    this.tools = new ProjectTools(deps.project);
+  }
 
   async execute(
     text: string,
@@ -94,7 +91,7 @@ export class HandleAssistantRequest {
         return { ...(await this.answer(decision.reply, epoch, onProgress)), contextUsage };
       }
       checkToolCall(transcript, decision.call);
-      const result = await this.callTool(decision.call, workspace, onProgress);
+      const result = await this.tools.run(decision.call, workspace.files, onProgress);
       this.ensureCurrent(epoch);
       transcript.push({ call: decision.call, result });
     }
@@ -108,34 +105,6 @@ export class HandleAssistantRequest {
       cursorLine: editor.readCursorLine(),
       selection: editor.readSelection(),
     };
-  }
-
-  private async callTool(
-    call: ToolCall,
-    workspace: AgentWorkspace,
-    onProgress: (progress: AgentProgress) => void,
-  ): Promise<ToolResult> {
-    const { project } = this.deps;
-    switch (call.tool) {
-      case AgentTool.ReadFile: {
-        const file = findTextFile(workspace.files, call.path);
-        onProgress({ stage: 'reading', path: call.path });
-        return { tool: call.tool, path: call.path, document: await project.readFile(file) };
-      }
-      case AgentTool.Search: {
-        onProgress({ stage: 'searching', query: call.query });
-        const searched = await Promise.all(
-          listTextFiles(workspace.files).map(async (file) => ({
-            path: file.path,
-            document: await project.readFile(file),
-          })),
-        );
-        return { tool: call.tool, ...searchProject(searched, call.query) };
-      }
-      case AgentTool.Compile:
-        onProgress({ stage: 'compiling' });
-        return { tool: call.tool, diagnostics: await project.compile() };
-    }
   }
 
   private async answer(
