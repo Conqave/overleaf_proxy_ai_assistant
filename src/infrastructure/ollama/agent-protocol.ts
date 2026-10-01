@@ -4,7 +4,7 @@ import type { AgentTurn, CompileDiagnostic, ToolResult } from '../../domain/agen
 import type { DocumentSnapshot } from '../../domain/document';
 import { DocumentOperation } from '../../domain/document-command';
 import { ProjectFileKind, type ProjectFile } from '../../domain/project-file';
-import type { AgentStepRequest } from '../../ports/agent-port';
+import type { AgentRequest, AgentStepRequest } from '../../ports/agent-port';
 import { createMessageTooLargeError } from './context-budget';
 import { getCorrectionReserveChars, type ProtocolExchange } from './correction-exchange';
 import { parseAgentDecision } from './reply-parser';
@@ -39,6 +39,7 @@ const NO_PROBLEMS = '(no problems)';
 const NO_MATCHES = '(no matches)';
 const MORE_MATCHES = '(more matches omitted; search for something more specific)';
 const REJECTED = 'rejected';
+const COMPILE_RESULT_LABEL = 'Compile result after the applied change';
 
 const A = AgentAction;
 const F = EditField;
@@ -116,6 +117,7 @@ const AGENT_SYSTEM = lines(
   `- ${AgentField.Path} is always a path exactly as listed under Project files; files marked (binary) cannot be read or edited. If a file the user names is not listed, say so in an ${A.Answer}.`,
   `- Use ${A.Search} to find labels, citations, commands or text when you do not know which file has them.`,
   `- When the user says the project does not compile or reports errors or warnings, your first action is ${A.Compile}, before any ${A.ReadFile}; then read the file it names and fix the first error it reports; the errors after it are often only its consequences, so change nothing else.`,
+  `- A System request about compile errors comes with "${COMPILE_RESULT_LABEL}": do not ${A.Compile} again; read the file it names and fix the first error it reports.`,
   `- Verbs such as translate, fix, change, add, remove, rewrite (przetłumacz, popraw, zmień, dodaj, usuń, przepisz) applied to text of a file ask for an ${A.Edit} of that file.`,
   `- Verbs such as explain, describe, summarize (wyjaśnij, opisz, streść) ask for an ${A.Answer}; they never change a file.`,
   '- Reply as soon as you know enough. Never repeat a lookup; use the result you already have.',
@@ -203,7 +205,10 @@ function buildPrompt(request: AgentStepRequest, budget: number): string {
     label: `Numbered lines of ${workspace.openFile.path} (open in the editor, caret on line ${String(workspace.cursorLine)}):`,
     text: numberLines(workspace.openFile.document),
   };
-  const results = transcript.map((turn, index) => turnBlock(index + 1, turn));
+  const results = [
+    ...attachedBlocks(request.request),
+    ...transcript.map((turn, index) => turnBlock(index + 1, turn)),
+  ];
   const separators = (results.length + 2) * LINE_BREAK.length;
   const available = budget - lines(...before, ...after).length - separators;
   const rendered = renderBlocks(available, open, results);
@@ -271,6 +276,15 @@ function numberLines(document: DocumentSnapshot): string {
   return document.lines.map((line, index) => `${String(index + 1)}: ${line}`).join(LINE_BREAK);
 }
 
+function attachedBlocks(request: AgentRequest): PromptBlock[] {
+  switch (request.kind) {
+    case 'user':
+      return [];
+    case 'compile-fix':
+      return [{ label: `${COMPILE_RESULT_LABEL}:`, text: diagnosticsText(request.diagnostics) }];
+  }
+}
+
 function turnBlock(position: number, turn: AgentTurn): PromptBlock {
   switch (turn.kind) {
     case 'tool':
@@ -315,10 +329,12 @@ function resultText(result: ToolResult): string {
       return lines(...listed, ...(result.truncated ? [MORE_MATCHES] : []));
     }
     case AgentTool.Compile:
-      return result.diagnostics.length
-        ? result.diagnostics.map(diagnosticLine).join(LINE_BREAK)
-        : NO_PROBLEMS;
+      return diagnosticsText(result.diagnostics);
   }
+}
+
+function diagnosticsText(diagnostics: readonly CompileDiagnostic[]): string {
+  return diagnostics.length ? diagnostics.map(diagnosticLine).join(LINE_BREAK) : NO_PROBLEMS;
 }
 
 function diagnosticLine(diagnostic: CompileDiagnostic): string {

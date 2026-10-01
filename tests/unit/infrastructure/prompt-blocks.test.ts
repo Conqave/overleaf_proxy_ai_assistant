@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { AGENT_POLICY } from '../../../src/domain/agent-policy';
 import { createDocumentSnapshot } from '../../../src/domain/document';
 import { createDocumentCommand } from '../../../src/domain/document-command';
 import { ProjectFileKind } from '../../../src/domain/project-file';
@@ -14,7 +15,7 @@ const conversation = Array.from({ length: 15 }, (_, i) => ({
 }));
 
 const request = (overrides: Partial<AgentStepRequest> = {}): AgentStepRequest => ({
-  request: { id: 'r', role: 'user', text: 'm' },
+  request: { kind: 'user', message: { id: 'r', role: 'user', text: 'm' } },
   conversation: [],
   signal: new AbortController().signal,
   workspace: {
@@ -37,7 +38,11 @@ const withSelection = (selection: string): Partial<AgentStepRequest> => ({
 describe('conversation history', () => {
   it('labels a request of the editor as a system request in the language of the user', () => {
     const prompt = promptOf({
-      request: { id: 'r', role: 'system', text: 'Fix the first error.' },
+      request: {
+        kind: 'compile-fix',
+        message: { id: 'r', role: 'system', text: 'Fix the first error.' },
+        diagnostics: [],
+      },
       conversation: [
         { id: '1', role: 'user', text: 'Dodaj tabelę wyników' },
         { id: '2', role: 'assistant', kind: 'explanation', text: 'Gotowe.' },
@@ -49,9 +54,31 @@ describe('conversation history', () => {
     expect(prompt).not.toContain('User message:');
   });
 
+  it('attaches the compile result of a compile-fix request without using a lookup', () => {
+    const prompt = promptOf({
+      request: {
+        kind: 'compile-fix',
+        message: { id: 'r', role: 'system', text: 'Fix the first error.' },
+        diagnostics: [
+          {
+            level: 'error',
+            message: 'Undefined control sequence.',
+            path: 'main.tex',
+            lineNumber: 2,
+          },
+        ],
+      },
+    });
+    expect(prompt).toContain(
+      'Compile result after the applied change:\nerror main.tex:2: Undefined control sequence.',
+    );
+    expect(prompt).not.toContain('Result 1');
+    expect(prompt).toContain(`Lookups left: ${String(AGENT_POLICY.maxToolCalls)}`);
+  });
+
   it('carries the message and the last 12 turns', () => {
     const prompt = promptOf({
-      request: { id: 'r', role: 'user', text: 'Add a table' },
+      request: { kind: 'user', message: { id: 'r', role: 'user', text: 'Add a table' } },
       conversation,
     });
     expect(prompt).toContain('User message:\nAdd a table');

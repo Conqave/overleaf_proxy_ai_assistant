@@ -47,7 +47,7 @@ const turns: readonly AgentTurn[] = [
 ];
 
 const request = (overrides: Partial<AgentStepRequest> = {}): AgentStepRequest => ({
-  request: { id: 'r', role: 'user', text: 'Add a citation' },
+  request: { kind: 'user', message: { id: 'r', role: 'user', text: 'Add a citation' } },
   conversation: [],
   signal: new AbortController().signal,
   workspace: {
@@ -258,7 +258,9 @@ describe('agent prompt budget', () => {
   it('refuses a message too long for the context window', () => {
     expect(() =>
       createAgentExchange(
-        request({ request: { id: 'r', role: 'user', text: 'm'.repeat(budget) } }),
+        request({
+          request: { kind: 'user', message: { id: 'r', role: 'user', text: 'm'.repeat(budget) } },
+        }),
         budget,
       ),
     ).toThrow(AssistantRequestTooLargeError);

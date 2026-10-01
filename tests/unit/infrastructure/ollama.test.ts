@@ -351,7 +351,10 @@ describe('preloadOllamaModel', () => {
 
 describe('OllamaAgent', () => {
   const step: AgentStepRequest = {
-    request: { id: 'r', role: 'user', text: 'Which title does the cited work have?' },
+    request: {
+      kind: 'user',
+      message: { id: 'r', role: 'user', text: 'Which title does the cited work have?' },
+    },
     conversation: [],
     signal: new AbortController().signal,
     workspace: {
@@ -471,9 +474,12 @@ describe('OllamaAgent', () => {
   });
 
   it('refuses a message too long for the context window without calling the model', async () => {
-    const long = {
+    const long: AgentStepRequest = {
       ...step,
-      request: { id: 'r', role: 'user' as const, text: 'm'.repeat(2 * PROMPT_TOKENS) },
+      request: {
+        kind: 'user',
+        message: { id: 'r', role: 'user', text: 'm'.repeat(2 * PROMPT_TOKENS) },
+      },
     };
     const ollama = new FakeOllama();
     await expect(agent(ollama).decide(long)).rejects.toThrow(AssistantRequestTooLargeError);
@@ -514,7 +520,7 @@ describe('OllamaAgent', () => {
     const measured = (first / FAKE_OVERFLOW_PROMPT_TOKENS) * PROMPT_TOKENS;
     expect(second.body.prompt.length).toBeLessThan(measured);
     expect(second.body.prompt.length).toBeGreaterThan(measured * 0.85);
-    expect(second.userMessage).toContain(`User message:\n${step.request.text}`);
+    expect(second.userMessage).toContain(`User message:\n${step.request.message.text}`);
     expect(second.userMessage).toContain('[AUTOCOMPACTED: omitted');
   });
 

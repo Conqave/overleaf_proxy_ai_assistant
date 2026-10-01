@@ -3,11 +3,10 @@ import {
   ProposalStatus,
   type ConversationMessage,
   type ProposalMessage,
-  type SystemRequestMessage,
-  type UserMessage,
 } from '../../domain/conversation';
 import { DocumentOperation, type DocumentCommand } from '../../domain/document-command';
 import { InvariantViolation } from '../../domain/errors';
+import type { AgentRequest } from '../../ports/agent-port';
 
 const CONVERSATION_WINDOW = 12;
 export const SMALL_BLOCK_SHARE = 8;
@@ -26,15 +25,15 @@ export const CONVERSATION_LABEL = 'Conversation so far:';
 export const SELECTION_LABEL = 'Selected text:';
 
 export function requestBlock(
-  request: UserMessage | SystemRequestMessage,
+  request: AgentRequest,
   conversation: readonly ConversationMessage[],
 ): string {
-  switch (request.role) {
+  switch (request.kind) {
     case 'user':
-      return `${USER_MESSAGE_LABEL}${LINE_BREAK}${request.text}`;
-    case 'system':
+      return `${USER_MESSAGE_LABEL}${LINE_BREAK}${request.message.text}`;
+    case 'compile-fix':
       return lines(
-        `${SYSTEM_REQUEST_LABEL}${LINE_BREAK}${request.text}`,
+        `${SYSTEM_REQUEST_LABEL}${LINE_BREAK}${request.message.text}`,
         ...lastUserMessage(conversation),
       );
   }

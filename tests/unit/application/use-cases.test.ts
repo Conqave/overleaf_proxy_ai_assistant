@@ -158,7 +158,7 @@ describe('HandleAssistantRequest', () => {
     agent.will(answer('Hi! What should I change?'));
     const result = await send('Cześć!');
     expect(result.message).toMatchObject({ kind: 'explanation' });
-    expect(requestAt(0).request).toMatchObject({ role: 'user', text: 'Cześć!' });
+    expect(requestAt(0).request).toMatchObject({ message: { role: 'user', text: 'Cześć!' } });
     expect(repository.stored.map((m) => m.role)).toEqual(['user', 'assistant']);
   });
 
@@ -170,7 +170,10 @@ describe('HandleAssistantRequest', () => {
     expect(result.kind).toBe('reply');
     expect(result.message).toMatchObject({ kind: 'explanation', text: 'A short paper.' });
     expect(agent.requests[0]).toEqual({
-      request: { id: anInstanceOf(String), role: 'user', text: 'What is this document about?' },
+      request: {
+        kind: 'user',
+        message: { id: anInstanceOf(String), role: 'user', text: 'What is this document about?' },
+      },
       conversation: [],
       workspace: {
         files: project.files,
@@ -737,7 +740,7 @@ describe('ReviewAppliedChange', () => {
     expect(progress[1]).toMatchObject({ stage: 'received', message: { role: 'system' } });
   });
 
-  it('asks the agent for a fix with the compile result already in the transcript', async () => {
+  it('asks the agent for a fix with the compile result attached to the request', async () => {
     const diagnostics = [
       { level: 'error' as const, message: 'Undefined control sequence.', path: 'main.tex' },
     ];
@@ -746,10 +749,12 @@ describe('ReviewAppliedChange', () => {
     const outcome = await reviewApplied();
     expect(outcome).toMatchObject({ kind: 'fix', result: { message: { kind: 'proposal' } } });
     expect(agent.requests[0]).toMatchObject({
-      request: { role: 'system', text: COMPILE_FIX_REQUEST },
-      transcript: [
-        { kind: 'tool', call: { tool: 'compile' }, result: { tool: 'compile', diagnostics } },
-      ],
+      request: {
+        kind: 'compile-fix',
+        message: { role: 'system', text: COMPILE_FIX_REQUEST },
+        diagnostics,
+      },
+      transcript: [],
     });
     expect(project.compileCalls).toBe(1);
   });

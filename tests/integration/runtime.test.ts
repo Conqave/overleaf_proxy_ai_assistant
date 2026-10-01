@@ -470,7 +470,7 @@ describe('assistant agent', () => {
         `System request (sent by the editor, not typed by the user):\n${COMPILE_FIX_REQUEST}\n\nThe user's last message, whose language your texts use:\nMake the word experiment bold.`,
       );
       expect(fixPrompt).toContain(
-        'Result 1 (compile):\nerror main.tex:4: Undefined control sequence.',
+        'Compile result after the applied change:\nerror main.tex:4: Undefined control sequence.',
       );
       await click('.ola-apply', () => {
         expect(texts('.ola-system').at(-1)).toBe('Compiled without errors.');

@@ -1,4 +1,4 @@
-import { AgentTool, type ProjectEdit } from '../domain/agent-action';
+import type { ProjectEdit } from '../domain/agent-action';
 import { hasMistakesLeft } from '../domain/agent-policy';
 import type { AgentTurn, CompileDiagnostic } from '../domain/agent-transcript';
 import {
@@ -9,7 +9,7 @@ import {
   type SystemRequestMessage,
   type UserMessage,
 } from '../domain/conversation';
-import type { AgentPort, AgentWorkspace, ContextUsage } from '../ports/agent-port';
+import type { AgentPort, AgentRequest, AgentWorkspace, ContextUsage } from '../ports/agent-port';
 import type { CancellationController, CancellationSignal } from '../ports/cancellation';
 import type { EditorPort } from '../ports/editor-port';
 import type { ProjectPort } from '../ports/project-port';
@@ -74,7 +74,7 @@ export class HandleAssistantRequest {
     return await this.deps.lock.run(async (signal) => {
       const message: UserMessage = { id: this.deps.newId(), role: 'user', text: request };
       const { history, epoch } = this.receive(message, onProgress);
-      return await this.runAgent(message, history, [], { epoch, signal, onProgress });
+      return await this.runAgent({ kind: 'user', message }, history, { epoch, signal, onProgress });
     });
   }
 
@@ -90,12 +90,7 @@ export class HandleAssistantRequest {
       text: COMPILE_FIX_REQUEST,
     };
     const { history, epoch } = this.receive(message, onProgress);
-    const compiled: AgentTurn = {
-      kind: 'tool',
-      call: { tool: AgentTool.Compile },
-      result: { tool: AgentTool.Compile, diagnostics },
-    };
-    return await this.runAgent(message, history, [compiled], {
+    return await this.runAgent({ kind: 'compile-fix', message, diagnostics }, history, {
       epoch,
       signal,
       onProgress,
@@ -116,16 +111,15 @@ export class HandleAssistantRequest {
   }
 
   private async runAgent(
-    request: UserMessage | SystemRequestMessage,
+    request: AgentRequest,
     history: readonly ConversationMessage[],
-    initialTranscript: readonly AgentTurn[],
     run: RequestRun,
   ): Promise<AgentResult> {
     const { agent, conversation } = this.deps;
     const { epoch, signal, onProgress } = run;
     const workspace = await this.readWorkspace(signal);
     conversation.ensureCurrent(epoch);
-    const transcript: AgentTurn[] = [...initialTranscript];
+    const transcript: AgentTurn[] = [];
     for (let step = 1; ; step += 1) {
       onProgress({ stage: 'thinking', step });
       const { decision, contextUsage } = await agent.decide({

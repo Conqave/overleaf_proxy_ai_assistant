@@ -1,5 +1,5 @@
 import type { AgentDecision } from '../domain/agent-action';
-import type { AgentTurn, OpenFileView } from '../domain/agent-transcript';
+import type { AgentTurn, CompileDiagnostic, OpenFileView } from '../domain/agent-transcript';
 import type {
   ConversationMessage,
   SystemRequestMessage,
@@ -15,8 +15,21 @@ export interface AgentWorkspace {
   readonly selection: string;
 }
 
+export interface UserRequest {
+  readonly kind: 'user';
+  readonly message: UserMessage;
+}
+
+export interface CompileFixRequest {
+  readonly kind: 'compile-fix';
+  readonly message: SystemRequestMessage;
+  readonly diagnostics: readonly CompileDiagnostic[];
+}
+
+export type AgentRequest = UserRequest | CompileFixRequest;
+
 export interface AgentStepRequest {
-  readonly request: UserMessage | SystemRequestMessage;
+  readonly request: AgentRequest;
   readonly conversation: readonly ConversationMessage[];
   readonly workspace: AgentWorkspace;
   readonly transcript: readonly AgentTurn[];
