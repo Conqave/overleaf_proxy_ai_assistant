@@ -210,13 +210,20 @@ describe('assistant startup', () => {
     expect(browser.ollama.calls).toHaveLength(0);
   });
 
-  it('does not start without the Overleaf store', async () => {
+  it('does not start when the editor opens without the Overleaf store', async () => {
     const browser = open(new FakeOllama());
+    Object.defineProperty(browser.window, 'overleaf', {
+      configurable: true,
+      get: () => undefined,
+      set: () => undefined,
+    });
     browser.inject(BUNDLE);
     browser.loadOverleaf();
-    Reflect.deleteProperty(browser.window, 'overleaf');
-    await waitForStartupFailure(browser);
-    expect(browser.consoleErrors[0]).toContain('window.overleaf.unstable.store');
+    await vi.waitFor(() => {
+      expect(browser.consoleErrors).toContainEqual(
+        expect.stringMatching(/not started.*window\.overleaf\.unstable\.store/),
+      );
+    }, PAGE_WAIT);
     expect(browser.document.getElementById('ola-root')).toBeNull();
   });
 });

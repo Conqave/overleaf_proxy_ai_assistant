@@ -14,6 +14,7 @@ import {
   renderHarmonyPrompt,
 } from './harmony-format';
 import { withDeadline } from '../deadline';
+import { formatDuration } from '../duration';
 import { CONTEXT_TOKENS, createTooLargeError, MAX_COMPLETION_TOKENS } from './context-budget';
 
 export interface OllamaClientConfig {
@@ -185,17 +186,4 @@ function isStoppedAtLimit(doneReason: unknown): boolean {
   throw new AssistantResponseContractError(
     `Ollama returned the unexpected "done_reason" ${JSON.stringify(doneReason)}.`,
   );
-}
-
-const MS_PER_SECOND = 1_000;
-const MS_PER_MINUTE = 60_000;
-
-function formatDuration(ms: number): string {
-  if (ms % MS_PER_MINUTE === 0) return formatUnit(ms / MS_PER_MINUTE, 'minute');
-  if (ms % MS_PER_SECOND === 0) return formatUnit(ms / MS_PER_SECOND, 'second');
-  return formatUnit(ms, 'millisecond');
-}
-
-function formatUnit(value: number, unit: 'minute' | 'second' | 'millisecond'): string {
-  return new Intl.NumberFormat('en', { style: 'unit', unit, unitDisplay: 'long' }).format(value);
 }

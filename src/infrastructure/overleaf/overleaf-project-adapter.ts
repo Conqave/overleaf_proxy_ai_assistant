@@ -14,6 +14,7 @@ import {
 import type { CancellationSignal } from '../../ports/cancellation';
 import type { ProjectPort } from '../../ports/project-port';
 import { throwAbortReason, withDeadline } from '../deadline';
+import { formatDuration } from '../duration';
 import { readCompileDiagnostics } from './compile-log';
 import type { OpenEditor, OverleafEditorBridge } from './overleaf-editor-bridge';
 import { OverleafStoreContractError, StoreKey, type OverleafStore } from './overleaf-store';
@@ -32,6 +33,12 @@ export interface OverleafProjectTimeouts {
   readonly fileReadMs: number;
   readonly compileMs: number;
 }
+
+export const OVERLEAF_PROJECT_TIMEOUTS: OverleafProjectTimeouts = {
+  fileOpenMs: 20_000,
+  fileReadMs: 20_000,
+  compileMs: 240_000,
+};
 
 export interface OverleafProjectDependencies {
   readonly window: Window & typeof globalThis;
@@ -95,7 +102,7 @@ export class OverleafProjectAdapter implements ProjectPort {
       this.deps.timeouts.fileReadMs,
       () =>
         new ProjectFileReadTimeoutError(
-          `${file.path} could not be read within ${String(this.deps.timeouts.fileReadMs)} ms.`,
+          `${file.path} could not be read within ${formatDuration(this.deps.timeouts.fileReadMs)}.`,
         ),
       [cancel],
       (signal) => this.download(file, signal),
@@ -136,7 +143,7 @@ export class OverleafProjectAdapter implements ProjectPort {
       this.deps.timeouts.compileMs,
       () =>
         new CompileTimeoutError(
-          `The project did not compile within ${String(this.deps.timeouts.compileMs)} ms.`,
+          `The project did not compile within ${formatDuration(this.deps.timeouts.compileMs)}.`,
         ),
       [cancel],
       (signal) => this.recompile(signal),
@@ -196,7 +203,7 @@ export class OverleafProjectAdapter implements ProjectPort {
       this.deps.timeouts.fileOpenMs,
       () =>
         new FileOpenTimeoutError(
-          `${file.path} did not open within ${String(this.deps.timeouts.fileOpenMs)} ms.`,
+          `${file.path} did not open within ${formatDuration(this.deps.timeouts.fileOpenMs)}.`,
         ),
       [cancel],
       run,

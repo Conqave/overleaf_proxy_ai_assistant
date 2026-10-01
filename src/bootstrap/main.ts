@@ -17,7 +17,10 @@ import {
   getPageIdentity,
   MissingPageIdentityError,
 } from '../infrastructure/overleaf/overleaf-page';
-import { OverleafProjectAdapter } from '../infrastructure/overleaf/overleaf-project-adapter';
+import {
+  OVERLEAF_PROJECT_TIMEOUTS,
+  OverleafProjectAdapter,
+} from '../infrastructure/overleaf/overleaf-project-adapter';
 import {
   OverleafStore,
   OverleafStoreContractError,
@@ -28,14 +31,11 @@ import { AssistantController } from '../presentation/assistant-controller';
 import { AssistantView } from '../presentation/assistant-view';
 import { ConfigurationError, loadConfig, type AssistantConfig } from './config';
 
-const FILE_OPEN_TIMEOUT_MS = 20_000;
-const FILE_READ_TIMEOUT_MS = 20_000;
-const COMPILE_TIMEOUT_MS = 240_000;
-
 function compose(
   window: Window & typeof globalThis,
   config: AssistantConfig,
   bridge: OverleafEditorBridge,
+  store: OverleafStore,
 ): void {
   const identity = getPageIdentity(window.document);
   const editor = new OverleafEditorAdapter(bridge);
@@ -50,15 +50,11 @@ function compose(
   const agent = new OllamaAgent(client);
   const project = new OverleafProjectAdapter({
     window,
-    store: OverleafStore.fromWindow(window),
+    store,
     bridge,
     fetch: window.fetch.bind(window),
     projectId: identity.projectId,
-    timeouts: {
-      fileOpenMs: FILE_OPEN_TIMEOUT_MS,
-      fileReadMs: FILE_READ_TIMEOUT_MS,
-      compileMs: COMPILE_TIMEOUT_MS,
-    },
+    timeouts: OVERLEAF_PROJECT_TIMEOUTS,
   });
   const conversation = new ConversationLog(
     new LocalStorageConversationRepository(window, identity),
@@ -91,9 +87,12 @@ function compose(
 }
 
 function start(window: Window & typeof globalThis): void {
-  const bridge = new OverleafEditorBridge(() =>
-    OverleafStore.fromWindow(window).getString(StoreKey.OpenDocId),
-  );
+  let store: OverleafStore | null = null;
+  const getStore = (): OverleafStore => {
+    store ??= OverleafStore.fromWindow(window);
+    return store;
+  };
+  const bridge = new OverleafEditorBridge(() => getStore().getString(StoreKey.OpenDocId));
   const uninstall = bridge.install(window);
   bridge
     .whenReady()
@@ -103,7 +102,7 @@ function start(window: Window & typeof globalThis): void {
         uninstall();
         return;
       }
-      compose(window, config, bridge);
+      compose(window, config, bridge, getStore());
     })
     .catch((error: unknown) => {
       if (!isStartupFailure(error)) throw error;
