@@ -225,6 +225,7 @@ describe('HandleAssistantRequest', () => {
     expect(result).toHaveProperty('contextUsage', {
       contextTokens: FAKE_CONTEXT_TOKENS,
       promptTokens: 2_000,
+      pressure: 'low',
     });
   });
 

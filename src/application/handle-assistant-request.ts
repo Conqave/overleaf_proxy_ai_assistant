@@ -33,7 +33,7 @@ import { PendingDocumentChange, type PendingChanges } from './pending-change';
 import { ProjectTools } from './project-tools';
 import { showProjectFile } from './show-project-file';
 
-export type { ContextUsage } from '../ports/agent-port';
+export type { ContextPressure, ContextUsage } from '../ports/agent-port';
 
 interface RequestRun {
   readonly epoch: number;
@@ -76,7 +76,7 @@ export class HandleAssistantRequest {
   }
 
   getUnusedContext(): ContextUsage {
-    return { contextTokens: this.deps.agent.contextTokens, promptTokens: 0 };
+    return this.deps.agent.idleUsage;
   }
 
   async execute(text: string, onProgress: (progress: AgentProgress) => void): Promise<AgentResult> {

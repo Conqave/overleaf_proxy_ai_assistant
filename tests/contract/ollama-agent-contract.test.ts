@@ -388,7 +388,7 @@ async function runApplication(agent: AgentPort, c: Case): Promise<ApplicationRun
   project.willCompile(...Array.from({ length: AGENT_POLICY.maxToolCalls }, () => c.diagnostics));
   const usages: ContextUsage[] = [];
   const recordingAgent: AgentPort = {
-    contextTokens: agent.contextTokens,
+    idleUsage: agent.idleUsage,
     async decide(request) {
       const step = await agent.decide(request);
       usages.push(step.contextUsage);

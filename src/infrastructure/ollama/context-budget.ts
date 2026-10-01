@@ -1,4 +1,5 @@
 import { NamedError } from '../../domain/errors';
+import { ContextPressure, type ContextUsage } from '../../ports/agent-port';
 import { AssistantRequestTooLargeError } from '../../ports/errors';
 import { HARMONY_FRAMING_CHARS } from './harmony-format';
 
@@ -13,6 +14,20 @@ export const OLDER_RESULT_CHARS = 2_000;
 export const CURRENT_RESULT_SHARE = 10;
 
 export const PROMPT_TOKENS = CONTEXT_TOKENS - COMPLETIONS_PER_GENERATION * MAX_COMPLETION_TOKENS;
+
+const ELEVATED_USAGE_RATIO = 0.6;
+const HIGH_USAGE_RATIO = 0.8;
+
+export function describeUsage(promptTokens: number): ContextUsage {
+  return { contextTokens: CONTEXT_TOKENS, promptTokens, pressure: getPressure(promptTokens) };
+}
+
+function getPressure(promptTokens: number): ContextPressure {
+  const ratio = promptTokens / CONTEXT_TOKENS;
+  if (ratio >= HIGH_USAGE_RATIO) return ContextPressure.High;
+  if (ratio >= ELEVATED_USAGE_RATIO) return ContextPressure.Elevated;
+  return ContextPressure.Low;
+}
 
 export class ContextOverflowError extends NamedError {
   constructor(

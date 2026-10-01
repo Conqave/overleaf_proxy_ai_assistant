@@ -5,6 +5,7 @@ import { OllamaClient, type Completion } from '../../../src/infrastructure/ollam
 import {
   CONTEXT_TOKENS,
   ContextOverflowError,
+  describeUsage,
   PROMPT_TOKENS,
 } from '../../../src/infrastructure/ollama/context-budget';
 import { preloadOllamaModel } from '../../../src/infrastructure/ollama/ollama-preload';
@@ -426,10 +427,15 @@ describe('OllamaAgent', () => {
     const ollama = new FakeOllama().reply({ response: 'ACTION: compile' });
     const ollamaAgent = agent(ollama);
     const { contextUsage } = await ollamaAgent.decide(step);
-    expect(ollamaAgent.contextTokens).toBe(CONTEXT_TOKENS);
+    expect(ollamaAgent.idleUsage).toEqual({
+      contextTokens: CONTEXT_TOKENS,
+      promptTokens: 0,
+      pressure: 'low',
+    });
     expect(contextUsage).toEqual({
       contextTokens: CONTEXT_TOKENS,
       promptTokens: itemAt(ollama.prompts, 0, 'prompt').promptTokens,
+      pressure: 'low',
     });
   });
 
@@ -541,5 +547,21 @@ describe('OllamaAgent', () => {
     const { decision } = await agent(ollama).decide(step);
     expect(decision).toMatchObject({ reply: { kind: 'edit', path: 'missing.tex' } });
     expect(ollama.prompts).toHaveLength(1);
+  });
+});
+
+describe('describeUsage', () => {
+  it.each([
+    [0, 'low'],
+    [Math.ceil(CONTEXT_TOKENS * 0.6) - 1, 'low'],
+    [Math.ceil(CONTEXT_TOKENS * 0.6), 'elevated'],
+    [Math.ceil(CONTEXT_TOKENS * 0.8) - 1, 'elevated'],
+    [Math.ceil(CONTEXT_TOKENS * 0.8), 'high'],
+  ])('rates %i prompt tokens as %s', (promptTokens, pressure) => {
+    expect(describeUsage(promptTokens)).toEqual({
+      contextTokens: CONTEXT_TOKENS,
+      promptTokens,
+      pressure,
+    });
   });
 });

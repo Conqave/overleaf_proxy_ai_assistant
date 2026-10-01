@@ -7,7 +7,11 @@ import type {
   RestoreLatestSession,
   StartNewConversation,
 } from '../application/conversation-session';
-import type { AgentResult, HandleAssistantRequest } from '../application/handle-assistant-request';
+import type {
+  AgentResult,
+  ContextUsage,
+  HandleAssistantRequest,
+} from '../application/handle-assistant-request';
 import type { AgentProgress } from '../application/agent-progress';
 import { RequestSupersededError } from '../application/errors';
 import type { OperationLock } from '../application/operation-lock';
@@ -150,18 +154,22 @@ export class AssistantController implements ViewEvents {
   }
 
   private showUnusedContext(view: AssistantView): void {
-    view.setContextUsage(contextUsageText(this.useCases.handleRequest.getUnusedContext()));
+    this.showContextUsage(view, this.useCases.handleRequest.getUnusedContext());
+  }
+
+  private showContextUsage(view: AssistantView, usage: ContextUsage): void {
+    view.setContextUsage(contextUsageText(usage), usage.pressure);
   }
 
   private showResult(view: AssistantView, result: AgentResult): void {
     switch (result.kind) {
       case 'reply':
         view.appendMessage(result.message);
-        view.setContextUsage(contextUsageText(result.contextUsage));
+        this.showContextUsage(view, result.contextUsage);
         break;
       case 'proposal':
         view.appendMessage(result.message, result.changeId);
-        view.setContextUsage(contextUsageText(result.contextUsage));
+        this.showContextUsage(view, result.contextUsage);
     }
   }
 

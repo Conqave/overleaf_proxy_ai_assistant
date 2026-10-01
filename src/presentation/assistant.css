@@ -73,6 +73,12 @@
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
+#ola-root .ola-context.is-elevated {
+  color: #f1c40f;
+}
+#ola-root .ola-context.is-high {
+  color: #ff7b6b;
+}
 #ola-root .ola-title {
   min-width: 0;
   overflow: hidden;

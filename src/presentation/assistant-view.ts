@@ -9,6 +9,7 @@ import {
   type ProposalMessage,
 } from '../domain/conversation';
 import { DocumentOperation } from '../domain/document-command';
+import type { ContextPressure } from '../application/handle-assistant-request';
 import type { SessionSummary } from '../domain/session';
 import css from './assistant.css?raw';
 import { InvariantViolation } from '../domain/errors';
@@ -32,6 +33,12 @@ export interface ViewEvents {
 }
 
 const ROOT_ID = 'ola-root';
+
+const PRESSURE_CLASS: Record<ContextPressure, string> = {
+  low: 'is-low',
+  elevated: 'is-elevated',
+  high: 'is-high',
+};
 const STYLE_ID = 'ola-style';
 
 export class AssistantView {
@@ -193,8 +200,11 @@ export class AssistantView {
     this.status.classList.toggle('is-empty', !text);
   }
 
-  setContextUsage(text: string): void {
+  setContextUsage(text: string, pressure: ContextPressure): void {
     this.contextUsage.textContent = text;
+    for (const [level, className] of Object.entries(PRESSURE_CLASS)) {
+      this.contextUsage.classList.toggle(className, level === pressure);
+    }
   }
 
   clearInput(): void {

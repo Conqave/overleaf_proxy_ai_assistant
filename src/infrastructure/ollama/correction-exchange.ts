@@ -1,7 +1,7 @@
 import type { ContextUsage } from '../../ports/agent-port';
 import { AssistantProtocolError } from '../../ports/errors';
 import { InvalidAssistantResponse } from './reply-parser';
-import { CONTEXT_TOKENS } from './context-budget';
+import { describeUsage } from './context-budget';
 import { compact, LINE_BREAK, lines } from './prompt-blocks';
 import { HarmonyFormatError } from './harmony-format';
 import type { Completion, GenerateRequest, OllamaClient } from './ollama-client';
@@ -77,7 +77,7 @@ async function generate(
 }
 
 function outcome<T>(value: T, promptTokens: number): ExchangeOutcome<T> {
-  return { value, contextUsage: { contextTokens: CONTEXT_TOKENS, promptTokens } };
+  return { value, contextUsage: describeUsage(promptTokens) };
 }
 
 export function createCorrectionRequest(

@@ -33,6 +33,7 @@ export interface OllamaPrompt {
 export interface ResponseReply {
   readonly response: string;
   readonly heldUntil?: Promise<void>;
+  readonly promptTokens?: number;
 }
 
 export type OllamaReply =
@@ -178,9 +179,12 @@ export class FakeOllama {
       this.loads.push({ url, body });
       return new Response('{}', { status: 200 });
     }
-    const prompt = decodePrompt(url, body, PROMPT_TOKENS_PER_CALL * (this.prompts.length + 1));
-    this.prompts.push(prompt);
     const reply = this.replies.shift();
+    const counted =
+      (reply !== undefined && 'promptTokens' in reply ? reply.promptTokens : undefined) ??
+      PROMPT_TOKENS_PER_CALL * (this.prompts.length + 1);
+    const prompt = decodePrompt(url, body, counted);
+    this.prompts.push(prompt);
     if (!reply) {
       throw new UnexpectedFakeCallError(
         `Unexpected Ollama call: ${prompt.userMessage.slice(0, 80)}`,

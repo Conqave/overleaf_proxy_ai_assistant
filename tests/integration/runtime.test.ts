@@ -519,6 +519,27 @@ describe('assistant agent', () => {
     });
   });
 
+  it('colours the context indicator by how full the context window is', async () => {
+    const answerWith = (promptTokens: number): ResponseReply => ({
+      ...reply('ACTION: answer', 'TEXT:', 'Done.'),
+      promptTokens,
+    });
+    const { send, doc, browser } = await start({
+      replies: [answerWith(50_000), answerWith(60_000), answerWith(80_000)],
+    });
+    const indicator = () => element(doc, '.ola-context');
+    const colour = () => browser.window.getComputedStyle(indicator()).color;
+    expect(indicator().className).toBe('ola-context is-low');
+    await send('first');
+    expect(indicator().className).toBe('ola-context is-low');
+    await send('second');
+    expect(indicator().className).toBe('ola-context is-elevated');
+    expect(colour()).toBe('rgb(241, 196, 15)');
+    await send('third');
+    expect(indicator().className).toBe('ola-context is-high');
+    expect(colour()).toBe('rgb(255, 123, 107)');
+  });
+
   it('searches every text file of the project', async () => {
     const { send, texts, ollama } = await start({
       replies: [
