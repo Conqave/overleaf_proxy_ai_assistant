@@ -34,6 +34,7 @@ export interface ViewEvents {
   showSessions(): Promise<void>;
   openSession(id: string): Promise<void>;
   deleteSession(id: string): Promise<void>;
+  compact(): Promise<void>;
 }
 
 const ROOT_ID = 'ola-root';
@@ -54,6 +55,8 @@ export class AssistantView {
   private readonly status: HTMLElement;
   private readonly contextUsage: HTMLElement;
   private readonly markdown: MarkdownRenderer;
+  private readonly compactButton: HTMLButtonElement;
+  private compactable = false;
   private readonly messageNodes = new Map<string, HTMLElement>();
   private busy = false;
   private readonly actionNodes = new Map<string, HTMLElement>();
@@ -99,12 +102,18 @@ export class AssistantView {
     });
     this.contextUsage = this.el('span', 'ola-context');
     this.contextUsage.title = VIEW_TEXT.contextHint;
-    head.append(
-      this.el('span', 'ola-title', VIEW_TEXT.title),
-      this.contextUsage,
-      sessionsButton,
-      newButton,
-    );
+    this.compactButton = this.el('button', 'ola-head-btn ola-compact', VIEW_TEXT.compact);
+    this.compactButton.type = 'button';
+    this.compactButton.title = VIEW_TEXT.compactHint;
+    this.compactButton.disabled = true;
+    this.compactButton.addEventListener('click', () => {
+      void this.events.compact();
+    });
+    const titleRow = this.el('div', 'ola-head-row');
+    titleRow.append(this.el('span', 'ola-title', VIEW_TEXT.title), this.contextUsage);
+    const actions = this.el('div', 'ola-head-actions');
+    actions.append(this.compactButton, sessionsButton, newButton);
+    head.append(titleRow, actions);
 
     this.sessionList = this.el('div', 'ola-sessions');
     this.chat = this.el('div', 'ola-chat');
@@ -193,10 +202,16 @@ export class AssistantView {
     this.busy = busy;
     this.root.classList.toggle('is-busy', busy);
     this.sendButton.disabled = busy;
+    this.compactButton.disabled = busy || !this.compactable;
     for (const actions of this.actionNodes.values()) {
       for (const action of actions.querySelectorAll('button')) action.disabled = busy;
     }
     this.setSessionButtonsBusy();
+  }
+
+  setCompactable(compactable: boolean): void {
+    this.compactable = compactable;
+    this.compactButton.disabled = this.busy || !compactable;
   }
 
   setStatus(text: string): void {

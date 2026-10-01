@@ -1,4 +1,5 @@
 import { ApplyDocumentChange } from '../application/apply-document-change';
+import { CompactConversation } from '../application/compact-conversation';
 import { ConversationCompactor } from '../application/conversation-compactor';
 import { ConversationLog } from '../application/conversation-log';
 import {
@@ -100,6 +101,7 @@ function compose(
     }),
     lock,
     rejectChange: new RejectDocumentChange({ editor, pendingChanges, lock }),
+    compactConversation: new CompactConversation({ compactor, conversation, lock }),
     restoreSession: new RestoreLatestSession(sessionDeps),
     startNewConversation: new StartNewConversation(sessionDeps),
     listSessions: new ListSessions(sessionDeps),

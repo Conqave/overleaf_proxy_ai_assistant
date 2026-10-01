@@ -1,4 +1,5 @@
 import type { ApplyDocumentChange } from '../application/apply-document-change';
+import type { CompactConversation } from '../application/compact-conversation';
 import type { ConversationLog } from '../application/conversation-log';
 import type {
   DeleteSession,
@@ -35,6 +36,7 @@ export interface UseCases {
   rejectChange: RejectDocumentChange;
   restoreSession: RestoreLatestSession;
   startNewConversation: StartNewConversation;
+  compactConversation: CompactConversation;
   listSessions: ListSessions;
   openSession: OpenSession;
   deleteSession: DeleteSession;
@@ -50,12 +52,26 @@ export class AssistantController implements ViewEvents {
     this.view = view;
     this.useCases.lock.onChange((busy) => {
       view.setBusy(busy);
+      if (!busy) this.showCompactable(view);
     });
     return this.guard(async () => {
       try {
         await this.useCases.restoreSession.execute();
       } finally {
         this.showConversation(view);
+      }
+    });
+  }
+
+  compact(): Promise<void> {
+    const view = this.requireView();
+    return this.guard(async () => {
+      try {
+        await this.useCases.compactConversation.execute((progress) => {
+          this.showProgress(view, progress);
+        });
+      } finally {
+        view.setStatus('');
       }
     });
   }
@@ -151,10 +167,15 @@ export class AssistantController implements ViewEvents {
   private showConversation(view: AssistantView): void {
     view.showConversation(this.useCases.conversation.messages());
     this.showUnusedContext(view);
+    this.showCompactable(view);
   }
 
   private showUnusedContext(view: AssistantView): void {
     this.showContextUsage(view, this.useCases.handleRequest.getUnusedContext());
+  }
+
+  private showCompactable(view: AssistantView): void {
+    view.setCompactable(this.useCases.compactConversation.canCompact());
   }
 
   private showContextUsage(view: AssistantView, usage: ContextUsage): void {

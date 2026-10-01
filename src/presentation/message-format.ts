@@ -39,6 +39,8 @@ export const VIEW_TEXT = {
   confirmDeleteSession: 'Delete this session?',
   cancelDeleteSession: 'Cancel',
   unreadableSession: 'Unreadable session',
+  compact: 'Compact',
+  compactHint: 'Compact context now: summarise the earlier conversation',
   inputLabel: 'Command',
   inputPlaceholder:
     'Describe what you want: explain an error, improve text, insert a table or delete a line.',

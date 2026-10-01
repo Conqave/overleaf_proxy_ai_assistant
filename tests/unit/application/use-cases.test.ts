@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AgentProgress } from '../../../src/application/agent-progress';
 import { ApplyDocumentChange } from '../../../src/application/apply-document-change';
+import { CompactConversation } from '../../../src/application/compact-conversation';
 import { ConversationCompactor } from '../../../src/application/conversation-compactor';
 import { ConversationLog } from '../../../src/application/conversation-log';
 import {
@@ -14,6 +15,7 @@ import {
   AgentMistakeLimitError,
   ChangeNoLongerPendingError,
   EmptyRequestError,
+  NothingToCompactError,
   RequestInProgressError,
   RequestSupersededError,
 } from '../../../src/application/errors';
@@ -769,6 +771,83 @@ describe('automatic compaction', () => {
     summarizer.will(new AssistantProtocolError('no note'));
     await expect(send('third')).rejects.toThrow(AssistantProtocolError);
     expect(conversation.messages().some((message) => message.role === 'summary')).toBe(false);
+  });
+});
+
+describe('compaction on demand', () => {
+  const compactNow = () =>
+    new CompactConversation({
+      compactor: new ConversationCompactor({
+        agent,
+        summarizer,
+        conversation,
+        newId,
+        now: () => NOW,
+      }),
+      conversation,
+      lock,
+    });
+
+  async function talk(...questions: string[]): Promise<void> {
+    for (const question of questions) {
+      agent.will(answer(`About ${question}.`));
+      await send(question);
+    }
+  }
+
+  it('summarises the turns before the latest one', async () => {
+    await talk('first', 'second', 'third');
+    agent.plan = coverAllButLastTurn;
+    summarizer.will('## Goal\nThree answers.');
+    const compact = compactNow();
+    expect(compact.canCompact()).toBe(true);
+    progress = [];
+    const summary = await compact.execute(record);
+    expect(summary).toMatchObject({
+      role: 'summary',
+      coveredUntilId: 'id-4',
+      coveredTurns: 2,
+      tokensBefore: 6 * FAKE_MESSAGE_TOKENS,
+      tokensAfter: 3 * FAKE_MESSAGE_TOKENS,
+    });
+    expect(agent.triggers.at(-1)).toEqual({
+      kind: 'manual',
+      conversation: { summary: null, messages: conversation.messages().slice(0, 6) },
+    });
+    expect(conversation.messages().at(-1)).toBe(summary);
+    expect(progress.map((p) => p.stage)).toEqual(['compacting', 'compacted']);
+    expect(busy).toEqual([true, false, true, false, true, false, true, false]);
+  });
+
+  it('rolls the previous summary into the next one', async () => {
+    await talk('first', 'second');
+    agent.plan = coverAllButLastTurn;
+    summarizer.will('## Goal\nOne.', '## Goal\nTwo.');
+    const compact = compactNow();
+    const first = await compact.execute(record);
+    await talk('third');
+    const second = await compact.execute(record);
+    expect(summarizer.requests[1]).toMatchObject({ previous: first });
+    expect(second).toMatchObject({ coveredTurns: 2, text: '## Goal\nTwo.' });
+  });
+
+  it('refuses when there is nothing to compact', async () => {
+    await talk('only');
+    agent.plan = coverAllButLastTurn;
+    const compact = compactNow();
+    expect(compact.canCompact()).toBe(false);
+    await expect(compact.execute(record)).rejects.toThrow(NothingToCompactError);
+    expect(summarizer.requests).toEqual([]);
+  });
+
+  it('waits for no running request', async () => {
+    await talk('first', 'second');
+    agent.plan = (trigger) => (trigger.kind === 'manual' ? coverAllButLastTurn(trigger) : null);
+    agent.will(new PendingStep(rejectOnAbort));
+    const running = send('third');
+    await expect(compactNow().execute(record)).rejects.toThrow(RequestInProgressError);
+    startNew();
+    await expect(running).rejects.toThrow(RequestSupersededError);
   });
 });
 

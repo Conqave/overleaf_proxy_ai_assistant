@@ -25,6 +25,12 @@ export class ChangeNoLongerPendingError extends OperationalError {
   }
 }
 
+export class NothingToCompactError extends OperationalError {
+  constructor() {
+    super('There is nothing to compact yet: the latest turn always stays in full.');
+  }
+}
+
 export class AgentMistakeLimitError extends OperationalError {
   constructor(lastMistake: Error) {
     super(

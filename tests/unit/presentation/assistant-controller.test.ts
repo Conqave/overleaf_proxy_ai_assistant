@@ -1,6 +1,7 @@
 import { JSDOM } from 'jsdom';
 import { describe, expect, it, vi } from 'vitest';
 import { ApplyDocumentChange } from '../../../src/application/apply-document-change';
+import { CompactConversation } from '../../../src/application/compact-conversation';
 import { ConversationCompactor } from '../../../src/application/conversation-compactor';
 import { ConversationLog } from '../../../src/application/conversation-log';
 import {
@@ -23,6 +24,7 @@ import { FileOpenTimeoutError } from '../../../src/ports/errors';
 import { AssistantController } from '../../../src/presentation/assistant-controller';
 import { AssistantView } from '../../../src/presentation/assistant-view';
 import {
+  coverAllButLastTurn,
   FakeAgent,
   FakeEditor,
   FakeProject,
@@ -103,6 +105,7 @@ async function openAssistant(...stored: ConversationSession[]) {
       review,
     }),
     rejectChange: new RejectDocumentChange({ editor, pendingChanges, lock }),
+    compactConversation: new CompactConversation({ compactor, conversation, lock }),
     restoreSession: new RestoreLatestSession(sessionDeps),
     startNewConversation: new StartNewConversation(sessionDeps),
     listSessions: new ListSessions(sessionDeps),
@@ -132,6 +135,7 @@ async function openAssistant(...stored: ConversationSession[]) {
     editor,
     project,
     agent,
+    summarizer,
     texts,
     click,
     buttons,
@@ -147,6 +151,45 @@ async function proposeBibEdit() {
   }
   return { ...assistant, changeId: proposal.id };
 }
+
+describe('AssistantController compaction', () => {
+  it('offers Compact only for earlier turns and shows the summary as a notice', async () => {
+    const { window, controller, agent, summarizer, texts } = await proposeBibEdit();
+    const compact = () => {
+      const found = window.document.querySelector<HTMLButtonElement>('.ola-compact');
+      if (found === null) throw new TestFixtureError('the panel has no Compact button');
+      return found;
+    };
+    agent.plan = (trigger) => (trigger.kind === 'manual' ? coverAllButLastTurn(trigger) : null);
+    expect(compact().textContent).toBe('Compact');
+    expect(texts('.ola-head-row > *')).toEqual(['Hans AI Assistant', 'Context 2.0k / 98.3k']);
+    expect(texts('.ola-head-actions > button')).toEqual(['Compact', 'Sessions', 'New']);
+    expect(compact().title).toBe('Compact context now: summarise the earlier conversation');
+    expect(compact().disabled).toBe(true);
+    agent.will({ kind: 'reply', reply: { kind: 'answer', text: 'Smith is cited.' } });
+    await controller.send('who is cited?');
+    expect(compact().disabled).toBe(false);
+    summarizer.will('## Goal\nAdd the knuth84 entry.');
+    compact().click();
+    await vi.waitFor(() => {
+      expect(texts('.ola-compaction-title')).toEqual([
+        'Context compacted: 5.0k → 3.0k (summary of 1 turn)',
+      ]);
+    });
+    expect(texts('.ola-compaction-body h2')).toEqual(['Goal']);
+    expect(texts('.ola-compaction-body p')).toEqual(['Add the knuth84 entry.']);
+    expect(texts('.ola-status')).toEqual(['']);
+    expect(compact().disabled).toBe(true);
+  });
+
+  it('reports that there is nothing to compact', async () => {
+    const { controller, texts } = await openAssistant();
+    await controller.compact();
+    expect(texts('.ola-error')).toEqual([
+      'Error: There is nothing to compact yet: the latest turn always stays in full.',
+    ]);
+  });
+});
 
 describe('AssistantController context usage', () => {
   it('shows an unused context window before the first request', async () => {

@@ -57,13 +57,21 @@
   display: none;
 }
 #ola-root .ola-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  padding: 12px 14px;
+  display: grid;
+  gap: 8px;
+  padding: 10px 14px;
   background: #34495e;
   font-weight: 800;
+}
+#ola-root .ola-head-row,
+#ola-root .ola-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+#ola-root .ola-head-actions {
+  justify-content: flex-end;
 }
 #ola-root .ola-context {
   margin-left: auto;
@@ -89,6 +97,10 @@
 }
 #ola-root .ola-compaction-body {
   margin-top: 8px;
+}
+#ola-root .ola-compact:disabled {
+  opacity: 0.45;
+  cursor: default;
 }
 #ola-root .ola-title {
   min-width: 0;
