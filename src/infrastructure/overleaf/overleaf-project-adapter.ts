@@ -5,6 +5,7 @@ import { ProjectFileKind, type ProjectFile } from '../../domain/project-file';
 import {
   CompileTimeoutError,
   FileOpenTimeoutError,
+  NoOpenTextFileError,
   ProjectFileReadError,
   ProjectUnavailableError,
 } from '../../ports/errors';
@@ -47,6 +48,9 @@ export class OverleafProjectAdapter implements ProjectPort {
   }
 
   openFilePath(): string {
+    if (this.isBinaryFileShown()) {
+      throw new NoOpenTextFileError('Overleaf shows a binary file; open a text file to continue.');
+    }
     const id = this.openDocId();
     const file = this.listFiles().find((candidate) => candidate.id === id);
     if (file === undefined) {
@@ -76,7 +80,7 @@ export class OverleafProjectAdapter implements ProjectPort {
   async openFile(file: ProjectFile): Promise<void> {
     requireTextFile(file);
     const signal = AbortSignal.timeout(this.deps.timeouts.fileOpenMs);
-    if (file.id === this.openDocId()) {
+    if (file.id === this.openDocId() && !this.isBinaryFileShown()) {
       await this.shownEditor(file, signal);
       return;
     }
@@ -88,8 +92,11 @@ export class OverleafProjectAdapter implements ProjectPort {
     const { store } = this.deps;
     this.findEntity(file.id).click();
     const opened = await store.waitUntil(
-      [StoreKey.OpenDocId, StoreKey.Opening],
-      () => this.openDocId() === file.id && !store.getBoolean(StoreKey.Opening),
+      [StoreKey.OpenDocId, StoreKey.Opening, StoreKey.OpenFile],
+      () =>
+        this.openDocId() === file.id &&
+        !store.getBoolean(StoreKey.Opening) &&
+        !this.isBinaryFileShown(),
       signal,
     );
     if (!opened) throw this.openTimeout(file);
@@ -126,6 +133,15 @@ export class OverleafProjectAdapter implements ProjectPort {
     return new FileOpenTimeoutError(
       `${file.path} did not open within ${String(this.deps.timeouts.fileOpenMs)} ms.`,
     );
+  }
+
+  private isBinaryFileShown(): boolean {
+    const openFile = this.deps.store.get(StoreKey.OpenFile);
+    if (openFile === null) return false;
+    if (typeof openFile !== 'object') {
+      throw new OverleafStoreContractError(`${StoreKey.OpenFile} is neither null nor a file`);
+    }
+    return true;
   }
 
   private openDocId(): string {

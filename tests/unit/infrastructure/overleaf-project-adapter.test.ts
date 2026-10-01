@@ -14,6 +14,7 @@ import {
 import {
   CompileTimeoutError,
   FileOpenTimeoutError,
+  NoOpenTextFileError,
   ProjectFileReadError,
   ProjectUnavailableError,
 } from '../../../src/ports/errors';
@@ -75,6 +76,11 @@ describe('OverleafProjectAdapter files', () => {
     expect(() => adapter.openFilePath()).toThrow(OverleafStoreContractError);
   });
 
+  it('names no open file while Overleaf shows a binary file', () => {
+    ide.click('file-frog');
+    expect(() => adapter.openFilePath()).toThrow(NoOpenTextFileError);
+  });
+
   it('reads the open file from the editor, unsaved edits included', async () => {
     ide.editor.dispatch({ changes: { from: 0, insert: '% draft\n' } });
     const snapshot = await adapter.readFile(file('main.tex'));
@@ -117,6 +123,14 @@ describe('OverleafProjectAdapter.openFile', () => {
     expect(ide.isExpanded('folder-intro')).toBe(true);
     expect(adapter.openFilePath()).toBe('chapters/intro/intro.tex');
     expect(bridge.openEditor?.view.state.doc.toString()).toBe(ide.textOf('doc-intro'));
+  });
+
+  it('brings the last document back when a binary file hides it', async () => {
+    const view = ide.editor;
+    ide.click('file-frog');
+    await adapter.openFile(file('main.tex'));
+    expect(adapter.openFilePath()).toBe('main.tex');
+    expect(ide.editor).toBe(view);
   });
 
   it('does nothing when the file is already open', async () => {

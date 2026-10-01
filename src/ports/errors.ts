@@ -30,3 +30,5 @@ export class ProjectFileReadError extends OperationalError {}
 export class FileOpenTimeoutError extends OperationalError {}
 
 export class CompileTimeoutError extends OperationalError {}
+
+export class NoOpenTextFileError extends OperationalError {}

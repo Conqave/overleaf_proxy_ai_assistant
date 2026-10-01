@@ -2,6 +2,7 @@ export const StoreKey = {
   Project: 'project',
   OpenDocId: 'editor.open_doc_id',
   Opening: 'editor.opening',
+  OpenFile: 'openFile',
   LogEntries: 'pdf.logEntries',
 } as const;
 export type StoreKey = (typeof StoreKey)[keyof typeof StoreKey];

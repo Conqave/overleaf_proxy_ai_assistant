@@ -98,6 +98,7 @@ export class FakeOverleafIde {
       project: { rootFolder: [rootFolder] },
       'editor.open_doc_id': FIXTURE_DOC_ID,
       'editor.opening': false,
+      openFile: null,
       'pdf.logEntries': EMPTY_LOG_ENTRIES,
     });
     Object.assign(window, { overleaf: { unstable: { store: this.store } } });
@@ -137,7 +138,12 @@ export class FakeOverleafIde {
 
   private async openDoc(id: string): Promise<void> {
     if (!this.opensDocs) return;
+    if (this.store.get('editor.open_doc_id') === id) {
+      this.store.set('openFile', null);
+      return;
+    }
     this.store.set('editor.open_doc_id', id);
+    this.store.set('openFile', null);
     this.store.set('editor.opening', true);
     await Promise.resolve();
     this.store.set('editor.opening', false);
@@ -166,7 +172,11 @@ export class FakeOverleafIde {
         void this.openDoc(doc._id);
       });
     }
-    for (const fileRef of folder.fileRefs) this.renderItem(list, fileRef, 'file');
+    for (const fileRef of folder.fileRefs) {
+      this.renderItem(list, fileRef, 'file').addEventListener('click', () => {
+        this.store.set('openFile', { _id: fileRef._id, name: fileRef.name, type: 'file' });
+      });
+    }
   }
 
   private renderItem(list: HTMLElement, entity: FakeEntity, type: string): HTMLElement {
