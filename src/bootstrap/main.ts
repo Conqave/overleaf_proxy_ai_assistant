@@ -56,7 +56,8 @@ function compose(
     new LocalStorageConversationRepository(window, identity),
   );
   const pendingChanges = new PendingChanges();
-  const lock = new OperationLock(() => new AbortController());
+  const createController = (): AbortController => new AbortController();
+  const lock = new OperationLock(createController);
 
   const handleRequest = new HandleAssistantRequest({
     agent,
@@ -66,6 +67,7 @@ function compose(
     pendingChanges,
     lock,
     newId: () => createUuid(window.crypto),
+    createController,
   });
   const review = new ReviewAppliedChange({ project, conversation, handleRequest });
 

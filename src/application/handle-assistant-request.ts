@@ -10,7 +10,7 @@ import {
   type UserMessage,
 } from '../domain/conversation';
 import type { AgentPort, AgentWorkspace, ContextUsage } from '../ports/agent-port';
-import type { CancellationSignal } from '../ports/cancellation';
+import type { CancellationController, CancellationSignal } from '../ports/cancellation';
 import type { EditorPort } from '../ports/editor-port';
 import type { ProjectPort } from '../ports/project-port';
 import { acceptDecision, isAgentMistake, type AcceptedDecision } from './agent-decision';
@@ -58,9 +58,10 @@ export class HandleAssistantRequest {
       pendingChanges: PendingChanges;
       lock: OperationLock;
       newId: () => string;
+      createController: () => CancellationController;
     },
   ) {
-    this.tools = new ProjectTools(deps.project);
+    this.tools = new ProjectTools(deps.project, deps.createController);
   }
 
   getUnusedContext(): ContextUsage {

@@ -17,13 +17,14 @@ import {
   type AgentResult,
 } from '../../../src/application/handle-assistant-request';
 import { OperationLock } from '../../../src/application/operation-lock';
+import { PARALLEL_SEARCH_READS } from '../../../src/application/project-tools';
 import { PendingChanges, PendingDocumentChange } from '../../../src/application/pending-change';
 import { RejectDocumentChange } from '../../../src/application/reject-document-change';
 import { ReviewAppliedChange } from '../../../src/application/review-applied-change';
 import type { AgentDecision, ToolCall } from '../../../src/domain/agent-action';
 import type { CompileDiagnostic } from '../../../src/domain/agent-transcript';
 import { AGENT_POLICY } from '../../../src/domain/agent-policy';
-import { createDocumentSnapshot } from '../../../src/domain/document';
+import { createDocumentSnapshot, type DocumentSnapshot } from '../../../src/domain/document';
 import { createDocumentCommand } from '../../../src/domain/document-command';
 import { DocumentConflictError, InvariantViolation } from '../../../src/domain/errors';
 import { findTextFile } from '../../../src/domain/project-file';
@@ -139,6 +140,7 @@ beforeEach(() => {
     pendingChanges,
     lock,
     newId,
+    createController: () => new AbortController(),
   });
   review = new ReviewAppliedChange({ project, conversation, handleRequest: handle });
   apply = new ApplyDocumentChange({ editor, project, pendingChanges, conversation, lock, review });
@@ -261,6 +263,56 @@ describe('HandleAssistantRequest', () => {
       truncated: false,
     });
     expect(progress).toContainEqual({ stage: 'searching', query: 'KNUTH' });
+  });
+
+  it('cancels the other reads of a search when one fails and waits for them', async () => {
+    const mainRead = Promise.withResolvers<DocumentSnapshot>();
+    project.willRead('main.tex', new PendingStep(() => mainRead.promise));
+    project.willRead('chapters/intro.tex', new PendingStep(rejectOnAbort));
+    project.willRead('refs.bib', new ProjectFileReadError('404'));
+    agent.will(tool({ tool: 'search', query: 'knuth' }));
+    let settled = false;
+    const sending = send('where is knuth cited?').finally(() => {
+      settled = true;
+    });
+    await vi.waitFor(() => {
+      expect(project.readSignal('main.tex').aborted).toBe(true);
+    });
+    expect(project.readSignal('chapters/intro.tex').aborted).toBe(true);
+    expect(settled).toBe(false);
+    mainRead.resolve(createDocumentSnapshot(MAIN));
+    await expect(sending).rejects.toThrow(ProjectFileReadError);
+    expect(agent.requests).toHaveLength(1);
+  });
+
+  it('reads at most a few files of a search at a time', async () => {
+    const documents = Object.fromEntries(
+      Array.from({ length: PARALLEL_SEARCH_READS + 2 }, (_, index) => [
+        `part${String(index)}.tex`,
+        ['text'],
+      ]),
+    );
+    project = new FakeProject(editor, documents, 'part0.tex');
+    handle = new HandleAssistantRequest({
+      agent,
+      project,
+      editor,
+      conversation,
+      pendingChanges,
+      lock,
+      newId: sequentialIds(),
+      createController: () => new AbortController(),
+    });
+    project.holdsReads = true;
+    agent.will(tool({ tool: 'search', query: 'text' }));
+    const sending = send('find text');
+    await vi.waitFor(() => {
+      expect(project.reads).toHaveLength(PARALLEL_SEARCH_READS);
+    });
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(project.reads).toHaveLength(PARALLEL_SEARCH_READS);
+    new StartNewConversation({ conversation, pendingChanges, editor, lock }).execute();
+    await expect(sending).rejects.toThrow(RequestSupersededError);
   });
 
   it('compiles the project and hands the diagnostics to the agent', async () => {

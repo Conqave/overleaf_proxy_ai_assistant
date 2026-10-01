@@ -128,6 +128,8 @@ export class FakeProject implements ProjectPort {
   failure: Partial<Record<'listFiles' | 'readFile' | 'openFile', Error>> = {};
   onOpen: (path: string) => void = () => undefined;
   private compiles: Step<readonly CompileDiagnostic[]>[] = [];
+  private readonly readSteps = new Map<string, Error | PendingStep<DocumentSnapshot>>();
+  private readonly readSignals = new Map<string, CancellationSignal>();
   private readonly savedDocuments: Map<string, readonly string[]>;
   private openPath: string;
 
@@ -156,6 +158,15 @@ export class FakeProject implements ProjectPort {
     this.compiles.push(...results);
     return this;
   }
+  willRead(path: string, step: Error | PendingStep<DocumentSnapshot>): this {
+    this.readSteps.set(path, step);
+    return this;
+  }
+  readSignal(path: string): CancellationSignal {
+    const signal = this.readSignals.get(path);
+    if (signal === undefined) throw new TestFixtureError(`${path} was not read`);
+    return signal;
+  }
   switchTo(path: string): void {
     this.savedDocuments.set(this.openPath, [...this.editor.lines]);
     this.openPath = path;
@@ -179,6 +190,10 @@ export class FakeProject implements ProjectPort {
   readFile(file: TextFile, signal: CancellationSignal): Promise<DocumentSnapshot> {
     this.reads.push(file.path);
     this.signals.push(signal);
+    this.readSignals.set(file.path, signal);
+    const step = this.readSteps.get(file.path);
+    if (step instanceof Error) return Promise.reject(step);
+    if (step !== undefined) return step.settle(signal);
     if (this.failure.readFile) return Promise.reject(this.failure.readFile);
     if (this.holdsReads) return rejectOnAbort(signal);
     const lines = file.path === this.openPath ? this.editor.lines : this.savedDocument(file.path);

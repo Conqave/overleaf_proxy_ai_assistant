@@ -370,6 +370,7 @@ async function runApplication(agent: AgentPort, c: Case): Promise<ApplicationRun
     pendingChanges: new PendingChanges(),
     lock: new OperationLock(() => new AbortController()),
     newId: sequentialIds(),
+    createController: () => new AbortController(),
   });
   const tools: ToolCall['tool'][] = [];
   const result = await handleRequest.execute(c.request, (progress) => {

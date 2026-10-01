@@ -59,6 +59,7 @@ async function openAssistant() {
     pendingChanges,
     lock,
     newId: sequentialIds(),
+    createController: () => new AbortController(),
   });
   const review = new ReviewAppliedChange({ project, conversation, handleRequest });
   const controller = new AssistantController({
