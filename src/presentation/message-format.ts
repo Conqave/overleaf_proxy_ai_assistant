@@ -69,7 +69,8 @@ export function errorNotice(message: string): string {
   return `Error: ${message}`;
 }
 
-export function appliedNotice({ path, edit }: ProjectEdit): string {
+export function appliedNotice({ file, edit }: ProjectEdit): string {
+  const { path } = file;
   const { command } = edit;
   switch (command.operation) {
     case DocumentOperation.InsertBefore:

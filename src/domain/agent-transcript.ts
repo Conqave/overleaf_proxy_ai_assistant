@@ -1,4 +1,4 @@
-import { AgentTool, type ToolCall } from './agent-action';
+import { AgentTool, type AgentDecision, type ToolCall } from './agent-action';
 import type { DocumentSnapshot } from './document';
 import { UnreadFileEditError } from './errors';
 
@@ -35,9 +35,22 @@ export type ToolResult =
     }
   | { readonly tool: typeof AgentTool.Compile; readonly diagnostics: readonly CompileDiagnostic[] };
 
-export interface AgentTurn {
+export interface ToolTurn {
+  readonly kind: 'tool';
   readonly call: ToolCall;
   readonly result: ToolResult;
+}
+
+export interface MistakeTurn {
+  readonly kind: 'mistake';
+  readonly decision: AgentDecision;
+  readonly problem: string;
+}
+
+export type AgentTurn = ToolTurn | MistakeTurn;
+
+export function getToolTurns(transcript: readonly AgentTurn[]): readonly ToolTurn[] {
+  return transcript.filter((turn) => turn.kind === 'tool');
 }
 
 export interface OpenFileView {
@@ -50,7 +63,7 @@ export function getShownDocument(
   transcript: readonly AgentTurn[],
   path: string,
 ): DocumentSnapshot {
-  const reads = transcript.flatMap(({ result }) =>
+  const reads = getToolTurns(transcript).flatMap(({ result }) =>
     result.tool === AgentTool.ReadFile && result.path === path ? [result.document] : [],
   );
   const latest = reads.at(-1);

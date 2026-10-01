@@ -40,6 +40,8 @@ describe('messageMeta', () => {
   });
 });
 
+const textFile = (path: string) => ({ id: path, path, kind: 'text' as const });
+
 describe('appliedNotice', () => {
   it('reports how many lines changed in which file', () => {
     const replaced = ResolvedEdit.resolve(
@@ -50,10 +52,10 @@ describe('appliedNotice', () => {
       DOC,
       createDocumentCommand({ operation: 'delete', target, lineCount: 4 }),
     );
-    expect(appliedNotice({ path: 'refs.bib', edit: replaced })).toBe(
+    expect(appliedNotice({ file: textFile('refs.bib'), edit: replaced })).toBe(
       'Done. Line replaced in refs.bib.',
     );
-    expect(appliedNotice({ path: 'main.tex', edit: deleted })).toBe(
+    expect(appliedNotice({ file: textFile('main.tex'), edit: deleted })).toBe(
       'Done. 4 lines deleted in main.tex.',
     );
   });

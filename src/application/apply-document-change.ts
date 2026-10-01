@@ -20,11 +20,11 @@ export class ApplyDocumentChange {
   ): Promise<ProjectEdit> {
     const { editor, project } = this.deps;
     const change = this.deps.pendingChanges.get(changeId);
-    const { path, edit } = change.change;
+    const { file, edit } = change.change;
     change.approve();
     try {
       editor.clearPreview();
-      await showProjectFile(project, path, onProgress);
+      await showProjectFile(project, file, onProgress);
       edit.assertCurrent(editor.readDocument());
       editor.apply(edit);
     } catch (error) {

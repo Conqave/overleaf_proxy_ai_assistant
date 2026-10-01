@@ -4,31 +4,19 @@ import {
   type AgentReply,
   type ToolCall,
 } from '../../domain/agent-action';
-import { checkToolCall } from '../../domain/agent-policy';
-import { getShownDocument } from '../../domain/agent-transcript';
-import type { DocumentSnapshot } from '../../domain/document';
 import {
   createDocumentCommand,
   type DocumentCommand,
   type DocumentCommandInput,
 } from '../../domain/document-command';
-import { findLinesStartingWith, MIN_QUOTED_START } from '../../domain/document-target';
 import {
-  DocumentRangeError,
-  DocumentTargetNotFoundError,
   InvalidDocumentCommandError,
+  InvalidProjectPathError,
   InvalidToolCallError,
   InvariantViolation,
   NamedError,
-  NotATextFileError,
-  ProjectFileNotFoundError,
-  RepeatedToolCallError,
-  ToolBudgetExhaustedError,
-  UnreadFileEditError,
 } from '../../domain/errors';
-import { findTextFile } from '../../domain/project-file';
-import { ResolvedEdit } from '../../domain/resolved-edit';
-import type { AgentStepRequest } from '../../ports/agent-port';
+import { createProjectPath } from '../../domain/project-file';
 import {
   AGENT_ACTIONS,
   AgentAction,
@@ -48,7 +36,7 @@ const TOOL_FIELDS: readonly string[] = [AgentField.Path, AgentField.Query];
 
 const AGENT_EDIT_FIELDS: readonly string[] = [AgentField.Path, ...EDIT_FIELDS];
 
-export function parseAgentDecision(raw: string, request: AgentStepRequest): AgentDecision {
+export function parseAgentDecision(raw: string): AgentDecision {
   const text = raw.trim();
   if (text === '') {
     throw new InvalidAssistantResponse(
@@ -63,13 +51,13 @@ export function parseAgentDecision(raw: string, request: AgentStepRequest): Agen
     case AgentAction.ReadFile:
     case AgentAction.Search:
     case AgentAction.Compile:
-      return { kind: 'tool', call: parseToolCall(action, rows, request) };
+      return { kind: 'tool', call: parseToolCall(action, rows) };
     case AgentAction.Answer:
       return { kind: 'reply', reply: { kind: 'answer', text: parseAnswerText(rows) } };
     case AgentAction.Question:
       return { kind: 'reply', reply: { kind: 'question', text: parseQuestion(rows) } };
     case AgentAction.Edit:
-      return { kind: 'reply', reply: parseEditReply(rows, request) };
+      return { kind: 'reply', reply: parseEditReply(rows) };
   }
 }
 
@@ -91,19 +79,12 @@ function parseAction(line: string): AgentAction {
   return action;
 }
 
-function parseToolCall(
-  tool: ToolCall['tool'],
-  rows: readonly string[],
-  request: AgentStepRequest,
-): ToolCall {
+function parseToolCall(tool: ToolCall['tool'], rows: readonly string[]): ToolCall {
   const { fields, content } = parseHeaderReply(rows, TOOL_FIELDS);
   if (content !== undefined) {
     throw new InvalidAssistantResponse(`a ${tool} call has no content; send only its header lines`);
   }
-  const call = createCall(tool, fields);
-  if (call.tool === AgentAction.ReadFile) findProjectTextFile(request, call.path);
-  checkBudget(request, call);
-  return call;
+  return createCall(tool, fields);
 }
 
 function createCall(tool: ToolCall['tool'], fields: HeaderReply['fields']): ToolCall {
@@ -115,30 +96,6 @@ function createCall(tool: ToolCall['tool'], fields: HeaderReply['fields']): Tool
     });
   } catch (error) {
     if (!(error instanceof InvalidToolCallError)) throw error;
-    throw new InvalidAssistantResponse(error.message);
-  }
-}
-
-function findProjectTextFile(request: AgentStepRequest, path: string): void {
-  try {
-    findTextFile(request.workspace.files, path);
-  } catch (error) {
-    if (!(error instanceof ProjectFileNotFoundError || error instanceof NotATextFileError)) {
-      throw error;
-    }
-    throw new InvalidAssistantResponse(
-      `${error.message} ${AgentField.Path} must be a text file from the project file list`,
-    );
-  }
-}
-
-function checkBudget(request: AgentStepRequest, call: ToolCall): void {
-  try {
-    checkToolCall(request.transcript, call);
-  } catch (error) {
-    if (!(error instanceof ToolBudgetExhaustedError || error instanceof RepeatedToolCallError)) {
-      throw error;
-    }
     throw new InvalidAssistantResponse(error.message);
   }
 }
@@ -164,24 +121,30 @@ function parseQuestion(rows: readonly string[]): string {
   return question;
 }
 
-function parseEditReply(rows: readonly string[], request: AgentStepRequest): AgentReply {
-  const reply = parseHeaderReply(rows, AGENT_EDIT_FIELDS);
-  const path = getRequiredField(reply.fields, AgentField.Path);
-  findProjectTextFile(request, path);
-  const edit = parseEdit(reply, getShown(request, path));
-  return { kind: 'edit', change: { path, edit } };
+function parseEditReply(rows: readonly string[]): AgentReply {
+  const { fields, content } = parseHeaderReply(rows, AGENT_EDIT_FIELDS);
+  const path = parseEditPath(getRequiredField(fields, AgentField.Path));
+  const lineNumber = getLineNumber(fields, EditField.Line);
+  const command = parseCommand({
+    operation: getRequiredField(fields, EditField.Operation),
+    target: { lineNumber, lineText: getRequiredField(fields, EditField.LineText) },
+    ...(fields.has(EditField.EndLine)
+      ? { lineCount: getLineNumber(fields, EditField.EndLine) - lineNumber + 1 }
+      : {}),
+    content,
+    reason: getOptionalField(fields, EditField.Reason),
+  });
+  return { kind: 'edit', path, command };
 }
 
-function getShown(request: AgentStepRequest, path: string): DocumentSnapshot {
+function parseEditPath(value: string): string {
   try {
-    return getShownDocument(request.workspace.openFile, request.transcript, path);
+    return createProjectPath(value);
   } catch (error) {
-    if (!(error instanceof UnreadFileEditError)) throw error;
+    if (!(error instanceof InvalidProjectPathError)) throw error;
     throw new InvalidAssistantResponse(error.message);
   }
 }
-
-const NEARBY_LINES = 2;
 
 export class InvalidAssistantResponse extends NamedError {
   constructor(readonly problem: string) {
@@ -202,21 +165,6 @@ function rejectJson(text: string, example: string): void {
       `the reply is JSON; write the plain header lines instead (${example}), without braces or quotes`,
     );
   }
-}
-
-function parseEdit(reply: HeaderReply, shown: DocumentSnapshot): ResolvedEdit {
-  const { fields, content } = reply;
-  const lineNumber = getLineNumber(fields, EditField.Line);
-  const command = parseCommand({
-    operation: getRequiredField(fields, EditField.Operation),
-    target: { lineNumber, lineText: getRequiredField(fields, EditField.LineText) },
-    ...(fields.has(EditField.EndLine)
-      ? { lineCount: getLineNumber(fields, EditField.EndLine) - lineNumber + 1 }
-      : {}),
-    content,
-    reason: getOptionalField(fields, EditField.Reason),
-  });
-  return resolveShown(shown, command);
 }
 
 function parseCommand(input: DocumentCommandInput): DocumentCommand {
@@ -293,40 +241,4 @@ function getLineNumber(fields: ReadonlyMap<string, string>, name: string): numbe
   if (!/^\d+$/.test(value))
     throw new InvalidAssistantResponse(`${name} must be a number, got "${value}"`);
   return Number(value);
-}
-
-function resolveShown(shown: DocumentSnapshot, command: DocumentCommand): ResolvedEdit {
-  try {
-    return ResolvedEdit.resolve(shown, command);
-  } catch (error) {
-    if (error instanceof DocumentRangeError) {
-      throw new InvalidAssistantResponse(
-        `${error.message}; ${EditField.EndLine} must be a line of the document`,
-      );
-    }
-    if (!(error instanceof DocumentTargetNotFoundError)) throw error;
-    throw new InvalidAssistantResponse(describeTargetMismatch(shown, command));
-  }
-}
-
-function describeTargetMismatch(shown: DocumentSnapshot, command: DocumentCommand): string {
-  const { lineNumber, lineText } = command.target;
-  const actual = shown.lines[lineNumber - 1];
-  if (actual === undefined) {
-    return `line ${String(lineNumber)} does not exist; the document has ${String(shown.lines.length)} lines`;
-  }
-  const content = actual.trim() === '' ? 'is an empty line' : `reads: ${actual}`;
-  const [quotedLine, ...others] = findLinesStartingWith(shown, lineText);
-  if (quotedLine !== undefined && others.length === 0) {
-    return `${EditField.LineText} quotes line ${String(quotedLine)}, not line ${String(lineNumber)}, which ${content}; to target line ${String(quotedLine)} write ${EditField.Line}: ${String(quotedLine)}, to target line ${String(lineNumber)} copy its text into ${EditField.LineText}. The lines around line ${String(lineNumber)} are:\n${describeNearbyLines(shown, lineNumber)}`;
-  }
-  return `${EditField.LineText} must be copied from the start of line ${String(lineNumber)} (at least ${String(MIN_QUOTED_START)} characters, or the whole line if shorter), which ${content}`;
-}
-
-function describeNearbyLines(shown: DocumentSnapshot, lineNumber: number): string {
-  const first = Math.max(1, lineNumber - NEARBY_LINES);
-  return shown.lines
-    .slice(first - 1, lineNumber + NEARBY_LINES)
-    .map((text, index) => `${String(first + index)}: ${text}`)
-    .join('\n');
 }

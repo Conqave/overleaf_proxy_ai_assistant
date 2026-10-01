@@ -1,5 +1,6 @@
+import type { DocumentCommand } from './document-command';
 import type { ResolvedEdit } from './resolved-edit';
-import { createProjectPath } from './project-file';
+import { createProjectPath, type TextFile } from './project-file';
 import { InvalidProjectPathError, InvalidToolCallError } from './errors';
 
 export const AgentTool = {
@@ -85,14 +86,14 @@ function parseQuery(value: unknown): string {
 }
 
 export interface ProjectEdit {
-  readonly path: string;
+  readonly file: TextFile;
   readonly edit: ResolvedEdit;
 }
 
 export type AgentReply =
   | { readonly kind: 'answer'; readonly text: string }
   | { readonly kind: 'question'; readonly text: string }
-  | { readonly kind: 'edit'; readonly change: ProjectEdit };
+  | { readonly kind: 'edit'; readonly path: string; readonly command: DocumentCommand };
 
 export type AgentDecision =
   | { readonly kind: 'tool'; readonly call: ToolCall }

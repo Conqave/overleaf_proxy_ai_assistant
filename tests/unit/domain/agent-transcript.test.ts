@@ -7,6 +7,7 @@ const open = { path: 'main.tex', document: createDocumentSnapshot(['open']) };
 
 function read(path: string, line: string): AgentTurn {
   return {
+    kind: 'tool',
     call: { tool: 'read_file', path },
     result: { tool: 'read_file', path, document: createDocumentSnapshot([line]) },
   };
@@ -24,6 +25,15 @@ describe('getShownDocument', () => {
       'refs.bib',
     );
     expect(shown.lines).toEqual(['new']);
+  });
+
+  it('ignores a rejected read', () => {
+    const rejected: AgentTurn = {
+      kind: 'mistake',
+      decision: { kind: 'tool', call: { tool: 'read_file', path: 'refs.bib' } },
+      problem: 'no',
+    };
+    expect(() => getShownDocument(open, [rejected], 'refs.bib')).toThrow(UnreadFileEditError);
   });
 
   it('rejects an edit of a file the model has not seen', () => {

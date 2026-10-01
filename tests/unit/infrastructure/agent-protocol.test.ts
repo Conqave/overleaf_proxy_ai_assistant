@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { AgentTool } from '../../../src/domain/agent-action';
 import type { AgentTurn } from '../../../src/domain/agent-transcript';
 import { createDocumentSnapshot } from '../../../src/domain/document';
+import { createDocumentCommand } from '../../../src/domain/document-command';
 import { ProjectFileKind } from '../../../src/domain/project-file';
 import { createAgentExchange } from '../../../src/infrastructure/ollama/agent-protocol';
 import {
@@ -17,10 +18,12 @@ const bib = createDocumentSnapshot(['@book{a,', '}']);
 
 const turns: readonly AgentTurn[] = [
   {
+    kind: 'tool',
     call: { tool: AgentTool.ReadFile, path: 'refs.bib' },
     result: { tool: AgentTool.ReadFile, path: 'refs.bib', document: bib },
   },
   {
+    kind: 'tool',
     call: { tool: AgentTool.Search, query: 'fig:a' },
     result: {
       tool: AgentTool.Search,
@@ -29,6 +32,7 @@ const turns: readonly AgentTurn[] = [
     },
   },
   {
+    kind: 'tool',
     call: { tool: AgentTool.Compile },
     result: {
       tool: AgentTool.Compile,
@@ -99,10 +103,12 @@ describe('agent exchange', () => {
   it('says so when a search or compile found nothing', () => {
     const empty: readonly AgentTurn[] = [
       {
+        kind: 'tool',
         call: { tool: AgentTool.Search, query: 'zz' },
         result: { tool: AgentTool.Search, matches: [], truncated: false },
       },
       {
+        kind: 'tool',
         call: { tool: AgentTool.Compile },
         result: { tool: AgentTool.Compile, diagnostics: [] },
       },
@@ -113,7 +119,8 @@ describe('agent exchange', () => {
   });
 
   it('tells the model to reply once the tools are used up', () => {
-    const used = Array.from({ length: 6 }, (_, index) => ({
+    const used = Array.from({ length: 6 }, (_, index): AgentTurn => ({
+      kind: 'tool',
       call: { tool: AgentTool.Search, query: `q${String(index)}` },
       result: { tool: AgentTool.Search, matches: [], truncated: false },
     }));
@@ -121,13 +128,49 @@ describe('agent exchange', () => {
     expect(prompt).toContain('Lookups left: 0. Reply now with ACTION: answer, question or edit.');
   });
 
-  it('parses replies against the request it was built for', () => {
+  it('parses the syntax of a reply and leaves its policy to the caller', () => {
     const exchange = createAgentExchange(request({ transcript: turns }), budget);
-    expect(exchange.parse('ACTION: read_file\nPATH: main.tex')).toEqual({
+    expect(exchange.parse('ACTION: compile')).toEqual({
       kind: 'tool',
-      call: { tool: 'read_file', path: 'main.tex' },
+      call: { tool: 'compile' },
     });
-    expect(() => exchange.parse('ACTION: compile')).toThrow('already called');
+  });
+
+  it('shows a rejected step with the problem the model has to correct', () => {
+    const rejected: readonly AgentTurn[] = [
+      {
+        kind: 'mistake',
+        decision: { kind: 'tool', call: { tool: AgentTool.ReadFile, path: 'gone.tex' } },
+        problem: 'The project has no file gone.tex.',
+      },
+      {
+        kind: 'mistake',
+        decision: {
+          kind: 'reply',
+          reply: {
+            kind: 'edit',
+            path: 'main.tex',
+            command: createDocumentCommand({
+              operation: 'delete',
+              target: { lineNumber: 9, lineText: 'x' },
+            }),
+          },
+        },
+        problem: 'Line 9 does not exist; the document has 2 lines.',
+      },
+    ];
+    const { prompt, system } = createAgentExchange(
+      request({ transcript: rejected }),
+      budget,
+    ).request;
+    expect(prompt).toContain(
+      'Result 1 (read_file gone.tex, rejected):\nThe project has no file gone.tex.',
+    );
+    expect(prompt).toContain(
+      'Result 2 (edit main.tex, rejected):\nLine 9 does not exist; the document has 2 lines.',
+    );
+    expect(prompt.endsWith('Lookups left: 6')).toBe(true);
+    expect(system).toContain('A result marked rejected explains why');
   });
 
   it('asks for one action in a correction', () => {
@@ -150,6 +193,7 @@ describe('agent exchange', () => {
 describe('agent prompt budget', () => {
   const long = createDocumentSnapshot(Array.from({ length: 20_000 }, () => 'x'.repeat(40)));
   const longRead = (path: string): AgentTurn => ({
+    kind: 'tool',
     call: { tool: AgentTool.ReadFile, path },
     result: { tool: AgentTool.ReadFile, path, document: long },
   });

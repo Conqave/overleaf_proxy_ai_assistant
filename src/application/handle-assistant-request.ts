@@ -1,5 +1,5 @@
-import type { AgentReply, ProjectEdit } from '../domain/agent-action';
-import { checkToolCall } from '../domain/agent-policy';
+import type { ProjectEdit } from '../domain/agent-action';
+import { hasMistakesLeft } from '../domain/agent-policy';
 import type { AgentTurn } from '../domain/agent-transcript';
 import type {
   AssistantMessage,
@@ -11,9 +11,15 @@ import type {
 import type { AgentPort, AgentWorkspace, ContextUsage } from '../ports/agent-port';
 import type { EditorPort } from '../ports/editor-port';
 import type { ProjectPort } from '../ports/project-port';
+import { acceptDecision, isAgentMistake, type AcceptedDecision } from './agent-decision';
 import type { AgentProgress } from './agent-progress';
 import type { ConversationLog } from './conversation-log';
-import { EmptyRequestError, RequestInProgressError, RequestSupersededError } from './errors';
+import {
+  AgentMistakeLimitError,
+  EmptyRequestError,
+  RequestInProgressError,
+  RequestSupersededError,
+} from './errors';
 import { isGreetingOnly } from './greeting-policy';
 import { PendingDocumentChange, type PendingChanges } from './pending-change';
 import { ProjectTools } from './project-tools';
@@ -87,13 +93,21 @@ export class HandleAssistantRequest {
         transcript: [...transcript],
       });
       this.ensureCurrent(epoch);
-      if (decision.kind === 'reply') {
-        return { ...(await this.answer(decision.reply, epoch, onProgress)), contextUsage };
+      let accepted: AcceptedDecision;
+      try {
+        accepted = acceptDecision(decision, workspace, transcript);
+      } catch (error) {
+        if (!isAgentMistake(error)) throw error;
+        transcript.push({ kind: 'mistake', decision, problem: error.message });
+        if (!hasMistakesLeft(transcript)) throw new AgentMistakeLimitError(error);
+        continue;
       }
-      checkToolCall(transcript, decision.call);
-      const result = await this.tools.run(decision.call, workspace.files, onProgress);
+      if (accepted.kind !== 'tool') {
+        return { ...(await this.answer(accepted, epoch, onProgress)), contextUsage };
+      }
+      const result = await this.tools.run(accepted.run, onProgress);
       this.ensureCurrent(epoch);
-      transcript.push({ call: decision.call, result });
+      transcript.push({ kind: 'tool', call: accepted.call, result });
     }
   }
 
@@ -108,7 +122,7 @@ export class HandleAssistantRequest {
   }
 
   private async answer(
-    reply: AgentReply,
+    reply: Exclude<AcceptedDecision, { readonly kind: 'tool' }>,
     epoch: number,
     onProgress: (progress: AgentProgress) => void,
   ): Promise<AssistantRequestResult> {
@@ -118,7 +132,7 @@ export class HandleAssistantRequest {
       case 'question':
         return { message: this.reply('clarification', reply.text) };
       case 'edit':
-        await showProjectFile(this.deps.project, reply.change.path, onProgress);
+        await showProjectFile(this.deps.project, reply.change.file, onProgress);
         this.ensureCurrent(epoch);
         return this.propose(reply.change);
     }
@@ -136,7 +150,7 @@ export class HandleAssistantRequest {
       id: change.id,
       role: 'assistant',
       kind: 'proposal',
-      path: edit.path,
+      path: edit.file.path,
       command: edit.edit.command,
     };
     this.deps.conversation.append(message);

@@ -1,5 +1,5 @@
 import { AgentTool, type AgentDecision, type ToolCall } from '../../domain/agent-action';
-import { AGENT_POLICY, canCallTools } from '../../domain/agent-policy';
+import { countToolCallsLeft } from '../../domain/agent-policy';
 import type { AgentTurn, CompileDiagnostic, ToolResult } from '../../domain/agent-transcript';
 import type { DocumentSnapshot } from '../../domain/document';
 import { DocumentOperation } from '../../domain/document-command';
@@ -38,6 +38,7 @@ const SMALL_BLOCK_LABELS: readonly string[] = [FILES_LABEL, CONVERSATION_LABEL, 
 const NO_PROBLEMS = '(no problems)';
 const NO_MATCHES = '(no matches)';
 const MORE_MATCHES = '(more matches omitted; search for something more specific)';
+const REJECTED = 'rejected';
 
 const A = AgentAction;
 const F = EditField;
@@ -119,6 +120,7 @@ const AGENT_SYSTEM = lines(
   `- Verbs such as translate, fix, change, add, remove, rewrite (przetłumacz, popraw, zmień, dodaj, usuń, przepisz) applied to text of a file ask for an ${A.Edit} of that file.`,
   `- Verbs such as explain, describe, summarize (wyjaśnij, opisz, streść) ask for an ${A.Answer}; they never change a file.`,
   '- Reply as soon as you know enough. Never repeat a lookup; use the result you already have.',
+  `- A result marked ${REJECTED} explains why your action at that step was not carried out; send a corrected action instead of repeating it.`,
   '- When "Lookups left" is 0, reply now with answer, question or edit.',
   '- Base answers on the files; do not invent content they do not have. Quote LaTeX exactly.',
   '',
@@ -165,7 +167,7 @@ export function createAgentExchange(
   return {
     request: { system: AGENT_SYSTEM, prompt: buildPrompt(request, budget - AGENT_SYSTEM.length) },
     retryInstruction: RETRY,
-    parse: (raw) => parseAgentDecision(raw, request),
+    parse: parseAgentDecision,
   };
 }
 
@@ -200,10 +202,7 @@ function buildPrompt(request: AgentStepRequest, budget: number): string {
     label: `Numbered lines of ${workspace.openFile.path} (open in the editor, caret on line ${String(workspace.cursorLine)}):`,
     text: numberLines(workspace.openFile.document),
   };
-  const results = transcript.map((turn, index) => ({
-    label: resultLabel(index + 1, turn.call),
-    text: resultText(turn.result),
-  }));
+  const results = transcript.map((turn, index) => turnBlock(index + 1, turn));
   const separators = (results.length + 2) * LINE_BREAK.length;
   const available = budget - lines(...before, ...after).length - separators;
   const rendered = renderBlocks(available, open, results);
@@ -260,18 +259,36 @@ function fileNote(file: ProjectFile, openPath: string): string {
 }
 
 function toolsLeft(transcript: readonly AgentTurn[]): string {
-  if (!canCallTools(transcript)) {
+  const left = countToolCallsLeft(transcript);
+  if (left === 0) {
     return `Lookups left: 0. Reply now with ${fieldLine(AgentField.Action, `${A.Answer}, ${A.Question} or ${A.Edit}`)}.`;
   }
-  return `Lookups left: ${String(AGENT_POLICY.maxToolCalls - transcript.length)}`;
+  return `Lookups left: ${String(left)}`;
 }
 
 function numberLines(document: DocumentSnapshot): string {
   return document.lines.map((line, index) => `${String(index + 1)}: ${line}`).join(LINE_BREAK);
 }
 
-function resultLabel(position: number, call: ToolCall): string {
-  return `Result ${String(position)} (${describeCall(call)}):`;
+function turnBlock(position: number, turn: AgentTurn): PromptBlock {
+  switch (turn.kind) {
+    case 'tool':
+      return {
+        label: `Result ${String(position)} (${describeCall(turn.call)}):`,
+        text: resultText(turn.result),
+      };
+    case 'mistake':
+      return {
+        label: `Result ${String(position)} (${describeDecision(turn.decision)}, ${REJECTED}):`,
+        text: turn.problem,
+      };
+  }
+}
+
+function describeDecision(decision: AgentDecision): string {
+  if (decision.kind === 'tool') return describeCall(decision.call);
+  const { reply } = decision;
+  return reply.kind === 'edit' ? `${A.Edit} ${reply.path}` : reply.kind;
 }
 
 function describeCall(call: ToolCall): string {

@@ -30,7 +30,11 @@ export class ReviewAppliedChange {
       return { kind: 'compiled' };
     }
     const result = await this.deps.handleRequest.execute(fixRequest, onProgress, [
-      { call: { tool: AgentTool.Compile }, result: { tool: AgentTool.Compile, diagnostics } },
+      {
+        kind: 'tool',
+        call: { tool: AgentTool.Compile },
+        result: { tool: AgentTool.Compile, diagnostics },
+      },
     ]);
     return { kind: 'fix', result };
   }

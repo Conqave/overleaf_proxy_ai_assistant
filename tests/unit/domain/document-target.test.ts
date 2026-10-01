@@ -69,4 +69,22 @@ describe('resolveTarget', () => {
       DocumentTargetNotFoundError,
     );
   });
+
+  it('tells which line starts with the quoted text and shows the lines around the target', () => {
+    expect(() => resolveTarget(snapshot, createDocumentTarget(3, '\\section{B}'))).toThrow(
+      'The quoted text starts line 4, not line 3, which is an empty line. The lines around line 3 are:\n1: \\section{A}\n2: Text  one.\n3: \n4: \\section{B}\n5: dup',
+    );
+  });
+
+  it('shows the targeted line when the quote fits no single line', () => {
+    expect(() => resolveTarget(snapshot, createDocumentTarget(5, 'missing'))).toThrow(
+      'Line 5 does not start with the quoted text; it reads: dup.',
+    );
+  });
+
+  it('names the length of the document for a line beyond its end', () => {
+    expect(() => resolveTarget(snapshot, createDocumentTarget(99, 'x'))).toThrow(
+      'Line 99 does not exist; the document has 6 lines.',
+    );
+  });
 });

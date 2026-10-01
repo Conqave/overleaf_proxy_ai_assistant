@@ -337,7 +337,7 @@ describe('OllamaAgent', () => {
 
   it('sends an invalid action back to the model once', async () => {
     const ollama = new FakeOllama().reply(
-      { response: 'ACTION: read_file\nPATH: missing.tex' },
+      { response: 'ACTION: read_file' },
       { response: 'ACTION: answer\nTEXT:\nThe file is not in the project.' },
     );
     const { decision, contextUsage } = await agent(ollama).decide(step);
@@ -346,7 +346,7 @@ describe('OllamaAgent', () => {
       reply: { kind: 'answer', text: 'The file is not in the project.' },
     });
     expect(contextUsage.promptTokens).toBe(ollama.promptCalls[1]!.harmonyPrompt.length);
-    expect(ollama.promptCalls[1]!.body.prompt).toContain('missing.tex');
+    expect(ollama.promptCalls[1]!.body.prompt).toContain('read_file requires a path');
     expect(ollama.promptCalls[1]!.body.prompt).toContain('Reply again with exactly one action');
   });
 
@@ -380,24 +380,12 @@ describe('OllamaAgent', () => {
     expect(ollama.promptCalls).toHaveLength(0);
   });
 
-  it('sends a mistyped edit target back to the model with the real line text', async () => {
-    const edit = (lineText: string) => ({
-      response: `ACTION: edit\nPATH: main.tex\nOPERATION: delete\nLINE: 2\nLINE_TEXT: ${lineText}`,
+  it('returns a well-formed action unchecked and leaves its policy to the application', async () => {
+    const ollama = new FakeOllama().reply({
+      response: 'ACTION: edit\nPATH: missing.tex\nOPERATION: delete\nLINE: 9\nLINE_TEXT: x',
     });
-    const shown = {
-      path: 'main.tex',
-      document: createDocumentSnapshot(['\\cite{a}', 'Body text. More.']),
-    };
-    const ollama = new FakeOllama().reply(edit('Body text.'), edit('Body text. More.'));
-    const { decision } = await agent(ollama).decide({
-      ...step,
-      workspace: { ...step.workspace, openFile: shown },
-    });
-    expect(decision).toMatchObject({
-      reply: { change: { edit: { command: { target: { lineNumber: 2 } } } } },
-    });
-    const [, correction] = ollama.promptCalls;
-    expect(correction?.body.prompt).toContain('which reads: Body text. More.');
-    expect(correction?.body.prompt).toContain('No JSON');
+    const { decision } = await agent(ollama).decide(step);
+    expect(decision).toMatchObject({ reply: { kind: 'edit', path: 'missing.tex' } });
+    expect(ollama.promptCalls).toHaveLength(1);
   });
 });

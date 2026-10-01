@@ -4,6 +4,7 @@ import { ApplyDocumentChange } from '../../../src/application/apply-document-cha
 import { ConversationLog } from '../../../src/application/conversation-log';
 import { StartNewConversation } from '../../../src/application/conversation-session';
 import {
+  AgentMistakeLimitError,
   ChangeNoLongerPendingError,
   EmptyRequestError,
   RequestInProgressError,
@@ -18,13 +19,8 @@ import type { AgentDecision, ToolCall } from '../../../src/domain/agent-action';
 import { AGENT_POLICY } from '../../../src/domain/agent-policy';
 import { createDocumentSnapshot } from '../../../src/domain/document';
 import { createDocumentCommand } from '../../../src/domain/document-command';
-import {
-  DocumentConflictError,
-  InvariantViolation,
-  ProjectFileNotFoundError,
-  RepeatedToolCallError,
-  ToolBudgetExhaustedError,
-} from '../../../src/domain/errors';
+import { DocumentConflictError, InvariantViolation } from '../../../src/domain/errors';
+import { findTextFile } from '../../../src/domain/project-file';
 import { ResolvedEdit } from '../../../src/domain/resolved-edit';
 import {
   AssistantProtocolError,
@@ -71,32 +67,31 @@ const answer = (text: string): AgentDecision => ({
 });
 
 function editOf(path: string, lines: readonly string[], lineNumber: number): AgentDecision {
-  const lineText = lines[lineNumber - 1]!;
+  return editAt(path, lineNumber, lines[lineNumber - 1]!);
+}
+
+function editAt(path: string, lineNumber: number, lineText: string): AgentDecision {
   return {
     kind: 'reply',
     reply: {
       kind: 'edit',
-      change: {
-        path,
-        edit: ResolvedEdit.resolve(
-          createDocumentSnapshot(lines),
-          createDocumentCommand({
-            operation: 'insert_after',
-            target: { lineNumber, lineText },
-            content: 'Added.',
-            reason: 'Adds detail.',
-          }),
-        ),
-      },
+      path,
+      command: createDocumentCommand({
+        operation: 'insert_after',
+        target: { lineNumber, lineText },
+        content: 'Added.',
+        reason: 'Adds detail.',
+      }),
     },
   };
 }
 
 const mainEdit = () => editOf('main.tex', MAIN, 4);
 const bibEdit = () => editOf('refs.bib', BIB, 3);
+const readBib = () => tool({ tool: 'read_file', path: 'refs.bib' });
 
-async function proposeEdit(decision: AgentDecision = mainEdit()): Promise<string> {
-  agent.will(decision);
+async function proposeEdit(...decisions: AgentDecision[]): Promise<string> {
+  agent.will(...(decisions.length ? decisions : [mainEdit()]));
   const result = await send('add more');
   if (result.changeId === undefined) throw new InvariantViolation('no change proposed');
   return result.changeId;
@@ -211,6 +206,7 @@ describe('HandleAssistantRequest', () => {
     const result = await send('add knuth84 to the bibliography');
     expect(agent.requests[1]!.transcript).toEqual([
       {
+        kind: 'tool',
         call: { tool: 'read_file', path: 'refs.bib' },
         result: { tool: 'read_file', path: 'refs.bib', document: createDocumentSnapshot(BIB) },
       },
@@ -231,7 +227,8 @@ describe('HandleAssistantRequest', () => {
     agent.will(tool({ tool: 'search', query: 'KNUTH' }), answer('Cited in main.tex.'));
     await send('where is knuth cited?');
     expect(project.reads.sort()).toEqual(['chapters/intro.tex', 'main.tex', 'refs.bib']);
-    expect(agent.requests[1]!.transcript[0]!.result).toEqual({
+    expect(agent.requests[1]!.transcript[0]).toMatchObject({ kind: 'tool' });
+    expect(agent.requests[1]!.transcript[0]).toHaveProperty('result', {
       tool: 'search',
       matches: [
         { path: 'main.tex', lineNumber: 4, lineText: 'Numbers \\cite{knuth84}.' },
@@ -247,24 +244,106 @@ describe('HandleAssistantRequest', () => {
     project.willCompile(diagnostics);
     agent.will(tool({ tool: 'compile' }), answer('A typo on line 2.'));
     await send('why does it not compile?');
-    expect(agent.requests[1]!.transcript[0]!.result).toEqual({ tool: 'compile', diagnostics });
+    expect(agent.requests[1]!.transcript[0]).toEqual({
+      kind: 'tool',
+      call: { tool: 'compile' },
+      result: { tool: 'compile', diagnostics },
+    });
     expect(progress).toContainEqual({ stage: 'compiling' });
   });
 
-  it('treats a repeated tool call from the agent as a port defect', async () => {
+  it('sends a repeated tool call back to the agent as a rejected step', async () => {
     const call = tool({ tool: 'read_file', path: 'refs.bib' });
-    agent.will(call, call);
-    await expect(send('read it twice')).rejects.toThrow(RepeatedToolCallError);
+    agent.will(call, call, answer('One entry.'));
+    const result = await send('read it twice');
+    expect(result.message).toMatchObject({ kind: 'explanation', text: 'One entry.' });
     expect(project.reads).toEqual(['refs.bib']);
+    expect(agent.requests[2]!.transcript[1]).toEqual({
+      kind: 'mistake',
+      decision: call,
+      problem: 'read_file was already called with the same argument; use its earlier result',
+    });
   });
 
-  it('stops the agent at the tool budget', async () => {
+  it('sends a tool call beyond the budget back to the agent', async () => {
     const queries = Array.from({ length: AGENT_POLICY.maxToolCalls + 1 }, (_, index) =>
       tool({ tool: 'search', query: `query ${String(index)}` }),
     );
-    agent.will(...queries);
-    await expect(send('search forever')).rejects.toThrow(ToolBudgetExhaustedError);
-    expect(agent.requests).toHaveLength(AGENT_POLICY.maxToolCalls + 1);
+    agent.will(...queries, answer('Nothing found.'));
+    await expect(send('search forever')).resolves.toMatchObject({
+      message: { kind: 'explanation' },
+    });
+    expect(agent.requests.at(-1)!.transcript.at(-1)).toMatchObject({
+      kind: 'mistake',
+      problem: expect.stringContaining('lookups are used') as unknown,
+    });
+  });
+
+  it.each([
+    [
+      'a read of a file missing from the project',
+      tool({ tool: 'read_file', path: 'gone.tex' }),
+      'The project has no file gone.tex.',
+    ],
+    [
+      'a read of a binary file',
+      tool({ tool: 'read_file', path: 'figures/plot.png' }),
+      'figures/plot.png is not a text file.',
+    ],
+    ['an edit of a file missing from the project', editOf('gone.tex', MAIN, 4), 'no file gone.tex'],
+    ['an edit of a file it has not read', bibEdit(), 'refs.bib must be read with read_file'],
+    [
+      'an edit whose line does not match its quote',
+      editAt('main.tex', 2, '\\section{Results}'),
+      'The quoted text starts line 3, not line 2',
+    ],
+    [
+      'an edit range past the end of the file',
+      {
+        kind: 'reply',
+        reply: {
+          kind: 'edit',
+          path: 'main.tex',
+          command: createDocumentCommand({
+            operation: 'delete',
+            target: { lineNumber: 4, lineText: MAIN[3]! },
+            lineCount: 3,
+          }),
+        },
+      } satisfies AgentDecision,
+      'run past the end of the document',
+    ],
+  ])('sends %s back to the agent to correct', async (_name, mistake, problem) => {
+    agent.will(mistake, answer('Corrected.'));
+    await expect(send('do it')).resolves.toMatchObject({ message: { text: 'Corrected.' } });
+    expect(agent.requests[1]!.transcript).toEqual([
+      { kind: 'mistake', decision: mistake, problem: expect.stringContaining(problem) as unknown },
+    ]);
+    expect(editor.preview).toBeNull();
+    expect(project.reads).toEqual([]);
+  });
+
+  it('gives up after too many consecutive mistakes', async () => {
+    const mistakes = Array.from({ length: AGENT_POLICY.maxConsecutiveMistakes }, () =>
+      editOf('gone.tex', MAIN, 4),
+    );
+    agent.will(...mistakes);
+    await expect(send('add more')).rejects.toThrow(AgentMistakeLimitError);
+    expect(agent.requests).toHaveLength(AGENT_POLICY.maxConsecutiveMistakes);
+    expect(pendingChanges.discardAll()).toEqual([]);
+  });
+
+  it('starts counting mistakes again after a successful tool call', async () => {
+    const mistake = editOf('gone.tex', MAIN, 4);
+    const almost = AGENT_POLICY.maxConsecutiveMistakes - 1;
+    agent.will(
+      ...Array.from({ length: almost }, () => mistake),
+      tool({ tool: 'compile' }),
+      ...Array.from({ length: almost }, () => mistake),
+      answer('Done.'),
+    );
+    project.willCompile([]);
+    await expect(send('add more')).resolves.toMatchObject({ message: { text: 'Done.' } });
   });
 
   it('reopens the target file when the user switched files during the request', async () => {
@@ -306,12 +385,6 @@ describe('HandleAssistantRequest', () => {
     };
     await expect(send('add more')).rejects.toThrow(EditorUnavailableError);
     expect(conversation.messages().map((m) => m.role)).toEqual(['user']);
-  });
-
-  it('refuses an edit of a file that disappeared from the project', async () => {
-    agent.will(editOf('gone.tex', MAIN, 4));
-    await expect(send('add more')).rejects.toThrow(ProjectFileNotFoundError);
-    expect(pendingChanges.discardAll()).toEqual([]);
   });
 
   it('propagates agent failures', async () => {
@@ -403,7 +476,7 @@ describe('preview / apply / reject', () => {
   });
 
   it('opens the file of the change when the user switched away before Apply', async () => {
-    const changeId = await proposeEdit(bibEdit());
+    const changeId = await proposeEdit(readBib(), bibEdit());
     project.switchTo('main.tex');
     progress = [];
     await apply.execute(changeId, record);
@@ -413,7 +486,7 @@ describe('preview / apply / reject', () => {
   });
 
   it('fails the change when its file cannot be opened for Apply', async () => {
-    const changeId = await proposeEdit(bibEdit());
+    const changeId = await proposeEdit(readBib(), bibEdit());
     project.switchTo('main.tex');
     project.failure.openFile = new FileOpenTimeoutError('slow');
     await expect(apply.execute(changeId, record)).rejects.toThrow(FileOpenTimeoutError);
@@ -447,11 +520,14 @@ describe('preview / apply / reject', () => {
   });
 
   it('treats approving a change that was never previewed as a defect', () => {
-    const decision = mainEdit();
-    if (decision.kind !== 'reply' || decision.reply.kind !== 'edit') {
-      throw new InvariantViolation('mainEdit is an edit');
-    }
-    const change = new PendingDocumentChange('c', decision.reply.change);
+    const command = createDocumentCommand({
+      operation: 'delete',
+      target: { lineNumber: 1, lineText: MAIN[0]! },
+    });
+    const change = new PendingDocumentChange('c', {
+      file: findTextFile(project.files, 'main.tex'),
+      edit: ResolvedEdit.resolve(createDocumentSnapshot(MAIN), command),
+    });
     expect(() => {
       change.approve();
     }).toThrow(InvariantViolation);
@@ -498,7 +574,9 @@ describe('ReviewAppliedChange', () => {
     expect(outcome).toMatchObject({ kind: 'fix', result: { message: { kind: 'proposal' } } });
     expect(agent.requests[0]).toMatchObject({
       message: 'fix the build',
-      transcript: [{ call: { tool: 'compile' }, result: { tool: 'compile', diagnostics } }],
+      transcript: [
+        { kind: 'tool', call: { tool: 'compile' }, result: { tool: 'compile', diagnostics } },
+      ],
     });
     expect(project.compileCalls).toBe(1);
   });

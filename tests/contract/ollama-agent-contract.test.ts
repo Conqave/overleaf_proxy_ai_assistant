@@ -1,7 +1,12 @@
 import { readFileSync } from 'node:fs';
 import { beforeAll, describe, expect, it } from 'vitest';
-import { AgentTool, type AgentReply, type ToolCall } from '../../src/domain/agent-action';
-import { AGENT_POLICY } from '../../src/domain/agent-policy';
+import {
+  acceptDecision,
+  isAgentMistake,
+  type AcceptedDecision,
+} from '../../src/application/agent-decision';
+import { AgentTool, type ToolCall } from '../../src/domain/agent-action';
+import { hasMistakesLeft } from '../../src/domain/agent-policy';
 import type { AgentTurn, CompileDiagnostic, ToolResult } from '../../src/domain/agent-transcript';
 import { createDocumentSnapshot, type DocumentSnapshot } from '../../src/domain/document';
 import { ProjectFileKind, type ProjectFile } from '../../src/domain/project-file';
@@ -129,10 +134,12 @@ interface Case {
 
 const CLOSED_TRANSCRIPT: readonly AgentTurn[] = [
   {
+    kind: 'tool',
     call: { tool: AgentTool.ReadFile, path: BIB },
     result: { tool: AgentTool.ReadFile, path: BIB, document: getText(TEXTS, BIB) },
   },
-  ...['tabular', 'caption', 'section', 'label', 'figure'].map((query) => ({
+  ...['tabular', 'caption', 'section', 'label', 'figure'].map((query): AgentTurn => ({
+    kind: 'tool',
     call: { tool: AgentTool.Search, query },
     result: { tool: AgentTool.Search, ...searchProject(textFiles(TEXTS), query) },
   })),
@@ -343,7 +350,7 @@ function runTool(c: Case, call: ToolCall): ToolResult {
 }
 
 interface AgentRun {
-  readonly reply: AgentReply;
+  readonly reply: Exclude<AcceptedDecision, { readonly kind: 'tool' }>;
   readonly tools: readonly ToolCall['tool'][];
   readonly usages: readonly ContextUsage[];
 }
@@ -359,19 +366,29 @@ async function runAgent(agent: OllamaAgent, c: Case): Promise<AgentRun> {
   const transcript: AgentTurn[] = [...c.transcript];
   const tools: ToolCall['tool'][] = [];
   const usages: ContextUsage[] = [];
-  for (let step = 0; step <= AGENT_POLICY.maxToolCalls; step += 1) {
+  for (;;) {
     const { decision, contextUsage } = await agent.decide({
       message: c.request,
       conversation: [],
       workspace,
-      transcript,
+      transcript: [...transcript],
     });
     usages.push(contextUsage);
-    if (decision.kind === 'reply') return { reply: decision.reply, tools, usages };
-    tools.push(decision.call.tool);
-    transcript.push({ call: decision.call, result: runTool(c, decision.call) });
+    let accepted: AcceptedDecision;
+    try {
+      accepted = acceptDecision(decision, workspace, transcript);
+    } catch (error) {
+      if (!isAgentMistake(error)) throw error;
+      transcript.push({ kind: 'mistake', decision, problem: error.message });
+      if (!hasMistakesLeft(transcript)) {
+        throw new TestFixtureError(`the agent kept taking invalid steps: ${error.message}`);
+      }
+      continue;
+    }
+    if (accepted.kind !== 'tool') return { reply: accepted, tools, usages };
+    tools.push(accepted.call.tool);
+    transcript.push({ kind: 'tool', call: accepted.call, result: runTool(c, accepted.call) });
   }
-  throw new TestFixtureError('the agent did not reply within its tool budget');
 }
 
 function gap(texts: ReadonlyMap<string, DocumentSnapshot>, edit: ExpectedEdit): number {
@@ -417,7 +434,7 @@ describe.runIf(OLLAMA_URL)('Ollama agent contract', () => {
       if (expected === undefined) return;
       expect(reply.kind).toBe('edit');
       if (reply.kind !== 'edit') return;
-      expect(reply.change.path).toBe(expected.path);
+      expect(reply.change.file.path).toBe(expected.path);
       const { command } = reply.change.edit;
       const { texts } = c;
       if (expected.operation.startsWith('insert') && command.operation.startsWith('insert')) {

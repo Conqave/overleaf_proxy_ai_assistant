@@ -7,10 +7,8 @@ import { HandleAssistantRequest } from '../../../src/application/handle-assistan
 import { PendingChanges } from '../../../src/application/pending-change';
 import { RejectDocumentChange } from '../../../src/application/reject-document-change';
 import { ReviewAppliedChange } from '../../../src/application/review-applied-change';
-import { createDocumentSnapshot } from '../../../src/domain/document';
 import { createDocumentCommand } from '../../../src/domain/document-command';
 import { InvariantViolation } from '../../../src/domain/errors';
-import { ResolvedEdit } from '../../../src/domain/resolved-edit';
 import { AssistantController } from '../../../src/presentation/assistant-controller';
 import { AssistantView } from '../../../src/presentation/assistant-view';
 import {
@@ -35,18 +33,13 @@ async function proposeBibEdit() {
       kind: 'reply',
       reply: {
         kind: 'edit',
-        change: {
-          path: 'refs.bib',
-          edit: ResolvedEdit.resolve(
-            createDocumentSnapshot(BIB),
-            createDocumentCommand({
-              operation: 'insert_after',
-              target: { lineNumber: 2, lineText: '}' },
-              content: '@book{knuth84}',
-              reason: 'Adds the missing entry.',
-            }),
-          ),
-        },
+        path: 'refs.bib',
+        command: createDocumentCommand({
+          operation: 'insert_after',
+          target: { lineNumber: 2, lineText: '}' },
+          content: '@book{knuth84}',
+          reason: 'Adds the missing entry.',
+        }),
       },
     },
   );
