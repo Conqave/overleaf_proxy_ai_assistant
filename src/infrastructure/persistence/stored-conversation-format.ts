@@ -11,6 +11,8 @@ import {
   NamedError,
 } from '../../domain/errors';
 import { createProjectPath } from '../../domain/project-file';
+import type { ConversationSession } from '../../domain/session';
+import type { OverleafPageIdentity } from '../overleaf/overleaf-page';
 
 export class UnknownStoredFormatError extends NamedError {}
 
@@ -73,5 +75,66 @@ function getFields(value: unknown): Map<string, unknown> {
 function getString(fields: Map<string, unknown>, key: string): string {
   const value = fields.get(key);
   if (typeof value !== 'string') throw new UnknownStoredFormatError(`${key} is not text`);
+  return value;
+}
+
+export interface StoredSession {
+  readonly userId: string;
+  readonly projectId: string;
+  readonly id: string;
+  readonly title: string;
+  readonly createdAt: number;
+  readonly updatedAt: number;
+  readonly messageCount: number;
+  readonly messages: readonly ConversationMessage[];
+}
+
+export function toStoredSession(
+  session: ConversationSession,
+  scope: OverleafPageIdentity,
+): StoredSession {
+  return {
+    userId: scope.userId,
+    projectId: scope.projectId,
+    id: session.id,
+    title: session.title,
+    createdAt: session.createdAt,
+    updatedAt: session.updatedAt,
+    messageCount: session.messages.length,
+    messages: session.messages,
+  };
+}
+
+export function parseStoredSession(
+  data: unknown,
+  scope: OverleafPageIdentity,
+): ConversationSession {
+  const fields = getFields(data);
+  if (getString(fields, 'userId') !== scope.userId) {
+    throw new UnknownStoredFormatError('stored for another user');
+  }
+  if (getString(fields, 'projectId') !== scope.projectId) {
+    throw new UnknownStoredFormatError('stored for another project');
+  }
+  const messages = parseStoredMessages(fields.get('messages'));
+  if (getNonNegativeInteger(fields, 'messageCount') !== messages.length) {
+    throw new UnknownStoredFormatError('messageCount does not match the messages');
+  }
+  const title = getString(fields, 'title');
+  if (title === '') throw new UnknownStoredFormatError('title is empty');
+  return {
+    id: getString(fields, 'id'),
+    title,
+    createdAt: getNonNegativeInteger(fields, 'createdAt'),
+    updatedAt: getNonNegativeInteger(fields, 'updatedAt'),
+    messages,
+  };
+}
+
+function getNonNegativeInteger(fields: Map<string, unknown>, key: string): number {
+  const value = fields.get(key);
+  if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0) {
+    throw new UnknownStoredFormatError(`${key} is not a non-negative integer`);
+  }
   return value;
 }

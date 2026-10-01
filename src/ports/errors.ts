@@ -20,6 +20,12 @@ export class EditorShowsOtherFileError extends OperationalError {}
 
 export class PersistenceError extends OperationalError {}
 
+export class SessionStorageError extends PersistenceError {}
+
+export class UnreadableSessionError extends PersistenceError {}
+
+export class SessionNotFoundError extends PersistenceError {}
+
 export class ProjectUnavailableError extends OperationalError {}
 
 export class ProjectFileReadError extends OperationalError {}

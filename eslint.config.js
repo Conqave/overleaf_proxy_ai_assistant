@@ -28,10 +28,12 @@ export default tseslint.config(
       'no-restricted-properties': [
         'error',
         { property: 'localStorage', message: 'Only the persistence adapter may use storage.' },
+        { property: 'indexedDB', message: 'Only the persistence adapter may use storage.' },
       ],
       'no-restricted-globals': [
         'error',
         { name: 'localStorage', message: 'Only the persistence adapter may use storage.' },
+        { name: 'indexedDB', message: 'Only the persistence adapter may use storage.' },
       ],
     },
   },
