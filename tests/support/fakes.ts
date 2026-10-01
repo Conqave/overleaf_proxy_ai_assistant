@@ -101,6 +101,7 @@ export function agentStep(decision: AgentDecision, promptTokens = 1_000): AgentS
 }
 
 export class FakeAgent implements AgentPort {
+  readonly contextTokens = FAKE_CONTEXT_TOKENS;
   requests: AgentStepRequest[] = [];
   onDecide: (request: AgentStepRequest) => void = () => undefined;
   private decisions: Step<AgentDecision>[] = [];

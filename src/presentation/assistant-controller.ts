@@ -31,10 +31,7 @@ export interface UseCases {
 export class AssistantController implements ViewEvents {
   private view: AssistantView | null = null;
 
-  constructor(
-    private readonly useCases: UseCases,
-    private readonly contextTokens: number,
-  ) {}
+  constructor(private readonly useCases: UseCases) {}
 
   attach(view: AssistantView): Promise<void> {
     this.view = view;
@@ -103,7 +100,7 @@ export class AssistantController implements ViewEvents {
   }
 
   private showUnusedContext(view: AssistantView): void {
-    view.setContextUsage(contextUsageText({ promptTokens: 0, contextTokens: this.contextTokens }));
+    view.setContextUsage(contextUsageText(this.useCases.handleRequest.getUnusedContext()));
   }
 
   private showResult(view: AssistantView, result: AssistantRequestResult): void {

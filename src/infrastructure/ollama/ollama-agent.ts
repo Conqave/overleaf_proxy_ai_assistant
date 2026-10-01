@@ -1,10 +1,12 @@
 import type { AgentPort, AgentStep, AgentStepRequest } from '../../ports/agent-port';
 import { createAgentExchange } from './agent-protocol';
-import { fitIntoContext } from './context-budget';
+import { CONTEXT_TOKENS, fitIntoContext } from './context-budget';
 import { runExchange } from './correction-exchange';
 import type { OllamaClient } from './ollama-client';
 
 export class OllamaAgent implements AgentPort {
+  readonly contextTokens = CONTEXT_TOKENS;
+
   constructor(private readonly client: OllamaClient) {}
 
   async decide(request: AgentStepRequest): Promise<AgentStep> {

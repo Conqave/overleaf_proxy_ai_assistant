@@ -68,6 +68,10 @@ export class HandleAssistantRequest {
     this.tools = new ProjectTools(deps.project);
   }
 
+  getUnusedContext(): ContextUsage {
+    return { contextTokens: this.deps.agent.contextTokens, promptTokens: 0 };
+  }
+
   async execute(
     text: string,
     onProgress: (progress: AgentProgress) => void,

@@ -421,7 +421,9 @@ describe('OllamaAgent', () => {
 
   it('reports the context window and the counted size of its prompt', async () => {
     const ollama = new FakeOllama().reply({ response: 'ACTION: compile' });
-    const { contextUsage } = await agent(ollama).decide(step);
+    const ollamaAgent = agent(ollama);
+    const { contextUsage } = await ollamaAgent.decide(step);
+    expect(ollamaAgent.contextTokens).toBe(CONTEXT_TOKENS);
     expect(contextUsage).toEqual({
       contextTokens: CONTEXT_TOKENS,
       promptTokens: itemAt(ollama.prompts, 0, 'prompt').promptTokens,

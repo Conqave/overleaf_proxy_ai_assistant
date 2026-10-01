@@ -8,7 +8,6 @@ import { RejectDocumentChange } from '../application/reject-document-change';
 import { ReviewAppliedChange } from '../application/review-applied-change';
 import { createUuid } from '../infrastructure/browser/uuid';
 import { OllamaAgent } from '../infrastructure/ollama/ollama-agent';
-import { CONTEXT_TOKENS } from '../infrastructure/ollama/context-budget';
 import { OllamaClient } from '../infrastructure/ollama/ollama-client';
 import { preloadOllamaModel } from '../infrastructure/ollama/ollama-preload';
 import { OverleafHookContractError } from '../infrastructure/overleaf/codemirror-api';
@@ -70,29 +69,26 @@ function compose(
   });
   const review = new ReviewAppliedChange({ project, conversation, handleRequest });
 
-  const controller = new AssistantController(
-    {
-      handleRequest,
-      applyChange: new ApplyDocumentChange({
-        editor,
-        project,
-        pendingChanges,
-        conversation,
-        lock,
-        review,
-      }),
-      lock,
-      rejectChange: new RejectDocumentChange({ editor, pendingChanges, conversation }),
-      startNewConversation: new StartNewConversation({
-        conversation,
-        pendingChanges,
-        editor,
-        lock,
-      }),
+  const controller = new AssistantController({
+    handleRequest,
+    applyChange: new ApplyDocumentChange({
+      editor,
+      project,
+      pendingChanges,
       conversation,
-    },
-    CONTEXT_TOKENS,
-  );
+      lock,
+      review,
+    }),
+    lock,
+    rejectChange: new RejectDocumentChange({ editor, pendingChanges, conversation }),
+    startNewConversation: new StartNewConversation({
+      conversation,
+      pendingChanges,
+      editor,
+      lock,
+    }),
+    conversation,
+  });
 
   void controller.attach(new AssistantView(window.document, controller));
   void preloadOllamaModel(client);

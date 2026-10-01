@@ -14,7 +14,6 @@ import { InvariantViolation } from '../../../src/domain/errors';
 import { AssistantController } from '../../../src/presentation/assistant-controller';
 import { AssistantView } from '../../../src/presentation/assistant-view';
 import {
-  FAKE_CONTEXT_TOKENS,
   FakeAgent,
   FakeEditor,
   FakeProject,
@@ -62,29 +61,26 @@ async function openAssistant() {
     newId: sequentialIds(),
   });
   const review = new ReviewAppliedChange({ project, conversation, handleRequest });
-  const controller = new AssistantController(
-    {
-      handleRequest,
-      lock,
-      applyChange: new ApplyDocumentChange({
-        editor,
-        project,
-        pendingChanges,
-        conversation,
-        lock,
-        review,
-      }),
-      rejectChange: new RejectDocumentChange({ editor, pendingChanges, conversation }),
-      startNewConversation: new StartNewConversation({
-        conversation,
-        pendingChanges,
-        editor,
-        lock,
-      }),
+  const controller = new AssistantController({
+    handleRequest,
+    lock,
+    applyChange: new ApplyDocumentChange({
+      editor,
+      project,
+      pendingChanges,
       conversation,
-    },
-    FAKE_CONTEXT_TOKENS,
-  );
+      lock,
+      review,
+    }),
+    rejectChange: new RejectDocumentChange({ editor, pendingChanges, conversation }),
+    startNewConversation: new StartNewConversation({
+      conversation,
+      pendingChanges,
+      editor,
+      lock,
+    }),
+    conversation,
+  });
   await controller.attach(new AssistantView(window.document, controller));
   const texts = (selector: string) =>
     Array.from(window.document.querySelectorAll(selector)).map((n) => n.textContent);

@@ -30,5 +30,6 @@ export interface AgentStep {
 }
 
 export interface AgentPort {
+  readonly contextTokens: number;
   decide(request: AgentStepRequest): Promise<AgentStep>;
 }
