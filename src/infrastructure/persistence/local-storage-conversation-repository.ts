@@ -4,7 +4,8 @@ import {
   type ConversationMessage,
 } from '../../domain/conversation';
 import { createDocumentCommand, type DocumentCommand } from '../../domain/document-command';
-import { InvalidDocumentCommandError } from '../../domain/errors';
+import { InvalidDocumentCommandError, InvalidProjectPathError } from '../../domain/errors';
+import { createProjectPath } from '../../domain/project-file';
 import type { ConversationRepository } from '../../ports/conversation-repository';
 import { PersistenceError } from '../../ports/errors';
 import type { OverleafPageIdentity } from '../overleaf/overleaf-page';
@@ -86,13 +87,23 @@ function parseMessage(value: unknown): ConversationMessage {
   if (role !== 'assistant') throw new UnknownStoredFormatError('unknown role');
   const kind = fields.get('kind');
   if (kind === AssistantMessageKind.Proposal) {
+    const path = parsePath(fields.get('path'));
     const command = parseCommand(fields.get('command'));
-    if (!fields.has('rationale')) return { id, role, kind, command };
-    return { id, role, kind, command, rationale: getString(fields, 'rationale') };
+    if (!fields.has('rationale')) return { id, role, kind, path, command };
+    return { id, role, kind, path, command, rationale: getString(fields, 'rationale') };
   }
   if (kind === AssistantMessageKind.Greeting) return { id, role, kind };
   if (!isReplyKind(kind)) throw new UnknownStoredFormatError('unknown message kind');
   return { id, role, kind, text: getString(fields, 'text') };
+}
+
+function parsePath(value: unknown): string {
+  try {
+    return createProjectPath(value);
+  } catch (error) {
+    if (!(error instanceof InvalidProjectPathError)) throw error;
+    throw new UnknownStoredFormatError(`invalid path: ${error.message}`, { cause: error });
+  }
 }
 
 function parseCommand(value: unknown): DocumentCommand {

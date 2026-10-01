@@ -14,6 +14,7 @@ const messages: ConversationMessage[] = [
     id: '2',
     role: 'assistant',
     kind: 'proposal',
+    path: 'main.tex',
     command: createDocumentCommand({
       operation: 'insert_after',
       target: { lineNumber: 4, lineText: 'Numbers.' },
@@ -26,6 +27,7 @@ const messages: ConversationMessage[] = [
     id: '3',
     role: 'assistant',
     kind: 'proposal',
+    path: 'chapters/results.tex',
     command: createDocumentCommand({
       operation: 'delete',
       target: { lineNumber: 2, lineText: 'Old.' },
@@ -83,12 +85,36 @@ describe('LocalStorageConversationRepository', () => {
       JSON.stringify([{ id: '1', role: 'assistant', kind: 'proposal' }]),
     ],
     [
+      'proposal without its file path',
+      JSON.stringify([
+        {
+          id: '1',
+          role: 'assistant',
+          kind: 'proposal',
+          command: { operation: 'delete', target: { lineNumber: 1, lineText: '' }, lineCount: 1 },
+        },
+      ]),
+    ],
+    [
+      'proposal with a path outside the project',
+      JSON.stringify([
+        {
+          id: '1',
+          role: 'assistant',
+          kind: 'proposal',
+          path: '../main.tex',
+          command: { operation: 'delete', target: { lineNumber: 1, lineText: '' }, lineCount: 1 },
+        },
+      ]),
+    ],
+    [
       'proposal at line zero',
       JSON.stringify([
         {
           id: '1',
           role: 'assistant',
           kind: 'proposal',
+          path: 'main.tex',
           command: { operation: 'delete', target: { lineNumber: 0, lineText: '' }, lineCount: 1 },
         },
       ]),
@@ -100,6 +126,7 @@ describe('LocalStorageConversationRepository', () => {
           id: '1',
           role: 'assistant',
           kind: 'proposal',
+          path: 'main.tex',
           command: { operation: 'x' },
         },
       ]),

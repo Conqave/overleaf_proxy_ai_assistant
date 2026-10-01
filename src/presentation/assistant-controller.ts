@@ -2,6 +2,7 @@ import type { ApplyDocumentChange } from '../application/apply-document-change';
 import type { ConversationLog } from '../application/conversation-log';
 import type { StartNewConversation } from '../application/conversation-session';
 import type { HandleAssistantRequest } from '../application/handle-assistant-request';
+import type { AgentProgress } from '../application/agent-progress';
 import type { RejectDocumentChange } from '../application/reject-document-change';
 import { InvariantViolation, OperationalError } from '../domain/errors';
 import type { AssistantView, ViewEvents } from './assistant-view';
@@ -42,11 +43,9 @@ export class AssistantController implements ViewEvents {
           if (progress.stage === 'received') {
             accepted = true;
             view.setBusy(true);
-            view.closeAllChangeActions();
             view.clearInput();
-            view.appendMessage(progress.message);
           }
-          view.setStatus(progressStatus(progress));
+          this.showProgress(view, progress);
         });
         view.appendMessage(result.message, result.changeId);
       } finally {
@@ -62,9 +61,18 @@ export class AssistantController implements ViewEvents {
   apply(changeId: string): Promise<void> {
     const view = this.requireView();
     view.closeChangeActions(changeId);
-    return this.guard(() => {
-      const command = this.useCases.applyChange.execute(changeId);
-      view.showNotice(appliedNotice(command), 'info');
+    const onProgress = (progress: AgentProgress): void => {
+      this.showProgress(view, progress);
+    };
+    return this.guard(async () => {
+      view.setBusy(true);
+      try {
+        const change = await this.useCases.applyChange.execute(changeId, onProgress);
+        view.showNotice(appliedNotice(change), 'info');
+      } finally {
+        view.setBusy(false);
+        view.setStatus('');
+      }
     });
   }
 
@@ -85,6 +93,14 @@ export class AssistantController implements ViewEvents {
       view.showConversation([]);
       view.clearInput();
     });
+  }
+
+  private showProgress(view: AssistantView, progress: AgentProgress): void {
+    if (progress.stage === 'received') {
+      view.closeAllChangeActions();
+      view.appendMessage(progress.message);
+    }
+    view.setStatus(progressStatus(progress));
   }
 
   private async guard(action: () => void | Promise<void>): Promise<void> {

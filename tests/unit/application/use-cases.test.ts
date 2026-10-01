@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest';
+import type { AgentProgress } from '../../../src/application/agent-progress';
 import { ApplyDocumentChange } from '../../../src/application/apply-document-change';
 import { ConversationLog } from '../../../src/application/conversation-log';
 import { StartNewConversation } from '../../../src/application/conversation-session';
@@ -8,72 +9,118 @@ import {
   RequestInProgressError,
   RequestSupersededError,
 } from '../../../src/application/errors';
-import {
-  HandleAssistantRequest,
-  type RequestProgress,
-} from '../../../src/application/handle-assistant-request';
+import { HandleAssistantRequest } from '../../../src/application/handle-assistant-request';
 import { PendingChanges, PendingDocumentChange } from '../../../src/application/pending-change';
 import { RejectDocumentChange } from '../../../src/application/reject-document-change';
+import type { AgentDecision, ToolCall } from '../../../src/domain/agent-action';
+import { AGENT_POLICY } from '../../../src/domain/agent-policy';
 import { createDocumentSnapshot } from '../../../src/domain/document';
 import { createDocumentCommand } from '../../../src/domain/document-command';
+import {
+  DocumentConflictError,
+  InvariantViolation,
+  ProjectFileNotFoundError,
+  RepeatedToolCallError,
+  ToolBudgetExhaustedError,
+} from '../../../src/domain/errors';
 import { ResolvedEdit } from '../../../src/domain/resolved-edit';
-import { DocumentConflictError, InvariantViolation } from '../../../src/domain/errors';
 import {
   AssistantProtocolError,
   AssistantUnreachableError,
+  CompileTimeoutError,
   EditorUnavailableError,
+  FileOpenTimeoutError,
+  ProjectFileReadError,
+  ProjectUnavailableError,
 } from '../../../src/ports/errors';
 import {
-  FakeAssistant,
+  agentStep,
+  FakeAgent,
   FakeEditor,
+  FakeProject,
   InMemoryConversationRepository,
   sequentialIds,
 } from '../../support/fakes';
 
-const DOC = ['\\section{Intro}', 'Hello world.', '\\section{Results}', 'Numbers.'];
+const MAIN = ['\\section{Intro}', 'Hello world.', '\\section{Results}', 'Numbers \\cite{knuth84}.'];
+const BIB = ['@article{smith20,', '  title = {Smith},', '}'];
 
 let editor: FakeEditor;
-let assistant: FakeAssistant;
+let project: FakeProject;
+let agent: FakeAgent;
 let repository: InMemoryConversationRepository;
 let conversation: ConversationLog;
 let pendingChanges: PendingChanges;
 let handle: HandleAssistantRequest;
 let apply: ApplyDocumentChange;
 let reject: RejectDocumentChange;
-let progress: RequestProgress[];
+let progress: AgentProgress[];
 
-const send = (text: string) => handle.execute(text, (p) => progress.push(p));
-
-const editReply = (overrides: Record<string, unknown> = {}) => ({
-  kind: 'edit' as const,
-  rationale: 'After results.',
-  edit: ResolvedEdit.resolve(
-    createDocumentSnapshot(DOC),
-    createDocumentCommand({
-      operation: 'insert_after',
-      target: { lineNumber: 4, lineText: 'Numbers.' },
-      content: 'More numbers.',
-      reason: 'Adds detail.',
-      ...overrides,
-    }),
-  ),
+const record = (p: AgentProgress) => {
+  progress.push(p);
+};
+const send = (text: string) => handle.execute(text, record);
+const tool = (call: ToolCall): AgentDecision => ({ kind: 'tool', call });
+const answer = (text: string): AgentDecision => ({
+  kind: 'reply',
+  reply: { kind: 'answer', text },
 });
 
-async function proposeEdit(overrides: Record<string, unknown> = {}) {
-  assistant.willPlan({ intent: 'edit', needs: [] }).willReply(editReply(overrides));
-  const result = await send('add more numbers');
-  return result.changeId!;
+function editOf(path: string, lines: readonly string[], lineNumber: number): AgentDecision {
+  const lineText = lines[lineNumber - 1]!;
+  return {
+    kind: 'reply',
+    reply: {
+      kind: 'edit',
+      rationale: 'After the last line.',
+      change: {
+        path,
+        edit: ResolvedEdit.resolve(
+          createDocumentSnapshot(lines),
+          createDocumentCommand({
+            operation: 'insert_after',
+            target: { lineNumber, lineText },
+            content: 'Added.',
+            reason: 'Adds detail.',
+          }),
+        ),
+      },
+    },
+  };
+}
+
+const mainEdit = () => editOf('main.tex', MAIN, 4);
+const bibEdit = () => editOf('refs.bib', BIB, 3);
+
+async function proposeEdit(decision: AgentDecision = mainEdit()): Promise<string> {
+  agent.will(decision);
+  const result = await send('add more');
+  if (result.changeId === undefined) throw new InvariantViolation('no change proposed');
+  return result.changeId;
 }
 
 beforeEach(() => {
-  editor = new FakeEditor([...DOC]);
-  assistant = new FakeAssistant();
+  editor = new FakeEditor([]);
+  project = new FakeProject(
+    editor,
+    { 'main.tex': [...MAIN], 'refs.bib': [...BIB], 'chapters/intro.tex': ['Intro about knuth.'] },
+    'main.tex',
+    ['figures/plot.png'],
+  );
+  agent = new FakeAgent();
   repository = new InMemoryConversationRepository();
   conversation = new ConversationLog(repository);
   pendingChanges = new PendingChanges();
   const newId = sequentialIds();
-  handle = new HandleAssistantRequest({ assistant, editor, conversation, pendingChanges, newId });
-  apply = new ApplyDocumentChange({ editor, pendingChanges });
+  handle = new HandleAssistantRequest({
+    agent,
+    project,
+    editor,
+    conversation,
+    pendingChanges,
+    newId,
+  });
+  apply = new ApplyDocumentChange({ editor, project, pendingChanges });
   reject = new RejectDocumentChange({ editor, pendingChanges, conversation });
   progress = [];
 });
@@ -87,209 +134,310 @@ describe('HandleAssistantRequest', () => {
   it('answers greetings locally', async () => {
     const result = await send('Cześć!');
     expect(result.message).toMatchObject({ kind: 'greeting' });
-    expect(assistant.planRequests).toHaveLength(0);
+    expect(agent.requests).toHaveLength(0);
     expect(repository.stored.map((m) => m.role)).toEqual(['user', 'assistant']);
   });
 
-  it('answers a summary with the document as evidence', async () => {
-    assistant
-      .willPlan({ intent: 'summary', needs: [] })
-      .willReply({ kind: 'answer', text: 'A short paper.' });
-    const result = await send('What is this document about?');
-    expect(result.changeId).toBeUndefined();
-    expect(result.message).toMatchObject({ kind: 'summary', text: 'A short paper.' });
-    expect(assistant.replyRequests[0]!.evidence).toEqual({ document: editor.readDocument() });
-    expect(progress.map((p) => p.stage)).toEqual(['received', 'planning', 'answering']);
-  });
-
-  it('answers an explanation with caret context, selection and logs', async () => {
+  it('answers without tools and shows the agent the whole workspace', async () => {
     editor.cursorLine = 2;
     editor.selection = 'world';
-    editor.logs = 'Undefined control sequence';
-    assistant
-      .willPlan({ intent: 'explain', needs: ['line_context', 'selection', 'logs'] })
-      .willReply({ kind: 'answer', text: 'Because.' });
-    const result = await send('why does this fail?');
-    expect(result.message.kind).toBe('explanation');
-    expect(assistant.replyRequests[0]!.evidence).toEqual({
-      document: editor.readDocument(),
-      lineContext: { firstLineNumber: 1, lines: DOC },
-      selection: 'world',
-      logs: 'Undefined control sequence',
+    agent.will(answer('A short paper.'));
+    const result = await send('What is this document about?');
+    expect(result.changeId).toBeUndefined();
+    expect(result.message).toMatchObject({ kind: 'explanation', text: 'A short paper.' });
+    expect(agent.requests[0]).toEqual({
+      message: 'What is this document about?',
+      conversation: [],
+      workspace: {
+        files: project.files,
+        openFile: { path: 'main.tex', document: createDocumentSnapshot(MAIN) },
+        cursorLine: 2,
+        selection: 'world',
+      },
+      transcript: [],
     });
+    expect(progress.map((p) => p.stage)).toEqual(['received', 'thinking']);
   });
 
-  it('passes the conversation to the assistant', async () => {
-    assistant.willPlan({ intent: 'explain', needs: [] }).willReply({ kind: 'answer', text: 'ok' });
+  it('passes the conversation to the agent', async () => {
+    agent.will(answer('ok'));
     await send('hello');
     await send('second?');
-    expect(assistant.planRequests[0]!.conversation).toMatchObject([
+    expect(agent.requests[0]!.conversation).toMatchObject([
       { role: 'user', text: 'hello' },
       { role: 'assistant', kind: 'greeting' },
     ]);
   });
 
-  it('proposes an edit as a previewed pending change', async () => {
-    assistant.willPlan({ intent: 'edit', needs: [] }).willReply(editReply());
-    const result = await send('add more numbers');
+  it('turns a question into a clarification', async () => {
+    agent.will({ kind: 'reply', reply: { kind: 'question', text: 'Which table?' } });
+    const result = await send('fix the table');
+    expect(result.message).toMatchObject({ kind: 'clarification', text: 'Which table?' });
+  });
+
+  it('proposes an edit of the open file as a previewed pending change', async () => {
+    agent.will(mainEdit());
+    const result = await send('add more');
     const change = pendingChanges.get(result.changeId!);
     expect(result.message).toEqual({
       id: change.id,
       role: 'assistant',
       kind: 'proposal',
-      command: change.edit.command,
-      rationale: 'After results.',
+      path: 'main.tex',
+      command: change.change.edit.command,
+      rationale: 'After the last line.',
     });
-    expect(editor.preview).toBe(change.edit);
-    expect(assistant.replyRequests[0]!.evidence.document).toEqual(editor.readDocument());
+    expect(editor.preview).toBe(change.change.edit);
+    expect(project.opened).toEqual([]);
     expect(editor.applied).toHaveLength(0);
   });
 
-  it('turns a question of the edit step into a clarification', async () => {
-    assistant
-      .willPlan({ intent: 'edit', needs: [] })
-      .willReply({ kind: 'question', text: 'Which table?' });
-    const result = await send('fix the table');
-    expect(result.message).toMatchObject({
-      role: 'assistant',
-      kind: 'clarification',
-      text: 'Which table?',
-    });
-    expect(result.message).not.toHaveProperty('proposal');
+  it('reads another file, then opens it before previewing its edit', async () => {
+    agent.will(tool({ tool: 'read_file', path: 'refs.bib' }), bibEdit());
+    const result = await send('add knuth84 to the bibliography');
+    expect(agent.requests[1]!.transcript).toEqual([
+      {
+        call: { tool: 'read_file', path: 'refs.bib' },
+        result: { tool: 'read_file', path: 'refs.bib', document: createDocumentSnapshot(BIB) },
+      },
+    ]);
+    expect(project.opened).toEqual(['refs.bib']);
+    expect(editor.preview).toBe(pendingChanges.get(result.changeId!).change.edit);
+    expect(result.message).toMatchObject({ kind: 'proposal', path: 'refs.bib' });
+    expect(progress).toEqual([
+      expect.objectContaining({ stage: 'received' }),
+      { stage: 'thinking', step: 1 },
+      { stage: 'reading', path: 'refs.bib' },
+      { stage: 'thinking', step: 2 },
+      { stage: 'opening', path: 'refs.bib' },
+    ]);
   });
 
-  it('drops an edit when the document changed while the assistant was working', async () => {
-    assistant.willPlan({ intent: 'edit', needs: [] }).willReply(editReply());
-    const reply = assistant.reply.bind(assistant);
-    assistant.reply = (request) => {
-      editor.lines[0] = '\\section{Introduction}';
-      return reply(request);
+  it('searches every text file of the project', async () => {
+    agent.will(tool({ tool: 'search', query: 'KNUTH' }), answer('Cited in main.tex.'));
+    await send('where is knuth cited?');
+    expect(project.reads.sort()).toEqual(['chapters/intro.tex', 'main.tex', 'refs.bib']);
+    expect(agent.requests[1]!.transcript[0]!.result).toEqual({
+      tool: 'search',
+      matches: [
+        { path: 'main.tex', lineNumber: 4, lineText: 'Numbers \\cite{knuth84}.' },
+        { path: 'chapters/intro.tex', lineNumber: 1, lineText: 'Intro about knuth.' },
+      ],
+      truncated: false,
+    });
+    expect(progress).toContainEqual({ stage: 'searching', query: 'KNUTH' });
+  });
+
+  it('compiles the project and hands the diagnostics to the agent', async () => {
+    const diagnostics = [{ level: 'error' as const, message: 'Undefined control sequence.' }];
+    project.willCompile(diagnostics);
+    agent.will(tool({ tool: 'compile' }), answer('A typo on line 2.'));
+    await send('why does it not compile?');
+    expect(agent.requests[1]!.transcript[0]!.result).toEqual({ tool: 'compile', diagnostics });
+    expect(progress).toContainEqual({ stage: 'compiling' });
+  });
+
+  it('treats a repeated tool call from the agent as a port defect', async () => {
+    const call = tool({ tool: 'read_file', path: 'refs.bib' });
+    agent.will(call, call);
+    await expect(send('read it twice')).rejects.toThrow(RepeatedToolCallError);
+    expect(project.reads).toEqual(['refs.bib']);
+  });
+
+  it('stops the agent at the tool budget', async () => {
+    const queries = Array.from({ length: AGENT_POLICY.maxToolCalls + 1 }, (_, index) =>
+      tool({ tool: 'search', query: `query ${String(index)}` }),
+    );
+    agent.will(...queries);
+    await expect(send('search forever')).rejects.toThrow(ToolBudgetExhaustedError);
+    expect(agent.requests).toHaveLength(AGENT_POLICY.maxToolCalls + 1);
+  });
+
+  it('reopens the target file when the user switched files during the request', async () => {
+    agent.decide = (request) => {
+      agent.requests.push(request);
+      project.switchTo('refs.bib');
+      return Promise.resolve(agentStep(mainEdit()));
     };
-    await expect(send('add more numbers')).rejects.toThrow(DocumentConflictError);
+    const result = await send('add more');
+    expect(project.opened).toEqual(['main.tex']);
+    expect(editor.preview).toBe(pendingChanges.get(result.changeId!).change.edit);
+  });
+
+  it('drops an edit whose file changed before it was opened', async () => {
+    project.onOpen = () => {
+      editor.lines[0] = '@book{knuth84,';
+    };
+    agent.will(tool({ tool: 'read_file', path: 'refs.bib' }), bibEdit());
+    await expect(send('add knuth84')).rejects.toThrow(DocumentConflictError);
+    expect(editor.preview).toBeNull();
+    expect(conversation.messages().map((m) => m.role)).toEqual(['user']);
+  });
+
+  it('drops an edit when the document changed while the agent was working', async () => {
+    agent.decide = (request) => {
+      agent.requests.push(request);
+      editor.lines[0] = '\\section{Introduction}';
+      return Promise.resolve(agentStep(mainEdit()));
+    };
+    await expect(send('add more')).rejects.toThrow(DocumentConflictError);
     expect(editor.preview).toBeNull();
     expect(conversation.messages().map((m) => m.role)).toEqual(['user']);
   });
 
   it('drops an edit whose preview fails', async () => {
-    assistant.willPlan({ intent: 'edit', needs: [] }).willReply(editReply());
+    agent.will(mainEdit());
     editor.showPreview = () => {
       throw new EditorUnavailableError('gone');
     };
-    await expect(send('add more numbers')).rejects.toThrow(EditorUnavailableError);
+    await expect(send('add more')).rejects.toThrow(EditorUnavailableError);
     expect(conversation.messages().map((m) => m.role)).toEqual(['user']);
   });
 
-  it('treats an edit for a non-edit plan as a port contract violation', async () => {
-    assistant.willPlan({ intent: 'explain', needs: [] }).willReply(editReply());
-    await expect(send('explain')).rejects.toThrow(InvariantViolation);
+  it('refuses an edit of a file that disappeared from the project', async () => {
+    agent.will(editOf('gone.tex', MAIN, 4));
+    await expect(send('add more')).rejects.toThrow(ProjectFileNotFoundError);
+    expect(pendingChanges.discardAll()).toEqual([]);
   });
 
-  it('propagates transport and protocol failures', async () => {
-    assistant.willPlan(new AssistantUnreachableError('down'));
+  it('propagates agent failures', async () => {
+    agent.will(new AssistantUnreachableError('down'));
     await expect(send('summarize')).rejects.toThrow(AssistantUnreachableError);
-    assistant
-      .willPlan({ intent: 'summary', needs: [] })
-      .willReply(new AssistantProtocolError('bad'));
+    agent.will(new AssistantProtocolError('bad'));
     await expect(send('summarize')).rejects.toThrow(AssistantProtocolError);
   });
 
-  it('requires the editor', async () => {
-    editor.available = false;
-    await expect(send('summarize')).rejects.toThrow(EditorUnavailableError);
-    expect(assistant.planRequests).toHaveLength(0);
+  it.each([
+    ['reading a file', 'readFile' as const, new ProjectFileReadError('404')],
+    ['opening a file', 'openFile' as const, new FileOpenTimeoutError('slow')],
+  ])('propagates a project failure while %s', async (_name, method, error) => {
+    project.failure[method] = error;
+    agent.will(tool({ tool: 'read_file', path: 'refs.bib' }), bibEdit());
+    await expect(send('add knuth84')).rejects.toThrow(error);
+    expect(editor.preview).toBeNull();
   });
 
-  it('works on an empty document', async () => {
-    editor.lines = [''];
-    assistant
-      .willPlan({ intent: 'explain', needs: [] })
-      .willReply({ kind: 'answer', text: 'The document is empty.' });
-    await expect(send('what is here?')).resolves.toMatchObject({
-      message: { kind: 'explanation' },
-    });
+  it('propagates a compile timeout', async () => {
+    project.willCompile(new CompileTimeoutError('no log'));
+    agent.will(tool({ tool: 'compile' }));
+    await expect(send('does it compile?')).rejects.toThrow(CompileTimeoutError);
+  });
+
+  it('requires the project and the editor before asking the agent', async () => {
+    project.failure.listFiles = new ProjectUnavailableError('no tree');
+    await expect(send('summarize')).rejects.toThrow(ProjectUnavailableError);
+    project.failure = {};
+    editor.available = false;
+    await expect(send('summarize')).rejects.toThrow(EditorUnavailableError);
+    expect(agent.requests).toHaveLength(0);
+    expect(conversation.messages().map((m) => m.role)).toEqual(['user', 'user']);
   });
 
   it('accepts one request at a time', async () => {
-    assistant
-      .willPlan({ intent: 'summary', needs: [] })
-      .willReply({ kind: 'answer', text: 'A short paper.' });
+    agent.will(answer('A short paper.'));
     const first = send('What is this document about?');
     await expect(send('And the second one?')).rejects.toThrow(RequestInProgressError);
-    await expect(first).resolves.toMatchObject({ message: { kind: 'summary' } });
+    await expect(first).resolves.toMatchObject({ message: { kind: 'explanation' } });
   });
 
   it('discards the open change when a new request starts', async () => {
     const changeId = await proposeEdit();
     await send('hi');
     expect(editor.preview).toBeNull();
-    expect(() => apply.execute(changeId)).toThrow(ChangeNoLongerPendingError);
+    await expect(apply.execute(changeId, record)).rejects.toThrow(ChangeNoLongerPendingError);
     expect(() => reject.execute(changeId)).toThrow(ChangeNoLongerPendingError);
   });
 });
 
 describe('conversation reset during a request', () => {
   it('drops the late reply instead of adding it to the new conversation', async () => {
-    let releasePlan: () => void = () => undefined;
+    let release: () => void = () => undefined;
     const gate = new Promise<void>((resolve) => {
-      releasePlan = resolve;
+      release = resolve;
     });
-    const slowAssistant = {
-      plan: async () => {
-        await gate;
-        return { intent: 'edit' as const, needs: [] };
-      },
-      reply: () => Promise.resolve(editReply()),
+    agent.decide = async () => {
+      await gate;
+      return agentStep(mainEdit());
     };
-    const slowHandle = new HandleAssistantRequest({
-      assistant: slowAssistant,
-      editor,
-      conversation,
-      pendingChanges,
-      newId: sequentialIds(),
-    });
-    const running = slowHandle.execute('add', () => undefined);
+    const running = send('add');
     new StartNewConversation({ conversation, pendingChanges, editor }).execute();
-    releasePlan();
+    release();
     await expect(running).rejects.toThrow(RequestSupersededError);
     expect(conversation.messages()).toHaveLength(0);
+    expect(editor.preview).toBeNull();
+  });
+
+  it('drops the request when the conversation is reset during a tool call', async () => {
+    agent.will(tool({ tool: 'compile' }));
+    project.compile = () => {
+      new StartNewConversation({ conversation, pendingChanges, editor }).execute();
+      return Promise.resolve([]);
+    };
+    await expect(send('does it compile?')).rejects.toThrow(RequestSupersededError);
+    expect(agent.requests).toHaveLength(1);
   });
 });
 
 describe('preview / apply / reject', () => {
-  it('applies an approved command', async () => {
+  it('applies an approved change and returns it', async () => {
     const changeId = await proposeEdit();
-    expect(apply.execute(changeId)).toBe(pendingChanges.get(changeId).edit.command);
-    expect(editor.lines).toEqual([...DOC, 'More numbers.']);
+    await expect(apply.execute(changeId, record)).resolves.toBe(
+      pendingChanges.get(changeId).change,
+    );
+    expect(editor.lines).toEqual([...MAIN, 'Added.']);
     expect(editor.preview).toBeNull();
   });
 
-  it('rejects a command and removes its proposal from the conversation', async () => {
+  it('opens the file of the change when the user switched away before Apply', async () => {
+    const changeId = await proposeEdit(bibEdit());
+    project.switchTo('main.tex');
+    progress = [];
+    await apply.execute(changeId, record);
+    expect(project.opened).toEqual(['refs.bib', 'refs.bib']);
+    expect(progress).toEqual([{ stage: 'opening', path: 'refs.bib' }]);
+    expect(editor.lines).toEqual([...BIB, 'Added.']);
+  });
+
+  it('fails the change when its file cannot be opened for Apply', async () => {
+    const changeId = await proposeEdit(bibEdit());
+    project.switchTo('main.tex');
+    project.failure.openFile = new FileOpenTimeoutError('slow');
+    await expect(apply.execute(changeId, record)).rejects.toThrow(FileOpenTimeoutError);
+    expect(editor.applied).toHaveLength(0);
+    await expect(apply.execute(changeId, record)).rejects.toThrow('it was failed');
+  });
+
+  it('rejects a change and removes its proposal from the conversation', async () => {
     const changeId = await proposeEdit();
     const { removedMessageId } = reject.execute(changeId);
     expect(conversation.messages().some((m) => m.id === removedMessageId)).toBe(false);
     expect(repository.stored.some((m) => m.id === removedMessageId)).toBe(false);
     expect(editor.preview).toBeNull();
-    expect(editor.lines).toEqual(DOC);
+    expect(editor.lines).toEqual(MAIN);
   });
 
   it('refuses a double apply', async () => {
     const changeId = await proposeEdit();
-    apply.execute(changeId);
-    expect(() => apply.execute(changeId)).toThrow(ChangeNoLongerPendingError);
+    await apply.execute(changeId, record);
+    await expect(apply.execute(changeId, record)).rejects.toThrow(ChangeNoLongerPendingError);
     expect(editor.applied).toHaveLength(1);
   });
 
   it('refuses apply after reject and reject after apply', async () => {
     const first = await proposeEdit();
     reject.execute(first);
-    expect(() => apply.execute(first)).toThrow('it was rejected');
+    await expect(apply.execute(first, record)).rejects.toThrow('it was rejected');
     const second = await proposeEdit();
-    apply.execute(second);
+    await apply.execute(second, record);
     expect(() => reject.execute(second)).toThrow(ChangeNoLongerPendingError);
   });
 
   it('treats approving a change that was never previewed as a defect', () => {
-    const change = new PendingDocumentChange('c', editReply().edit);
+    const decision = mainEdit();
+    if (decision.kind !== 'reply' || decision.reply.kind !== 'edit') {
+      throw new InvariantViolation('mainEdit is an edit');
+    }
+    const change = new PendingDocumentChange('c', decision.reply.change);
     expect(() => {
       change.approve();
     }).toThrow(InvariantViolation);
@@ -298,29 +446,23 @@ describe('preview / apply / reject', () => {
   it('detects a document changed between preview and apply', async () => {
     const changeId = await proposeEdit();
     editor.lines[0] = '\\section{Introduction}';
-    expect(() => apply.execute(changeId)).toThrow(DocumentConflictError);
+    await expect(apply.execute(changeId, record)).rejects.toThrow(DocumentConflictError);
     expect(editor.applied).toHaveLength(0);
-    expect(() => apply.execute(changeId)).toThrow(ChangeNoLongerPendingError);
-  });
-
-  it('detects a stale target', async () => {
-    const changeId = await proposeEdit();
-    editor.lines[3] = 'Numbers changed.';
-    expect(() => apply.execute(changeId)).toThrow(DocumentConflictError);
+    await expect(apply.execute(changeId, record)).rejects.toThrow(ChangeNoLongerPendingError);
   });
 
   it('detects a target that disappeared', async () => {
     const changeId = await proposeEdit();
     editor.lines.pop();
-    expect(() => apply.execute(changeId)).toThrow(DocumentConflictError);
-    expect(() => apply.execute(changeId)).toThrow('it was failed');
+    await expect(apply.execute(changeId, record)).rejects.toThrow(DocumentConflictError);
+    await expect(apply.execute(changeId, record)).rejects.toThrow('it was failed');
   });
 
   it('fails when the editor vanished before apply', async () => {
     const changeId = await proposeEdit();
     editor.available = false;
-    expect(() => apply.execute(changeId)).toThrow(EditorUnavailableError);
-    expect(() => apply.execute(changeId)).toThrow('it was failed');
+    await expect(apply.execute(changeId, record)).rejects.toThrow(EditorUnavailableError);
+    await expect(apply.execute(changeId, record)).rejects.toThrow('it was failed');
   });
 });
 
@@ -328,11 +470,11 @@ describe('conversation', () => {
   it('restores and starts a new conversation', async () => {
     repository.stored = [{ id: 'a', role: 'user', text: 'old' }];
     expect(conversation.restore()).toHaveLength(1);
-    const change = pendingChanges.get(await proposeEdit());
+    const changeId = await proposeEdit();
     new StartNewConversation({ conversation, pendingChanges, editor }).execute();
     expect(conversation.messages()).toHaveLength(0);
     expect(repository.stored).toHaveLength(0);
-    expect(() => apply.execute(change.id)).toThrow(ChangeNoLongerPendingError);
+    await expect(apply.execute(changeId, record)).rejects.toThrow(ChangeNoLongerPendingError);
   });
 
   it('keeps working when storage fails and reports it once', async () => {

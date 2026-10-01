@@ -1,14 +1,20 @@
-import type { AssistantPlan } from '../../src/domain/assistant-plan';
-import type { AssistantReply } from '../../src/domain/assistant-reply';
+import type { AgentDecision } from '../../src/domain/agent-action';
+import type { CompileDiagnostic } from '../../src/domain/agent-transcript';
 import type { ConversationMessage } from '../../src/domain/conversation';
 import { createDocumentSnapshot, type DocumentSnapshot } from '../../src/domain/document';
 import type { DocumentCommand } from '../../src/domain/document-command';
+import {
+  createProjectFiles,
+  ProjectFileKind,
+  type ProjectFile,
+} from '../../src/domain/project-file';
 import type { ResolvedEdit } from '../../src/domain/resolved-edit';
-import type { AssistantPort, PlanningRequest, ReplyRequest } from '../../src/ports/assistant-port';
+import type { AgentPort, AgentStep, AgentStepRequest } from '../../src/ports/agent-port';
 import type { ConversationRepository } from '../../src/ports/conversation-repository';
 import type { EditorPort } from '../../src/ports/editor-port';
+import type { ProjectPort } from '../../src/ports/project-port';
 import { EditorUnavailableError, PersistenceError } from '../../src/ports/errors';
-import { UnexpectedFakeCallError } from './test-errors';
+import { TestFixtureError, UnexpectedFakeCallError } from './test-errors';
 
 export class FakeEditor implements EditorPort {
   available = true;
@@ -69,27 +75,89 @@ export class FakeEditor implements EditorPort {
 
 type Step<T> = T | Error;
 
-export class FakeAssistant implements AssistantPort {
-  planRequests: PlanningRequest[] = [];
-  replyRequests: ReplyRequest[] = [];
-  private plans: Step<AssistantPlan>[] = [];
-  private replies: Step<AssistantReply>[] = [];
+export function agentStep(decision: AgentDecision): AgentStep {
+  return {
+    decision,
+    contextUsage: { contextTokens: 98304, estimatedPromptTokens: 1200, promptTokens: 1150 },
+  };
+}
 
-  willPlan(...plans: Step<AssistantPlan>[]): this {
-    this.plans.push(...plans);
+export class FakeAgent implements AgentPort {
+  requests: AgentStepRequest[] = [];
+  private decisions: Step<AgentDecision>[] = [];
+
+  will(...decisions: Step<AgentDecision>[]): this {
+    this.decisions.push(...decisions);
     return this;
   }
-  willReply(...replies: Step<AssistantReply>[]): this {
-    this.replies.push(...replies);
+  async decide(request: AgentStepRequest): Promise<AgentStep> {
+    this.requests.push(request);
+    return agentStep(await next(this.decisions, 'decide'));
+  }
+}
+
+export class FakeProject implements ProjectPort {
+  readonly files: readonly ProjectFile[];
+  readonly opened: string[] = [];
+  readonly reads: string[] = [];
+  compileCalls = 0;
+  failure: Partial<Record<'listFiles' | 'readFile' | 'openFile', Error>> = {};
+  onOpen: (path: string) => void = () => undefined;
+  private compiles: Step<readonly CompileDiagnostic[]>[] = [];
+
+  constructor(
+    private readonly editor: FakeEditor,
+    private readonly documents: Record<string, string[]>,
+    private openPath: string,
+    binaryPaths: readonly string[] = [],
+  ) {
+    this.files = createProjectFiles([
+      ...Object.keys(documents).map((path) => ({
+        id: `doc:${path}`,
+        path,
+        kind: ProjectFileKind.Text,
+      })),
+      ...binaryPaths.map((path) => ({ id: `file:${path}`, path, kind: ProjectFileKind.Binary })),
+    ]);
+    editor.lines = this.document(openPath);
+  }
+
+  willCompile(...results: Step<readonly CompileDiagnostic[]>[]): this {
+    this.compiles.push(...results);
     return this;
   }
-  plan(request: PlanningRequest): Promise<AssistantPlan> {
-    this.planRequests.push(request);
-    return next(this.plans, 'plan');
+  switchTo(path: string): void {
+    this.openPath = path;
+    this.editor.lines = this.document(path);
   }
-  reply(request: ReplyRequest): Promise<AssistantReply> {
-    this.replyRequests.push(request);
-    return next(this.replies, 'reply');
+  listFiles(): readonly ProjectFile[] {
+    if (this.failure.listFiles) throw this.failure.listFiles;
+    return this.files;
+  }
+  openFilePath(): string {
+    return this.openPath;
+  }
+  readFile(file: ProjectFile): Promise<DocumentSnapshot> {
+    this.reads.push(file.path);
+    if (this.failure.readFile) return Promise.reject(this.failure.readFile);
+    const lines = file.path === this.openPath ? this.editor.lines : this.document(file.path);
+    return Promise.resolve(createDocumentSnapshot(lines));
+  }
+  openFile(file: ProjectFile): Promise<void> {
+    this.opened.push(file.path);
+    if (this.failure.openFile) return Promise.reject(this.failure.openFile);
+    this.switchTo(file.path);
+    this.onOpen(file.path);
+    return Promise.resolve();
+  }
+  compile(): Promise<readonly CompileDiagnostic[]> {
+    this.compileCalls += 1;
+    return next(this.compiles, 'compile');
+  }
+  private document(path: string): string[] {
+    const lines = this.documents[path];
+    if (lines === undefined) throw new TestFixtureError(`no document ${path}`);
+    return lines;
   }
 }
 

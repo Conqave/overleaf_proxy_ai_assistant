@@ -5,7 +5,6 @@ import { HandleAssistantRequest } from '../application/handle-assistant-request'
 import { PendingChanges } from '../application/pending-change';
 import { RejectDocumentChange } from '../application/reject-document-change';
 import { createUuid } from '../infrastructure/browser/uuid';
-import { OllamaAssistant } from '../infrastructure/ollama/ollama-assistant';
 import { OllamaClient } from '../infrastructure/ollama/ollama-client';
 import { preloadOllamaModel } from '../infrastructure/ollama/ollama-preload';
 import { OverleafEditorAdapter } from '../infrastructure/overleaf/overleaf-editor-adapter';
@@ -19,6 +18,7 @@ import { LocalStorageConversationRepository } from '../infrastructure/persistenc
 import { AssistantController } from '../presentation/assistant-controller';
 import { AssistantView } from '../presentation/assistant-view';
 import { ConfigurationError, loadConfig, type AssistantConfig } from './config';
+import { UnwiredAgent, UnwiredProject } from './unwired-ports';
 
 function compose(
   window: Window & typeof globalThis,
@@ -36,21 +36,25 @@ function compose(
     },
     window.fetch.bind(window),
   );
-  const assistant = new OllamaAssistant(client);
+  const agent = new UnwiredAgent();
+  const project = new UnwiredProject();
   const conversation = new ConversationLog(
     new LocalStorageConversationRepository(window, identity),
   );
   const pendingChanges = new PendingChanges();
 
+  const handleRequest = new HandleAssistantRequest({
+    agent,
+    project,
+    editor,
+    conversation,
+    pendingChanges,
+    newId: () => createUuid(window.crypto),
+  });
+
   const controller = new AssistantController({
-    handleRequest: new HandleAssistantRequest({
-      assistant,
-      editor,
-      conversation,
-      pendingChanges,
-      newId: () => createUuid(window.crypto),
-    }),
-    applyChange: new ApplyDocumentChange({ editor, pendingChanges }),
+    handleRequest,
+    applyChange: new ApplyDocumentChange({ editor, project, pendingChanges }),
     rejectChange: new RejectDocumentChange({ editor, pendingChanges, conversation }),
     startNewConversation: new StartNewConversation({ conversation, pendingChanges, editor }),
     conversation,

@@ -1,47 +1,42 @@
-import { Evidence, Intent, type AssistantPlan } from '../domain/assistant-plan';
 import {
-  getAnswerKind,
-  type AssistantMessage,
-  type GreetingMessage,
-  type ProposalMessage,
-  type ReplyMessage,
-  type UserMessage,
+  AgentTool,
+  type AgentReply,
+  type ProjectEdit,
+  type ToolCall,
+} from '../domain/agent-action';
+import { checkToolCall } from '../domain/agent-policy';
+import type { AgentTurn, ToolResult } from '../domain/agent-transcript';
+import type {
+  AssistantMessage,
+  GreetingMessage,
+  ProposalMessage,
+  ReplyMessage,
+  UserMessage,
 } from '../domain/conversation';
-import type { DocumentSnapshot } from '../domain/document';
-import { InvariantViolation } from '../domain/errors';
-import type { ResolvedEdit } from '../domain/resolved-edit';
-import type { AssistantPort, GatheredEvidence } from '../ports/assistant-port';
+import { findTextFile, ProjectFileKind } from '../domain/project-file';
+import { searchProject } from '../domain/project-search';
+import type { AgentPort, AgentWorkspace } from '../ports/agent-port';
 import type { EditorPort } from '../ports/editor-port';
+import type { ProjectPort } from '../ports/project-port';
+import type { AgentProgress } from './agent-progress';
 import type { ConversationLog } from './conversation-log';
 import { EmptyRequestError, RequestInProgressError, RequestSupersededError } from './errors';
 import { isGreetingOnly } from './greeting-policy';
 import { PendingDocumentChange, type PendingChanges } from './pending-change';
-
-export type RequestProgress =
-  | { readonly stage: 'received'; readonly message: UserMessage }
-  | { readonly stage: 'planning' }
-  | { readonly stage: 'answering'; readonly plan: AssistantPlan };
+import { showProjectFile } from './show-project-file';
 
 export interface AssistantRequestResult {
   readonly message: AssistantMessage;
   readonly changeId?: string;
 }
 
-interface EditorContext {
-  readonly document: DocumentSnapshot;
-  readonly cursorLine: number;
-  readonly selection: string;
-  readonly compileLogs: string;
-}
-
-const LINE_CONTEXT_RADIUS = 2;
-
 export class HandleAssistantRequest {
   private running = false;
 
   constructor(
     private readonly deps: {
-      assistant: AssistantPort;
+      agent: AgentPort;
+      project: ProjectPort;
       editor: EditorPort;
       conversation: ConversationLog;
       pendingChanges: PendingChanges;
@@ -51,12 +46,13 @@ export class HandleAssistantRequest {
 
   async execute(
     text: string,
-    onProgress: (progress: RequestProgress) => void,
+    onProgress: (progress: AgentProgress) => void,
+    initialTranscript: readonly AgentTurn[] = [],
   ): Promise<AssistantRequestResult> {
     if (this.running) throw new RequestInProgressError();
     this.running = true;
     try {
-      return await this.run(text, onProgress);
+      return await this.run(text, onProgress, initialTranscript);
     } finally {
       this.running = false;
     }
@@ -64,9 +60,10 @@ export class HandleAssistantRequest {
 
   private async run(
     text: string,
-    onProgress: (progress: RequestProgress) => void,
+    onProgress: (progress: AgentProgress) => void,
+    initialTranscript: readonly AgentTurn[],
   ): Promise<AssistantRequestResult> {
-    const { assistant, editor, conversation, pendingChanges } = this.deps;
+    const { agent, editor, conversation, pendingChanges } = this.deps;
     const request = text.trim();
     if (!request) throw new EmptyRequestError();
 
@@ -81,52 +78,86 @@ export class HandleAssistantRequest {
       return { message: this.greet() };
     }
 
-    const context = this.readEditorContext();
-
-    onProgress({ stage: 'planning' });
-    const plan = await assistant.plan({ message: request, conversation: history });
-    this.ensureCurrent(epoch);
-
-    onProgress({ stage: 'answering', plan });
-    const reply = await assistant.reply({
-      message: request,
-      plan,
-      evidence: gatherEvidence(plan, context),
-      conversation: history,
-    });
-    this.ensureCurrent(epoch);
-
-    switch (reply.kind) {
-      case 'answer':
-        if (plan.intent === Intent.Edit) {
-          throw new InvariantViolation('assistant port answered an edit plan with plain text');
-        }
-        return { message: this.reply(getAnswerKind(plan.intent), reply.text) };
-      case 'question':
-        return { message: this.reply('clarification', reply.text) };
-      case 'edit':
-        if (plan.intent !== Intent.Edit) {
-          throw new InvariantViolation('assistant port returned an edit for a non-edit plan');
-        }
-        return this.propose(reply.edit, reply.rationale);
+    const workspace = this.readWorkspace();
+    const transcript: AgentTurn[] = [...initialTranscript];
+    for (let step = 1; ; step += 1) {
+      onProgress({ stage: 'thinking', step });
+      const { decision } = await agent.decide({
+        message: request,
+        conversation: history,
+        workspace,
+        transcript: [...transcript],
+      });
+      this.ensureCurrent(epoch);
+      if (decision.kind === 'reply') return this.answer(decision.reply, epoch, onProgress);
+      checkToolCall(transcript, decision.call);
+      const result = await this.callTool(decision.call, workspace, onProgress);
+      this.ensureCurrent(epoch);
+      transcript.push({ call: decision.call, result });
     }
   }
 
-  private readEditorContext(): EditorContext {
-    const { editor } = this.deps;
+  private readWorkspace(): AgentWorkspace {
+    const { project, editor } = this.deps;
     return {
-      document: editor.readDocument(),
+      files: project.listFiles(),
+      openFile: { path: project.openFilePath(), document: editor.readDocument() },
       cursorLine: editor.readCursorLine(),
       selection: editor.readSelection(),
-      compileLogs: editor.readCompileLogs(),
     };
+  }
+
+  private async callTool(
+    call: ToolCall,
+    workspace: AgentWorkspace,
+    onProgress: (progress: AgentProgress) => void,
+  ): Promise<ToolResult> {
+    const { project } = this.deps;
+    switch (call.tool) {
+      case AgentTool.ReadFile: {
+        const file = findTextFile(workspace.files, call.path);
+        onProgress({ stage: 'reading', path: call.path });
+        return { tool: call.tool, path: call.path, document: await project.readFile(file) };
+      }
+      case AgentTool.Search: {
+        onProgress({ stage: 'searching', query: call.query });
+        const textFiles = workspace.files.filter((file) => file.kind === ProjectFileKind.Text);
+        const searched = await Promise.all(
+          textFiles.map(async (file) => ({
+            path: file.path,
+            document: await project.readFile(file),
+          })),
+        );
+        return { tool: call.tool, ...searchProject(searched, call.query) };
+      }
+      case AgentTool.Compile:
+        onProgress({ stage: 'compiling' });
+        return { tool: call.tool, diagnostics: await project.compile() };
+    }
+  }
+
+  private async answer(
+    reply: AgentReply,
+    epoch: number,
+    onProgress: (progress: AgentProgress) => void,
+  ): Promise<AssistantRequestResult> {
+    switch (reply.kind) {
+      case 'answer':
+        return { message: this.reply('explanation', reply.text) };
+      case 'question':
+        return { message: this.reply('clarification', reply.text) };
+      case 'edit':
+        await showProjectFile(this.deps.project, reply.change.path, onProgress);
+        this.ensureCurrent(epoch);
+        return this.propose(reply.change, reply.rationale);
+    }
   }
 
   private ensureCurrent(epoch: number): void {
     if (this.deps.conversation.epoch !== epoch) throw new RequestSupersededError();
   }
 
-  private propose(edit: ResolvedEdit, rationale: string | undefined): AssistantRequestResult {
+  private propose(edit: ProjectEdit, rationale: string | undefined): AssistantRequestResult {
     const change = new PendingDocumentChange(this.deps.newId(), edit);
     this.deps.pendingChanges.add(change);
     this.showPreview(change);
@@ -134,7 +165,8 @@ export class HandleAssistantRequest {
       id: change.id,
       role: 'assistant',
       kind: 'proposal',
-      command: edit.command,
+      path: edit.path,
+      command: edit.edit.command,
       ...(rationale === undefined ? {} : { rationale }),
     };
     this.deps.conversation.append(message);
@@ -143,9 +175,10 @@ export class HandleAssistantRequest {
 
   private showPreview(change: PendingDocumentChange): void {
     const { editor } = this.deps;
+    const { edit } = change.change;
     try {
-      change.edit.assertCurrent(editor.readDocument());
-      editor.showPreview(change.edit);
+      edit.assertCurrent(editor.readDocument());
+      editor.showPreview(edit);
     } catch (error) {
       change.discard();
       editor.clearPreview();
@@ -165,23 +198,4 @@ export class HandleAssistantRequest {
     this.deps.conversation.append(message);
     return message;
   }
-}
-
-function gatherEvidence(plan: AssistantPlan, context: EditorContext): GatheredEvidence {
-  const needs = new Set(plan.needs);
-  const { document, cursorLine } = context;
-  const firstLineNumber = Math.max(1, cursorLine - LINE_CONTEXT_RADIUS);
-  return {
-    document,
-    ...(needs.has(Evidence.LineContext)
-      ? {
-          lineContext: {
-            firstLineNumber,
-            lines: document.lines.slice(firstLineNumber - 1, cursorLine + LINE_CONTEXT_RADIUS),
-          },
-        }
-      : {}),
-    ...(needs.has(Evidence.Selection) && context.selection ? { selection: context.selection } : {}),
-    ...(needs.has(Evidence.Logs) && context.compileLogs ? { logs: context.compileLogs } : {}),
-  };
 }

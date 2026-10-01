@@ -1,11 +1,10 @@
-import type { Evidence } from '../domain/assistant-plan';
+import type { AgentProgress } from '../application/agent-progress';
+import type { ProjectEdit } from '../domain/agent-action';
 import type { AssistantMessage } from '../domain/conversation';
-import { DocumentOperation, type DocumentCommand } from '../domain/document-command';
-import type { RequestProgress } from '../application/handle-assistant-request';
+import { DocumentOperation } from '../domain/document-command';
 
 const KIND_TITLE: Record<Exclude<AssistantMessage['kind'], 'proposal'>, string> = {
   greeting: 'Hi, I am here',
-  summary: 'Document summary',
   explanation: 'Explanation',
   clarification: 'Hans needs a little more detail',
 };
@@ -16,16 +15,6 @@ const PROPOSAL_TITLE: Record<DocumentOperation, string> = {
   [DocumentOperation.Replace]: 'Proposed replacement',
   [DocumentOperation.Delete]: 'Proposed deletion',
 };
-
-const NEED_STATUS: Record<Evidence, string> = {
-  line_context: 'Hans is reading the nearby lines',
-  selection: 'Hans is reading the selected text',
-  logs: 'Hans is reading the logs',
-};
-
-const DOCUMENT_STATUS = 'Hans is reading the TeX content';
-
-const STATUS_LIST = new Intl.ListFormat('en', { style: 'long', type: 'conjunction' });
 
 export const VIEW_TEXT = {
   badge: 'Hans',
@@ -54,17 +43,17 @@ export function messageTitle(message: AssistantMessage): string {
 
 export function messageMeta(message: AssistantMessage): string | undefined {
   if (message.kind !== 'proposal') return undefined;
-  const { command } = message;
+  const { command, path } = message;
   const { lineNumber, lineText } = command.target;
   const first = String(lineNumber);
   switch (command.operation) {
     case DocumentOperation.InsertBefore:
     case DocumentOperation.InsertAfter:
-      return `Anchor: line ${first}: ${lineText}`;
+      return `${path}, anchor line ${first}: ${lineText}`;
     case DocumentOperation.Replace:
     case DocumentOperation.Delete:
-      if (command.lineCount === 1) return `Line ${first}: ${lineText}`;
-      return `Lines ${first}–${String(lineNumber + command.lineCount - 1)}, starting: ${lineText}`;
+      if (command.lineCount === 1) return `${path}, line ${first}: ${lineText}`;
+      return `${path}, lines ${first}–${String(lineNumber + command.lineCount - 1)}, starting: ${lineText}`;
   }
 }
 
@@ -72,31 +61,36 @@ export function errorNotice(message: string): string {
   return `Error: ${message}`;
 }
 
-export function appliedNotice(command: DocumentCommand): string {
+export function appliedNotice({ path, edit }: ProjectEdit): string {
+  const { command } = edit;
   switch (command.operation) {
     case DocumentOperation.InsertBefore:
-      return 'Done. Inserted before the selected anchor.';
+      return `Done. Inserted before the selected anchor in ${path}.`;
     case DocumentOperation.InsertAfter:
-      return 'Done. Inserted after the selected anchor.';
+      return `Done. Inserted after the selected anchor in ${path}.`;
     case DocumentOperation.Replace:
       return command.lineCount === 1
-        ? 'Done. Line replaced.'
-        : `Done. ${String(command.lineCount)} lines replaced.`;
+        ? `Done. Line replaced in ${path}.`
+        : `Done. ${String(command.lineCount)} lines replaced in ${path}.`;
     case DocumentOperation.Delete:
       return command.lineCount === 1
-        ? 'Done. Line deleted.'
-        : `Done. ${String(command.lineCount)} lines deleted.`;
+        ? `Done. Line deleted in ${path}.`
+        : `Done. ${String(command.lineCount)} lines deleted in ${path}.`;
   }
 }
 
-export function progressStatus(progress: RequestProgress): string {
+export function progressStatus(progress: AgentProgress): string {
   switch (progress.stage) {
     case 'received':
-    case 'planning':
-      return 'Hans is reading what it needs first.';
-    case 'answering': {
-      const parts = progress.plan.needs.map((need) => NEED_STATUS[need]);
-      return STATUS_LIST.format([DOCUMENT_STATUS, ...parts]);
-    }
+    case 'thinking':
+      return 'Hans is thinking';
+    case 'reading':
+      return `Hans is reading ${progress.path}`;
+    case 'searching':
+      return `Hans is searching for ${progress.query}`;
+    case 'compiling':
+      return 'Hans is compiling the project';
+    case 'opening':
+      return `Hans is opening ${progress.path}`;
   }
 }

@@ -13,72 +13,93 @@ import { ResolvedEdit } from '../../../src/domain/resolved-edit';
 import { AssistantController } from '../../../src/presentation/assistant-controller';
 import { AssistantView } from '../../../src/presentation/assistant-view';
 import {
-  FakeAssistant,
+  FakeAgent,
   FakeEditor,
+  FakeProject,
   InMemoryConversationRepository,
   sequentialIds,
 } from '../../support/fakes';
 import { TestFixtureError } from '../../support/test-errors';
 
-const DOC = ['\\section{Intro}', 'Numbers.'];
+const BIB = ['@article{smith20}', '}'];
 
-async function proposeEdit() {
+async function proposeBibEdit() {
   const { window } = new JSDOM('<!doctype html><html><head></head><body></body></html>');
-  const editor = new FakeEditor([...DOC]);
-  const assistant = new FakeAssistant().willPlan({ intent: 'edit', needs: [] }).willReply({
-    kind: 'edit',
-    rationale: 'After the numbers.',
-    edit: ResolvedEdit.resolve(
-      createDocumentSnapshot(DOC),
-      createDocumentCommand({
-        operation: 'insert_after',
-        target: { lineNumber: 2, lineText: 'Numbers.' },
-        content: 'More numbers.',
-        reason: 'Adds detail.',
-      }),
-    ),
-  });
+  const editor = new FakeEditor([]);
+  const documents = { 'main.tex': ['\\cite{knuth84}'], 'refs.bib': [...BIB] };
+  const project = new FakeProject(editor, documents, 'main.tex');
+  const agent = new FakeAgent().will(
+    { kind: 'tool', call: { tool: 'read_file', path: 'refs.bib' } },
+    {
+      kind: 'reply',
+      reply: {
+        kind: 'edit',
+        change: {
+          path: 'refs.bib',
+          edit: ResolvedEdit.resolve(
+            createDocumentSnapshot(BIB),
+            createDocumentCommand({
+              operation: 'insert_after',
+              target: { lineNumber: 2, lineText: '}' },
+              content: '@book{knuth84}',
+              reason: 'Adds the missing entry.',
+            }),
+          ),
+        },
+      },
+    },
+  );
   const conversation = new ConversationLog(new InMemoryConversationRepository());
   const pendingChanges = new PendingChanges();
   const controller = new AssistantController({
     handleRequest: new HandleAssistantRequest({
-      assistant,
+      agent,
+      project,
       editor,
       conversation,
       pendingChanges,
       newId: sequentialIds(),
     }),
-    applyChange: new ApplyDocumentChange({ editor, pendingChanges }),
+    applyChange: new ApplyDocumentChange({ editor, project, pendingChanges }),
     rejectChange: new RejectDocumentChange({ editor, pendingChanges, conversation }),
     startNewConversation: new StartNewConversation({ conversation, pendingChanges, editor }),
     conversation,
   });
   await controller.attach(new AssistantView(window.document, controller));
-  await controller.send('add more numbers');
+  await controller.send('add the knuth84 entry');
   const proposal = conversation.messages().at(-1);
   if (proposal?.role !== 'assistant' || proposal.kind !== 'proposal') {
     throw new TestFixtureError('the controller did not show a proposal');
   }
-  const notices = () =>
-    Array.from(window.document.querySelectorAll('.ola-error')).map((n) => n.textContent);
-  return { controller, editor, changeId: proposal.id, notices };
+  const texts = (selector: string) =>
+    Array.from(window.document.querySelectorAll(selector)).map((n) => n.textContent);
+  return { controller, editor, documents, changeId: proposal.id, texts };
 }
 
-describe('AssistantController error handling', () => {
+describe('AssistantController apply', () => {
+  it('reports the applied file', async () => {
+    const { controller, changeId, texts } = await proposeBibEdit();
+    await controller.apply(changeId);
+    expect(texts('.ola-system')).toEqual(['Done. Inserted after the selected anchor in refs.bib.']);
+  });
+
   it('shows expected failures and continues', async () => {
-    const { controller, editor, changeId, notices } = await proposeEdit();
-    editor.lines[1] = 'Edited meanwhile.';
+    const { controller, documents, changeId, texts } = await proposeBibEdit();
+    documents['refs.bib'][1] = 'Edited meanwhile.';
     await expect(controller.apply(changeId)).resolves.toBeUndefined();
-    expect(notices()).toEqual([
+    expect(texts('.ola-error')).toEqual([
       expect.stringContaining('The document changed after the suggestion was made.'),
     ]);
+    expect(texts('.ola-status')).toEqual(['']);
   });
 
   it('does not disguise defects as user errors', async () => {
-    const { controller, editor, changeId, notices } = await proposeEdit();
+    const { controller, editor, changeId, texts } = await proposeBibEdit();
     const defect = new InvariantViolation('broken');
     editor.applyFailure = defect;
     await expect(controller.apply(changeId)).rejects.toBe(defect);
-    expect(notices()).toEqual(['Unexpected internal error. Details are in the browser console.']);
+    expect(texts('.ola-error')).toEqual([
+      'Unexpected internal error. Details are in the browser console.',
+    ]);
   });
 });

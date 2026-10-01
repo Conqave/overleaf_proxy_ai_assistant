@@ -150,7 +150,6 @@ export class AssistantView {
       case AssistantMessageKind.Proposal:
         node.append(...this.renderProposal(message));
         break;
-      case AssistantMessageKind.Summary:
       case AssistantMessageKind.Explanation:
       case AssistantMessageKind.Clarification:
         node.append(this.el('div', 'ola-result-body', message.text));

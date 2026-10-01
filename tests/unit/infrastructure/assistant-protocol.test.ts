@@ -60,6 +60,7 @@ describe('conversation history', () => {
       id: 'p',
       role: 'assistant' as const,
       kind: 'proposal' as const,
+      path: 'main.tex',
       command: createDocumentCommand({
         operation: 'replace',
         target: { lineNumber: 2, lineText: 'Body.' },

@@ -1,4 +1,4 @@
-import type { ResolvedEdit } from '../domain/resolved-edit';
+import type { ProjectEdit } from '../domain/agent-action';
 import { InvariantViolation } from '../domain/errors';
 import { ChangeNoLongerPendingError } from './errors';
 
@@ -40,7 +40,7 @@ export class PendingDocumentChange {
 
   constructor(
     readonly id: string,
-    readonly edit: ResolvedEdit,
+    readonly change: ProjectEdit,
   ) {}
 
   get isOpen(): boolean {
