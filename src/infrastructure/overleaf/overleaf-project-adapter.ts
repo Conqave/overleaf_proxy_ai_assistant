@@ -19,6 +19,8 @@ import { readProjectTree } from './project-tree';
 export const RECOMPILE_EVENT = 'pdf:recompile';
 const FILE_TREE_SELECTOR = '.file-tree';
 const ENTITY_SELECTOR = '.entity[data-file-id]';
+const RECOMPILE_BUTTON_SELECTOR = '.toolbar-pdf-left .split-menu-button[data-ol-loading]';
+const LOADING_ATTRIBUTE = 'data-ol-loading';
 const HTTP_NOT_FOUND = 404;
 const EXPAND_ICON_SELECTOR = '.file-tree-expand-icon';
 
@@ -40,6 +42,13 @@ export class OverleafFileTreeContractError extends Error {
   constructor(problem: string) {
     super(`Overleaf's file tree does not match the expected contract: ${problem}.`);
     this.name = 'OverleafFileTreeContractError';
+  }
+}
+
+export class OverleafToolbarContractError extends Error {
+  constructor(problem: string) {
+    super(`Overleaf's PDF toolbar does not match the expected contract: ${problem}.`);
+    this.name = 'OverleafToolbarContractError';
   }
 }
 
@@ -113,6 +122,8 @@ export class OverleafProjectAdapter implements ProjectPort {
 
   async compile(): Promise<readonly CompileDiagnostic[]> {
     const { store, window } = this.deps;
+    const signal = AbortSignal.timeout(this.deps.timeouts.compileMs);
+    if (!(await this.whenCompilerIdle(signal))) throw this.compileTimeout();
     const previous = store.get(StoreKey.LogEntries);
     window.dispatchEvent(new window.CustomEvent(RECOMPILE_EVENT));
     const compiled = await store.waitUntil(
@@ -121,14 +132,43 @@ export class OverleafProjectAdapter implements ProjectPort {
         const current = store.get(StoreKey.LogEntries);
         return current !== previous && current !== null;
       },
-      AbortSignal.timeout(this.deps.timeouts.compileMs),
+      signal,
     );
-    if (!compiled) {
-      throw new CompileTimeoutError(
-        `The project did not compile within ${String(this.deps.timeouts.compileMs)} ms.`,
-      );
-    }
+    if (!compiled) throw this.compileTimeout();
     return readCompileDiagnostics(store.get(StoreKey.LogEntries));
+  }
+
+  private async whenCompilerIdle(signal: AbortSignal): Promise<boolean> {
+    const button = this.recompileButton();
+    if (!isCompiling(button)) return true;
+    const idle = Promise.withResolvers<boolean>();
+    const observer = new this.deps.window.MutationObserver(() => {
+      if (!isCompiling(button)) idle.resolve(true);
+    });
+    const abort = (): void => {
+      idle.resolve(false);
+    };
+    observer.observe(button, { attributeFilter: [LOADING_ATTRIBUTE] });
+    signal.addEventListener('abort', abort);
+    try {
+      if (signal.aborted) abort();
+      return await idle.promise;
+    } finally {
+      observer.disconnect();
+      signal.removeEventListener('abort', abort);
+    }
+  }
+
+  private recompileButton(): HTMLElement {
+    const button = this.deps.window.document.querySelector<HTMLElement>(RECOMPILE_BUTTON_SELECTOR);
+    if (button === null) throw new OverleafToolbarContractError('it has no Recompile button');
+    return button;
+  }
+
+  private compileTimeout(): CompileTimeoutError {
+    return new CompileTimeoutError(
+      `The project did not compile within ${String(this.deps.timeouts.compileMs)} ms.`,
+    );
   }
 
   private async shownEditor(file: ProjectFile, signal: AbortSignal): Promise<OpenEditor> {
@@ -211,4 +251,14 @@ function requireTextFile(file: ProjectFile): void {
   if (file.kind !== ProjectFileKind.Text) {
     throw new NotATextFileError(`${file.path} is not a text file.`);
   }
+}
+
+function isCompiling(button: HTMLElement): boolean {
+  const loading = button.getAttribute(LOADING_ATTRIBUTE);
+  if (loading !== 'true' && loading !== 'false') {
+    throw new OverleafToolbarContractError(
+      `the Recompile button has ${LOADING_ATTRIBUTE}=${String(loading)}`,
+    );
+  }
+  return loading === 'true';
 }

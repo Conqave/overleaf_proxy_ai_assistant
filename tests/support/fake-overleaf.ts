@@ -84,6 +84,7 @@ export class FakeOverleafIde {
   opensDocs = true;
   compiles = true;
   logEntries: unknown = EMPTY_LOG_ENTRIES;
+  compileCount = 0;
   private readonly treeRoot: HTMLElement;
 
   constructor(
@@ -91,7 +92,9 @@ export class FakeOverleafIde {
     rootFolder: FakeFolder = FIXTURE_ROOT_FOLDER,
   ) {
     const { document } = window;
-    document.body.innerHTML = '<ul class="file-tree"></ul><div id="editor"></div>';
+    document.body.innerHTML =
+      '<ul class="file-tree"></ul><div id="editor"></div>' +
+      '<div class="toolbar-pdf-left"><button class="split-menu-button" data-ol-loading="false">Recompile</button></div>';
     this.treeRoot = this.element('.file-tree');
     this.renderFolder(this.treeRoot, rootFolder);
     this.store = new FakeOverleafStore({
@@ -139,10 +142,14 @@ export class FakeOverleafIde {
   }
 
   private readonly recompile = (): void => {
-    if (!this.compiles) return;
+    const button = this.element('.split-menu-button');
+    if (!this.compiles || button.dataset.olLoading === 'true') return;
+    this.compileCount += 1;
+    button.dataset.olLoading = 'true';
     this.store.set('pdf.logEntries', null);
     setTimeout(() => {
       this.store.set('pdf.logEntries', structuredClone(this.logEntries));
+      button.dataset.olLoading = 'false';
     });
   };
 

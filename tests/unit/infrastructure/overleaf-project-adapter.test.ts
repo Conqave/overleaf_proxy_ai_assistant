@@ -5,6 +5,7 @@ import { OverleafEditorBridge } from '../../../src/infrastructure/overleaf/overl
 import {
   OverleafFileTreeContractError,
   OverleafProjectAdapter,
+  OverleafToolbarContractError,
 } from '../../../src/infrastructure/overleaf/overleaf-project-adapter';
 import { OverleafStore, StoreKey } from '../../../src/infrastructure/overleaf/overleaf-store';
 import {
@@ -174,6 +175,17 @@ describe('OverleafProjectAdapter.compile', () => {
   it('reports a clean compile that repeats the previous log', async () => {
     await adapter.compile();
     await expect(adapter.compile()).resolves.toEqual([]);
+  });
+
+  it('waits for a compile already running and then recompiles', async () => {
+    window.dispatchEvent(new CustomEvent('pdf:recompile'));
+    await adapter.compile();
+    expect(ide.compileCount).toBe(2);
+  });
+
+  it('rejects a toolbar without the Recompile button', async () => {
+    document.querySelector('.toolbar-pdf-left')?.remove();
+    await expect(adapter.compile()).rejects.toThrow(OverleafToolbarContractError);
   });
 
   it('times out when no new log arrives and stops watching', async () => {
