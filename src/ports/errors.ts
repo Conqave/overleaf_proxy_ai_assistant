@@ -1,13 +1,6 @@
 import { OperationalError } from '../domain/errors';
 
-export class AssistantHttpError extends OperationalError {
-  constructor(
-    readonly status: number,
-    message: string,
-  ) {
-    super(message);
-  }
-}
+export class AssistantHttpError extends OperationalError {}
 
 export class AssistantUnreachableError extends OperationalError {}
 

@@ -54,7 +54,6 @@ export class OllamaClient {
       const response = await this.post({ prompt, raw: true, options: this.getOptions() }, signal);
       if (!response.ok) {
         throw new AssistantHttpError(
-          response.status,
           `Ollama answered HTTP ${String(response.status)} ${response.statusText}`.trim(),
         );
       }
@@ -67,7 +66,6 @@ export class OllamaClient {
       const response = await this.post({ prompt: '', options: this.getOptions() }, signal);
       if (!response.ok) {
         throw new AssistantHttpError(
-          response.status,
           `Loading the model failed with HTTP ${String(response.status)}`,
         );
       }

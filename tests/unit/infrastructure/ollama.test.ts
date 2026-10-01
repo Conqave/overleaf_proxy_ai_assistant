@@ -96,10 +96,9 @@ describe('OllamaClient', () => {
 
   it('reports HTTP errors with their status', async () => {
     const ollama = new FakeOllama().reply({ status: 502 });
-    await expect(make(ollama).client.generate({ system: 'S', prompt: 'P' })).rejects.toMatchObject({
-      name: AssistantHttpError.name,
-      status: 502,
-    });
+    await expect(make(ollama).client.generate({ system: 'S', prompt: 'P' })).rejects.toThrow(
+      new AssistantHttpError('Ollama answered HTTP 502'),
+    );
   });
 
   it('reports a body that is not JSON as a broken response contract', async () => {
