@@ -1,5 +1,5 @@
 import type { AgentProgress } from '../application/agent-progress';
-import type { AssistantRequestResult } from '../application/handle-assistant-request';
+import type { ContextUsage } from '../application/handle-assistant-request';
 import type { ProjectEdit } from '../domain/agent-action';
 import type { AssistantMessage } from '../domain/conversation';
 import { DocumentOperation } from '../domain/document-command';
@@ -16,8 +16,6 @@ const PROPOSAL_TITLE: Record<DocumentOperation, string> = {
   [DocumentOperation.Replace]: 'Proposed replacement',
   [DocumentOperation.Delete]: 'Proposed deletion',
 };
-
-type ContextUsage = NonNullable<AssistantRequestResult['contextUsage']>;
 
 const TOKENS_PER_THOUSAND = 1_000;
 

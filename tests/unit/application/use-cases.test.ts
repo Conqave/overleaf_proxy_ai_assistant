@@ -11,7 +11,10 @@ import {
   RequestSupersededError,
   UnreadableConversationError,
 } from '../../../src/application/errors';
-import { HandleAssistantRequest } from '../../../src/application/handle-assistant-request';
+import {
+  HandleAssistantRequest,
+  type AssistantRequestResult,
+} from '../../../src/application/handle-assistant-request';
 import { PendingChanges, PendingDocumentChange } from '../../../src/application/pending-change';
 import { RejectDocumentChange } from '../../../src/application/reject-document-change';
 import { ReviewAppliedChange } from '../../../src/application/review-applied-change';
@@ -90,11 +93,14 @@ const mainEdit = () => editOf('main.tex', MAIN, 4);
 const bibEdit = () => editOf('refs.bib', BIB, 3);
 const readBib = () => tool({ tool: 'read_file', path: 'refs.bib' });
 
+function changeIdOf(result: AssistantRequestResult): string {
+  if (result.kind !== 'proposal') throw new InvariantViolation('no change proposed');
+  return result.changeId;
+}
+
 async function proposeEdit(...decisions: AgentDecision[]): Promise<string> {
   agent.will(...(decisions.length ? decisions : [mainEdit()]));
-  const result = await send('add more');
-  if (result.changeId === undefined) throw new InvariantViolation('no change proposed');
-  return result.changeId;
+  return changeIdOf(await send('add more'));
 }
 
 beforeEach(() => {
@@ -143,7 +149,7 @@ describe('HandleAssistantRequest', () => {
     editor.selection = 'world';
     agent.will(answer('A short paper.'));
     const result = await send('What is this document about?');
-    expect(result.changeId).toBeUndefined();
+    expect(result.kind).toBe('reply');
     expect(result.message).toMatchObject({ kind: 'explanation', text: 'A short paper.' });
     expect(agent.requests[0]).toEqual({
       message: 'What is this document about?',
@@ -163,7 +169,7 @@ describe('HandleAssistantRequest', () => {
     agent.will(tool({ tool: 'compile' }), answer('It compiles.'));
     project.willCompile([]);
     const result = await send('does it compile?');
-    expect(result.contextUsage).toEqual({
+    expect(result).toHaveProperty('contextUsage', {
       contextTokens: FAKE_CONTEXT_TOKENS,
       promptTokens: 2_000,
     });
@@ -188,7 +194,7 @@ describe('HandleAssistantRequest', () => {
   it('proposes an edit of the open file as a previewed pending change', async () => {
     agent.will(mainEdit());
     const result = await send('add more');
-    const change = pendingChanges.get(result.changeId!);
+    const change = pendingChanges.get(changeIdOf(result));
     expect(result.message).toEqual({
       id: change.id,
       role: 'assistant',
@@ -212,7 +218,7 @@ describe('HandleAssistantRequest', () => {
       },
     ]);
     expect(project.opened).toEqual(['refs.bib']);
-    expect(editor.preview).toBe(pendingChanges.get(result.changeId!).change.edit);
+    expect(editor.preview).toBe(pendingChanges.get(changeIdOf(result)).change.edit);
     expect(result.message).toMatchObject({ kind: 'proposal', path: 'refs.bib' });
     expect(progress).toEqual([
       expect.objectContaining({ stage: 'received' }),
@@ -354,7 +360,7 @@ describe('HandleAssistantRequest', () => {
     };
     const result = await send('add more');
     expect(project.opened).toEqual(['main.tex']);
-    expect(editor.preview).toBe(pendingChanges.get(result.changeId!).change.edit);
+    expect(editor.preview).toBe(pendingChanges.get(changeIdOf(result)).change.edit);
   });
 
   it('drops an edit whose file changed before it was opened', async () => {

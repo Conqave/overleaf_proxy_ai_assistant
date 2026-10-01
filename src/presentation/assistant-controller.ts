@@ -113,9 +113,17 @@ export class AssistantController implements ViewEvents {
   }
 
   private showResult(view: AssistantView, result: AssistantRequestResult): void {
-    view.appendMessage(result.message, result.changeId);
-    if (result.contextUsage !== undefined) {
-      view.setContextUsage(contextUsageText(result.contextUsage));
+    switch (result.kind) {
+      case 'greeting':
+        view.appendMessage(result.message);
+        break;
+      case 'reply':
+        view.appendMessage(result.message);
+        view.setContextUsage(contextUsageText(result.contextUsage));
+        break;
+      case 'proposal':
+        view.appendMessage(result.message, result.changeId);
+        view.setContextUsage(contextUsageText(result.contextUsage));
     }
   }
 

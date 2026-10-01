@@ -2,7 +2,6 @@ import type { ProjectEdit } from '../domain/agent-action';
 import { hasMistakesLeft } from '../domain/agent-policy';
 import type { AgentTurn } from '../domain/agent-transcript';
 import type {
-  AssistantMessage,
   GreetingMessage,
   ProposalMessage,
   ReplyMessage,
@@ -25,11 +24,23 @@ import { PendingDocumentChange, type PendingChanges } from './pending-change';
 import { ProjectTools } from './project-tools';
 import { showProjectFile } from './show-project-file';
 
-export interface AssistantRequestResult {
-  readonly message: AssistantMessage;
-  readonly changeId?: string;
-  readonly contextUsage?: ContextUsage;
-}
+export type { ContextUsage } from '../ports/agent-port';
+
+export type AssistantRequestResult =
+  { readonly kind: 'greeting'; readonly message: GreetingMessage } | AgentResult;
+
+export type AgentResult =
+  | {
+      readonly kind: 'reply';
+      readonly message: ReplyMessage;
+      readonly contextUsage: ContextUsage;
+    }
+  | {
+      readonly kind: 'proposal';
+      readonly message: ProposalMessage;
+      readonly changeId: string;
+      readonly contextUsage: ContextUsage;
+    };
 
 export class HandleAssistantRequest {
   private running = false;
@@ -79,7 +90,7 @@ export class HandleAssistantRequest {
     onProgress({ stage: 'received', message: userMessage });
 
     if (isGreetingOnly(request)) {
-      return { message: this.greet() };
+      return { kind: 'greeting', message: this.greet() };
     }
 
     const workspace = this.readWorkspace();
@@ -103,7 +114,7 @@ export class HandleAssistantRequest {
         continue;
       }
       if (accepted.kind !== 'tool') {
-        return { ...(await this.answer(accepted, epoch, onProgress)), contextUsage };
+        return await this.answer(accepted, contextUsage, epoch, onProgress);
       }
       const result = await this.tools.run(accepted.run, onProgress);
       this.ensureCurrent(epoch);
@@ -123,18 +134,21 @@ export class HandleAssistantRequest {
 
   private async answer(
     reply: Exclude<AcceptedDecision, { readonly kind: 'tool' }>,
+    contextUsage: ContextUsage,
     epoch: number,
     onProgress: (progress: AgentProgress) => void,
-  ): Promise<AssistantRequestResult> {
+  ): Promise<AgentResult> {
     switch (reply.kind) {
       case 'answer':
-        return { message: this.reply('explanation', reply.text) };
+        return { kind: 'reply', message: this.reply('explanation', reply.text), contextUsage };
       case 'question':
-        return { message: this.reply('clarification', reply.text) };
-      case 'edit':
+        return { kind: 'reply', message: this.reply('clarification', reply.text), contextUsage };
+      case 'edit': {
         await showProjectFile(this.deps.project, reply.change.file, onProgress);
         this.ensureCurrent(epoch);
-        return this.propose(reply.change);
+        const message = this.propose(reply.change);
+        return { kind: 'proposal', message, changeId: message.id, contextUsage };
+      }
     }
   }
 
@@ -142,7 +156,7 @@ export class HandleAssistantRequest {
     if (this.deps.conversation.epoch !== epoch) throw new RequestSupersededError();
   }
 
-  private propose(edit: ProjectEdit): AssistantRequestResult {
+  private propose(edit: ProjectEdit): ProposalMessage {
     const change = new PendingDocumentChange(this.deps.newId(), edit);
     this.deps.pendingChanges.add(change);
     this.showPreview(change);
@@ -154,7 +168,7 @@ export class HandleAssistantRequest {
       command: edit.edit.command,
     };
     this.deps.conversation.append(message);
-    return { message, changeId: change.id };
+    return message;
   }
 
   private showPreview(change: PendingDocumentChange): void {
