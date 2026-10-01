@@ -1,6 +1,6 @@
 import type { AgentPort, AgentStep, AgentStepRequest } from '../../ports/agent-port';
 import { createAgentExchange } from './agent-protocol';
-import { getPromptBudget } from './assistant-protocol';
+import { getPromptBudget } from './prompt-blocks';
 import { runExchange } from './correction-exchange';
 import type { OllamaClient } from './ollama-client';
 

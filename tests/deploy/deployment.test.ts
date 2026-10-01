@@ -14,7 +14,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { parseConfig } from '../../src/bootstrap/config';
-import { MIN_CONTEXT_TOKENS } from '../../src/infrastructure/ollama/assistant-protocol';
+import { MIN_CONTEXT_TOKENS } from '../../src/infrastructure/ollama/prompt-blocks';
 import { TestFixtureError } from '../support/test-errors';
 
 const ROOT = path.resolve(import.meta.dirname, '../..');

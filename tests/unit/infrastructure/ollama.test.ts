@@ -4,7 +4,7 @@ import { OllamaClient } from '../../../src/infrastructure/ollama/ollama-client';
 import {
   getPromptBudget,
   MIN_CONTEXT_TOKENS,
-} from '../../../src/infrastructure/ollama/assistant-protocol';
+} from '../../../src/infrastructure/ollama/prompt-blocks';
 import { preloadOllamaModel } from '../../../src/infrastructure/ollama/ollama-preload';
 import {
   AssistantHttpError,

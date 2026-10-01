@@ -4,11 +4,11 @@ import type { AgentTurn } from '../../../src/domain/agent-transcript';
 import { createDocumentSnapshot } from '../../../src/domain/document';
 import { ProjectFileKind } from '../../../src/domain/project-file';
 import { createAgentExchange } from '../../../src/infrastructure/ollama/agent-protocol';
+import { createCorrectionRequest } from '../../../src/infrastructure/ollama/correction-exchange';
 import {
-  createCorrectionRequest,
   getPromptBudget,
   MIN_CONTEXT_TOKENS,
-} from '../../../src/infrastructure/ollama/assistant-protocol';
+} from '../../../src/infrastructure/ollama/prompt-blocks';
 import type { AgentStepRequest } from '../../../src/ports/agent-port';
 import { AssistantRequestTooLargeError } from '../../../src/ports/errors';
 
@@ -134,10 +134,15 @@ describe('agent exchange', () => {
   it('asks for one action in a correction', () => {
     const exchange = createAgentExchange(request(), budget);
     const correction = createCorrectionRequest(exchange, 'bad', 'unknown action');
+    expect(correction.system).toBe(exchange.request.system);
+    expect(correction.prompt.startsWith(exchange.request.prompt)).toBe(true);
+    expect(correction.prompt).toContain('Your previous reply was:\nbad');
     expect(correction.prompt).toContain('It was rejected because: unknown action.');
     expect(correction.prompt).toContain(
       'Reply again with exactly one action: the first line ACTION: read_file|search|compile|answer|question|edit',
     );
+    const long = createCorrectionRequest(exchange, 'z'.repeat(100_000), 'x');
+    expect(long.prompt.length - exchange.request.prompt.length).toBeLessThan(4_096);
   });
 });
 

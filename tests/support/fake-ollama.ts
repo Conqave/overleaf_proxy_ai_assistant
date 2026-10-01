@@ -1,4 +1,4 @@
-import { MIN_CONTEXT_TOKENS } from '../../src/infrastructure/ollama/assistant-protocol';
+import { MIN_CONTEXT_TOKENS } from '../../src/infrastructure/ollama/prompt-blocks';
 import { UnexpectedFakeCallError } from './test-errors';
 
 interface OllamaRequestBody {

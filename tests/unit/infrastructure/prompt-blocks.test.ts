@@ -4,10 +4,9 @@ import { createDocumentCommand } from '../../../src/domain/document-command';
 import { ProjectFileKind } from '../../../src/domain/project-file';
 import { createAgentExchange } from '../../../src/infrastructure/ollama/agent-protocol';
 import {
-  createCorrectionRequest,
   getPromptBudget,
   MIN_CONTEXT_TOKENS,
-} from '../../../src/infrastructure/ollama/assistant-protocol';
+} from '../../../src/infrastructure/ollama/prompt-blocks';
 import type { AgentStepRequest } from '../../../src/ports/agent-port';
 import { TestFixtureError } from '../../support/test-errors';
 
@@ -75,19 +74,6 @@ describe('conversation history', () => {
     expect(promptOf({ conversation: [proposal] })).toContain(
       '[assistant] Proposed replace at line 2: Clearer.\nNew body.',
     );
-  });
-});
-
-describe('correction request', () => {
-  it('keeps the instructions, names the problem and caps the rejected reply', () => {
-    const exchange = createAgentExchange(request(), budget);
-    const correction = createCorrectionRequest(exchange, 'bad', 'the reply is JSON');
-    expect(correction.system).toBe(exchange.request.system);
-    expect(correction.prompt.startsWith(exchange.request.prompt)).toBe(true);
-    expect(correction.prompt).toContain('Your previous reply was:\nbad');
-    expect(correction.prompt).toContain('It was rejected because: the reply is JSON.');
-    const long = createCorrectionRequest(exchange, 'z'.repeat(100_000), 'x');
-    expect(long.prompt.length - exchange.request.prompt.length).toBeLessThan(4_096);
   });
 });
 

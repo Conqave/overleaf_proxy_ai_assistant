@@ -1,12 +1,16 @@
 import type { ContextUsage } from '../../ports/agent-port';
 import { AssistantProtocolError } from '../../ports/errors';
-import {
-  createCorrectionRequest,
-  estimatePromptTokens,
-  type ProtocolExchange,
-} from './assistant-protocol';
-import { InvalidAssistantResponse } from './assistant-response-parser';
+import { InvalidAssistantResponse } from './edit-reply-parser';
+import { compact, estimatePromptTokens, LINE_BREAK, lines } from './prompt-blocks';
 import type { GenerateRequest, OllamaClient } from './ollama-client';
+
+const REJECTED_REPLY_CHARS = 3_000;
+
+export interface ProtocolExchange<T> {
+  readonly request: GenerateRequest;
+  readonly retryInstruction: string;
+  readonly parse: (raw: string) => T;
+}
 
 export interface ExchangeOutcome<T> {
   readonly value: T;
@@ -49,5 +53,21 @@ function outcome<T>(
       estimatedPromptTokens: estimatePromptTokens(request),
       promptTokens,
     },
+  };
+}
+
+export function createCorrectionRequest(
+  exchange: ProtocolExchange<unknown>,
+  rejected: string,
+  problem: string,
+): GenerateRequest {
+  return {
+    system: exchange.request.system,
+    prompt: lines(
+      exchange.request.prompt,
+      `Your previous reply was:${LINE_BREAK}${compact(rejected, REJECTED_REPLY_CHARS)}`,
+      `It was rejected because: ${problem}.`,
+      exchange.retryInstruction,
+    ),
   };
 }

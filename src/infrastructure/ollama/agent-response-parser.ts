@@ -27,7 +27,7 @@ import {
   parseHeaderReply,
   rejectJson,
   type HeaderReply,
-} from './assistant-response-parser';
+} from './edit-reply-parser';
 import { createFieldPattern, EDIT_FIELDS, fieldLine } from './edit-reply-format';
 
 const ACTION_LINE = createFieldPattern([AgentField.Action]);

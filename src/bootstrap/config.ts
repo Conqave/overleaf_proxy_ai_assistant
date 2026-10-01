@@ -1,4 +1,4 @@
-import { MIN_CONTEXT_TOKENS } from '../infrastructure/ollama/assistant-protocol';
+import { MIN_CONTEXT_TOKENS } from '../infrastructure/ollama/prompt-blocks';
 
 export interface AssistantConfig {
   readonly ollamaEndpoint: string;

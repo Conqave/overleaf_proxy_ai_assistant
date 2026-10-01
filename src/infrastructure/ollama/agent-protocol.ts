@@ -7,24 +7,21 @@ import { ProjectFileKind, type ProjectFile } from '../../domain/project-file';
 import type { AgentStepRequest } from '../../ports/agent-port';
 import { AGENT_ACTIONS, AgentAction, AgentField, TEXT_MARKER } from './agent-reply-format';
 import { parseAgentDecision } from './agent-response-parser';
+import type { ProtocolExchange } from './correction-exchange';
+import { CONTENT, CONTENT_MARKER, EditField, fieldLine } from './edit-reply-format';
 import {
   block,
   blockHeading,
   conversationBlock,
   CONVERSATION_LABEL,
   createTooLargeError,
-  EDIT_FORMAT,
-  EDIT_RULES,
-  LANGUAGE_RULE,
   LINE_BREAK,
   lines,
   minBlockChars,
   SELECTION_LABEL,
   SMALL_BLOCK_SHARE,
   userMessage,
-  type ProtocolExchange,
-} from './assistant-protocol';
-import { CONTENT_MARKER, EditField, fieldLine } from './edit-reply-format';
+} from './prompt-blocks';
 
 const OPEN_FILE_SHARE = 2;
 
@@ -36,6 +33,44 @@ const MORE_MATCHES = '(more matches omitted; search for something more specific)
 
 const A = AgentAction;
 const F = EditField;
+
+const LANGUAGE_RULE =
+  'Write every user-facing text in the language of the user message (Polish message → Polish text). Text that goes into a file keeps the language of that file unless the user asks for a translation, and names and titles the user gives are used exactly as given, untranslated ("dodaj sekcję Conclusions" → \\section{Conclusions}).';
+
+const EDIT_FORMAT = lines(
+  fieldLine(F.Operation, Object.values(DocumentOperation).join('|')),
+  fieldLine(F.Line, '<line number>'),
+  fieldLine(F.EndLine, '<last line number; only for a replace or delete that spans several lines>'),
+  fieldLine(
+    F.LineText,
+    '<that line copied exactly from its start; for a long line its first sentence is enough>',
+  ),
+  `${fieldLine(F.Reason, '<short user-facing reason>')} (optional)`,
+  `${fieldLine(F.Plan, '<one short sentence about the placement>')} (optional)`,
+  CONTENT_MARKER,
+  `<the new LaTeX lines, exactly as they go into the document; nothing else follows ${CONTENT_MARKER}>`,
+);
+
+const EDIT_RULES = lines(
+  'Operations — the line numbers are those of the numbered lines of the file you edit:',
+  `- insert_before / insert_after: ${CONTENT} is added before / after that line.`,
+  `- replace: lines ${F.Line} to ${F.EndLine} (or just ${F.Line}) are swapped for ${CONTENT}. Keep everything that should stay, e.g. the \\label inside a \\caption.`,
+  `- delete: lines ${F.Line} to ${F.EndLine} (or just ${F.Line}) are removed; ${CONTENT_MARKER} is left out or left empty.`,
+  `- ${F.EndLine} only for replace and delete, only when the change spans several consecutive lines (a paragraph over several lines, a whole subsection with its text, an environment).`,
+  'Targeting:',
+  `- ${F.Line} is the number of the line and ${F.LineText} its text copied exactly from the start, without the "N: " prefix; for a long paragraph the first sentence is enough. Take ${F.Line} from the "N: " prefix of the very line you quote.`,
+  '- Do not target \\begin{document}, \\maketitle, \\tableofcontents or preamble lines unless the user asks for that location.',
+  '- New sections go after the end of the closest related section; with no sections yet, after \\maketitle.',
+  '- Explanatory text goes before the table, figure, equation or listing it describes; captions and labels go inside their environment.',
+  '- "after X" / "before X": target the line containing X. For a whole environment, target its \\end{name} line (after) or its \\begin{name} line (before).',
+  '- Selected text, when given, is what the user means by "this", "zaznaczony", "the selection": change the line that contains it without asking.',
+  `- When the request covers several consecutive lines, use one replace or delete with ${F.Line} and ${F.EndLine} instead of asking which line; when several places could match, choose the one most specifically about the request.`,
+  'Content:',
+  `- Everything after ${CONTENT_MARKER} is inserted verbatim: plain LaTeX source, one source line per line, no escaping, no fences.`,
+  '- It must be valid LaTeX: close every environment you open.',
+  '- When the user asks for new text without giving it (for example a section with one sentence), write suitable text yourself instead of asking.',
+  '- Only the new or changed lines; never repeat unchanged surrounding lines and never rewrite the whole document.',
+);
 
 const actionLine = (action: AgentAction): string => fieldLine(AgentField.Action, action);
 
