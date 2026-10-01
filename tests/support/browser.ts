@@ -15,6 +15,7 @@ export interface Browser {
   ollama: FakeOllama;
   consoleErrors: string[];
   pageErrors: Error[];
+  expectsConsoleErrors: boolean;
   inject(source: string): void;
   loadOverleaf(): FakeOverleafIde;
   close(): void;
@@ -38,11 +39,13 @@ export function openBrowser(ollama: FakeOllama): Browser {
     virtualConsole,
   });
   const window = dom.window;
+  let ide: FakeOverleafIde | null = null;
   Object.assign(window, { fetch: ollama.fetch, Response, structuredClone });
   Object.assign(window.Range.prototype, {
     getClientRects: () => [],
   });
   return {
+    expectsConsoleErrors: false,
     window,
     document: window.document,
     ollama,
@@ -53,9 +56,11 @@ export function openBrowser(ollama: FakeOllama): Browser {
     },
     loadOverleaf() {
       window.eval(inject('fakeOverleafScript'));
-      return window.fakeOverleaf.load();
+      ide = window.fakeOverleaf.load();
+      return ide;
     },
     close() {
+      ide?.destroy();
       window.close();
     },
   };

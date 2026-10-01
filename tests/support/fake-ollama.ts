@@ -30,8 +30,13 @@ export interface OllamaPrompt {
   readonly promptTokens: number;
 }
 
+export interface ResponseReply {
+  readonly response: string;
+  readonly heldUntil?: Promise<void>;
+}
+
 export type OllamaReply =
-  | { response: string }
+  | ResponseReply
   | { completion: string }
   | { status: number }
   | { contextOverflow: true }
@@ -121,7 +126,7 @@ function decodePrompt(url: string, body: OllamaRequestBody, promptTokens: number
   };
 }
 
-function completionOf(reply: { response: string } | { completion: string }): string {
+function completionOf(reply: ResponseReply | { completion: string }): string {
   if ('completion' in reply) return reply.completion;
   return `<|channel|>analysis<|message|>${FAKE_ANALYSIS}<|end|><|start|>assistant<|channel|>final<|message|>${reply.response}`;
 }
@@ -182,6 +187,7 @@ export class FakeOllama {
     if ('status' in reply) return new Response('error', { status: reply.status });
     if ('contextOverflow' in reply) return new Response(CONTEXT_OVERFLOW_BODY, { status: 400 });
     if ('body' in reply) return new Response(JSON.stringify(reply.body), { status: 200 });
+    if ('heldUntil' in reply) await reply.heldUntil;
     return new Response(
       JSON.stringify({
         response: completionOf(reply),

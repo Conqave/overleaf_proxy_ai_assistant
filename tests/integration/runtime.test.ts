@@ -1,9 +1,21 @@
 import { readFileSync } from 'node:fs';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { COMPILE_FIX_REQUEST } from '../../src/application/handle-assistant-request';
+import { AGENT_POLICY } from '../../src/domain/agent-policy';
+import { OVERLEAF_PROJECT_TIMEOUTS } from '../../src/infrastructure/overleaf/overleaf-project-adapter';
 import { type Browser, openBrowser } from '../support/browser';
-import { FakeOllama, type OllamaPrompt, type OllamaReply } from '../support/fake-ollama';
-import { EMPTY_LOG_ENTRIES, FIXTURE_DOC_ID, type FakeOverleafIde } from '../support/fake-overleaf';
+import {
+  FakeOllama,
+  type OllamaPrompt,
+  type OllamaReply,
+  type ResponseReply,
+} from '../support/fake-ollama';
+import {
+  EMPTY_LOG_ENTRIES,
+  FIXTURE_DOC_ID,
+  FIXTURE_DOCUMENT,
+  type FakeOverleafIde,
+} from '../support/fake-overleaf';
 import { itemAt } from '../support/guards';
 import { TestFixtureError } from '../support/test-errors';
 
@@ -12,7 +24,6 @@ const BUNDLE = readFileSync(
   'utf8',
 );
 const HISTORY_KEY = 'ola-conversation:user-1:project-1';
-const EXTENSIONS_EVENT = 'UNSTABLE_editor:extensions';
 const PAGE_WAIT = { timeout: 10_000 };
 const REFS_DOC_ID = 'doc-refs';
 const REFS_TEXT = '@book{knuth84,\n  title = {The TeXbook}\n}';
@@ -23,9 +34,11 @@ const UNUSED_CONTEXT = 'Context 0 / 98.3k';
 const browsers: Browser[] = [];
 
 afterEach(() => {
+  vi.useRealTimers();
   for (const browser of browsers.splice(0)) {
     browser.close();
     expect(browser.pageErrors).toEqual([]);
+    if (!browser.expectsConsoleErrors) expect(browser.consoleErrors).toEqual([]);
   }
 });
 
@@ -36,6 +49,7 @@ function open(ollama: FakeOllama): Browser {
 }
 
 async function waitForStartupFailure(browser: Browser): Promise<void> {
+  browser.expectsConsoleErrors = true;
   await vi.waitFor(() => {
     expect(browser.consoleErrors).toEqual([
       expect.stringContaining('[overleaf-ai-assistant] not started'),
@@ -103,7 +117,28 @@ function session(browser: Browser, ide: FakeOverleafIde) {
     messages,
     editorText,
     preview,
+    isIdle,
   };
+}
+
+type Session = ReturnType<typeof session>;
+
+async function sendPastTimeouts(
+  { doc, texts, isIdle }: Session,
+  request: string,
+  waitedMs: number,
+): Promise<void> {
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+  commandInput(doc).value = request;
+  button(doc, '.ola-send').click();
+  await vi.waitFor(() => {
+    expect(texts('.ola-status')).toEqual(['Hans is compiling the project']);
+  }, PAGE_WAIT);
+  await vi.advanceTimersByTimeAsync(waitedMs);
+  vi.useRealTimers();
+  await vi.waitFor(() => {
+    expect(isIdle()).toBe(true);
+  }, PAGE_WAIT);
 }
 
 interface StartOptions {
@@ -125,15 +160,22 @@ async function start({ replies = [], requestTimeoutMs, storage = {} }: StartOpti
   return session(browser, ide);
 }
 
-const reply = (...lines: readonly string[]): OllamaReply => ({ response: lines.join('\n') });
+const reply = (...lines: readonly string[]): ResponseReply => ({ response: lines.join('\n') });
 
-const editReply = (fields: Record<string, string>, content: string): OllamaReply =>
+const editReply = (fields: Record<string, string>, content: string): ResponseReply =>
   reply(
     'ACTION: edit',
     ...Object.entries(fields).map(([name, value]) => `${name}: ${value}`),
     'CONTENT:',
     content,
   );
+
+const EXPERIMENT_LINE = 'This report describes the experiment.';
+const BOLD_EXPERIMENT = 'This report describes the \\textbf{experiment}.';
+const boldExperimentEdit = editReply(
+  { PATH: 'main.tex', OPERATION: 'replace', LINE: '4', LINE_TEXT: EXPERIMENT_LINE },
+  BOLD_EXPERIMENT,
+);
 
 const smithEntryEdit = editReply(
   { PATH: 'refs.bib', OPERATION: 'insert_after', LINE: '3', LINE_TEXT: '}' },
@@ -170,15 +212,19 @@ describe('assistant startup', () => {
     expect(element(doc, '#ola-root').classList.contains('is-collapsed')).toBe(true);
   });
 
-  it('is injected only once', async () => {
-    const { browser, doc, ide } = await start({});
-    const detach = vi.spyOn(browser.window, 'removeEventListener');
+  it('is injected only once and keeps one preview in a reopened editor', async () => {
+    const { browser, doc, ide, ollama, send, preview } = await start({
+      replies: [boldExperimentEdit],
+    });
     browser.inject(BUNDLE);
     ide.reopenEditor();
     await vi.waitFor(() => {
-      expect(detach).toHaveBeenCalledWith(EXTENSIONS_EVENT, expect.any(Function));
+      expect(ollama.loads).toHaveLength(1);
     }, PAGE_WAIT);
+    await send('Make the word experiment bold.');
     expect(doc.querySelectorAll('#ola-root')).toHaveLength(1);
+    expect(doc.querySelectorAll('#ola-style')).toHaveLength(1);
+    expect(preview()).toEqual([BOLD_EXPERIMENT]);
   });
 
   it('waits for the editor to appear', async () => {
@@ -220,6 +266,7 @@ describe('assistant startup', () => {
     });
     browser.inject(BUNDLE);
     browser.loadOverleaf();
+    browser.expectsConsoleErrors = true;
     await vi.waitFor(() => {
       expect(browser.consoleErrors).toContainEqual(
         expect.stringMatching(/not started.*window\.overleaf\.unstable\.store/),
@@ -341,12 +388,14 @@ describe('assistant agent', () => {
   });
 
   it('applies the edit of another file and compiles the project', async () => {
-    const { send, click, texts, ide, editorText, preview } = await start({
+    const { send, click, messages, ide, editorText, preview } = await start({
       replies: [reply('ACTION: read_file', 'PATH: refs.bib'), smithEntryEdit],
     });
     await send('Add the smith20 entry to the bibliography.');
     await click('.ola-apply', () => {
-      expect(texts('.ola-system')).toEqual([
+      expect(messages()).toEqual([
+        'Add the smith20 entry to the bibliography.',
+        expect.stringContaining('Proposed insertion'),
         'Done. Inserted after the selected anchor in refs.bib.',
         'Compiled without errors.',
       ]);
@@ -374,9 +423,9 @@ describe('assistant agent', () => {
     const broken = 'This report describes the \\textbff{experiment}.';
     const fixed = 'This report describes the \\textbf{experiment}.';
     const lineFour = { PATH: 'main.tex', OPERATION: 'replace', LINE: '4' };
-    const { send, click, texts, ollama, ide, editorText } = await start({
+    const { browser, send, click, texts, messages, ollama, ide, editorText } = await start({
       replies: [
-        editReply({ ...lineFour, LINE_TEXT: 'This report describes the experiment.' }, broken),
+        editReply({ ...lineFour, LINE_TEXT: EXPERIMENT_LINE }, broken),
         editReply({ ...lineFour, LINE_TEXT: broken }, fixed),
       ],
     });
@@ -385,6 +434,13 @@ describe('assistant agent', () => {
     await click('.ola-apply', () => {
       expect(texts('.ola-result-body').at(-1)).toBe(fixed);
     });
+    expect(messages()).toEqual([
+      'Make the word experiment bold.',
+      expect.stringContaining('Proposed replacement'),
+      'Done. Line replaced in main.tex.',
+      COMPILE_FIX_REQUEST,
+      expect.stringContaining('Proposed replacement'),
+    ]);
     expect(texts('.ola-system')).toContain(COMPILE_FIX_REQUEST);
     expect(texts('.ola-user')).toEqual(['Make the word experiment bold.']);
     const fixPrompt = itemAt(ollama.prompts, 1, 'prompt').userMessage;
@@ -397,6 +453,11 @@ describe('assistant agent', () => {
     });
     expect(editorText().split('\n')[3]).toBe(fixed);
     expect(ide.compileCount).toBe(2);
+    const stored = browser.window.localStorage.getItem(HISTORY_KEY);
+    if (stored === null) throw new TestFixtureError('the conversation was not saved');
+    const reloaded = await start({ storage: { [HISTORY_KEY]: stored } });
+    expect(reloaded.texts('.ola-system')).toEqual([COMPILE_FIX_REQUEST]);
+    expect(reloaded.texts('.ola-user')).toEqual(['Make the word experiment bold.']);
   });
 
   it.each([
@@ -426,5 +487,146 @@ describe('assistant agent', () => {
     ]);
     await send('hi');
     expect(messages().at(-1)).toContain('Hi, I am here');
+  });
+});
+
+describe('assistant under interference', () => {
+  it('reopens the file of the edit when the user switched files while the model was thinking', async () => {
+    const switched = Promise.withResolvers<undefined>();
+    const { send, ollama, ide, editorText, preview } = await start({
+      replies: [{ ...boldExperimentEdit, heldUntil: switched.promise }],
+    });
+    const sending = send('Make the word experiment bold.');
+    await vi.waitFor(() => {
+      expect(ollama.prompts).toHaveLength(1);
+    }, PAGE_WAIT);
+    ide.click(REFS_DOC_ID);
+    await vi.waitFor(() => {
+      expect(editorText()).toBe(REFS_TEXT);
+    }, PAGE_WAIT);
+    switched.resolve(undefined);
+    await sending;
+    expect(ide.store.get('editor.open_doc_id')).toBe(FIXTURE_DOC_ID);
+    expect(editorText()).toBe(FIXTURE_DOCUMENT);
+    expect(preview()).toEqual([BOLD_EXPERIMENT]);
+  });
+
+  it('refuses to apply a suggestion after the user edited its document', async () => {
+    const { send, click, texts, ide, editorText } = await start({ replies: [boldExperimentEdit] });
+    await send('Make the word experiment bold.');
+    ide.editor.dispatch({ changes: { from: 0, insert: '% draft\n' } });
+    await click('.ola-apply', () => {
+      expect(texts('.ola-error')).toEqual([
+        expect.stringContaining('The document changed after the suggestion was made.'),
+      ]);
+    });
+    expect(editorText()).toBe(`% draft\n${FIXTURE_DOCUMENT}`);
+    expect(ide.compileCount).toBe(0);
+  });
+
+  it('reopens the file of a suggestion to apply it after the user opened another file', async () => {
+    const { send, click, texts, ide, editorText } = await start({
+      replies: [reply('ACTION: read_file', 'PATH: refs.bib'), smithEntryEdit],
+    });
+    await send('Add the smith20 entry to the bibliography.');
+    ide.click(FIXTURE_DOC_ID);
+    await vi.waitFor(() => {
+      expect(editorText()).toBe(FIXTURE_DOCUMENT);
+    }, PAGE_WAIT);
+    await click('.ola-apply', () => {
+      expect(texts('.ola-system')).toEqual([
+        'Done. Inserted after the selected anchor in refs.bib.',
+        'Compiled without errors.',
+      ]);
+    });
+    expect(ide.store.get('editor.open_doc_id')).toBe(REFS_DOC_ID);
+    expect(editorText()).toBe(`${REFS_TEXT}\n${SMITH_ENTRY}`);
+  });
+
+  it.each([
+    [
+      'reads of a file missing from the project',
+      Array.from({ length: AGENT_POLICY.maxConsecutiveMistakes }, () =>
+        reply('ACTION: read_file', 'PATH: gone.tex'),
+      ),
+      'The project has no file gone.tex',
+    ],
+    [
+      'lookups beyond the budget',
+      [
+        ...Array.from({ length: AGENT_POLICY.maxToolCalls }, (_, index) =>
+          reply('ACTION: search', `QUERY: term${String(index)}`),
+        ),
+        ...Array.from({ length: AGENT_POLICY.maxConsecutiveMistakes * 2 }, (_, index) =>
+          reply('ACTION: search', `QUERY: extra${String(index)}`),
+        ),
+      ],
+      'lookups are used',
+    ],
+  ])('stops after repeated %s and stays usable', async (_name, replies, problem) => {
+    const { send, texts, messages } = await start({ replies });
+    await send('Find it.');
+    expect(texts('.ola-error')).toEqual([expect.stringContaining(problem)]);
+    await send('hi');
+    expect(messages().at(-1)).toContain('Hi, I am here');
+  });
+
+  it('reports a compile that ends without a result', async () => {
+    const assistant = await start({ replies: [reply('ACTION: compile')] });
+    assistant.ide.compileOutcome = 'http-error';
+    await sendPastTimeouts(assistant, 'Does it compile?', OVERLEAF_PROJECT_TIMEOUTS.compileLogMs);
+    expect(assistant.texts('.ola-error')).toEqual([
+      expect.stringContaining('Overleaf finished the compile without a new PDF or log'),
+    ]);
+  });
+
+  it('reports a compile that does not finish in time', async () => {
+    const assistant = await start({ replies: [reply('ACTION: compile')] });
+    assistant.ide.compiles = false;
+    await sendPastTimeouts(assistant, 'Does it compile?', OVERLEAF_PROJECT_TIMEOUTS.compileMs);
+    expect(assistant.texts('.ola-error')).toEqual([
+      expect.stringContaining('The project did not compile within 4 minutes.'),
+    ]);
+  });
+
+  it('cancels a running request for a new chat and stays usable', async () => {
+    const { doc, send, click, messages, ollama } = await start({ replies: [{ hang: true }] });
+    commandInput(doc).value = 'What is this document about?';
+    button(doc, '.ola-send').click();
+    await vi.waitFor(() => {
+      expect(ollama.prompts).toHaveLength(1);
+    }, PAGE_WAIT);
+    await click('.ola-new-chat', () => {
+      expect(messages()).toEqual([
+        expect.stringContaining('Ready to help'),
+        'Error: The conversation was reset before the assistant finished; the reply was dropped.',
+      ]);
+    });
+    await send('hi');
+    expect(messages().at(-1)).toContain('Hi, I am here');
+  });
+
+  it('ignores Enter while a request is running', async () => {
+    const { browser, doc, click, messages, ollama, isIdle } = await start({
+      replies: [{ hang: true }],
+    });
+    commandInput(doc).value = 'What is this document about?';
+    button(doc, '.ola-send').click();
+    await vi.waitFor(() => {
+      expect(ollama.prompts).toHaveLength(1);
+    }, PAGE_WAIT);
+    expect(isIdle()).toBe(false);
+    const input = commandInput(doc);
+    input.value = 'And the second one?';
+    input.dispatchEvent(new browser.window.KeyboardEvent('keydown', { key: 'Enter' }));
+    expect(messages()).toEqual(['What is this document about?']);
+    expect(input.value).toBe('And the second one?');
+    expect(ollama.prompts).toHaveLength(1);
+    await click('.ola-new-chat', () => {
+      expect(messages()).toEqual([
+        expect.stringContaining('Ready to help'),
+        expect.stringContaining('The conversation was reset'),
+      ]);
+    });
   });
 });
