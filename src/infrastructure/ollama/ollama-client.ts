@@ -1,5 +1,6 @@
 import {
   AssistantHttpError,
+  AssistantRequestTooLargeError,
   AssistantResponseContractError,
   AssistantTimeoutError,
   AssistantUnreachableError,
@@ -10,7 +11,7 @@ import {
   renderFinalContinuation,
   renderHarmonyPrompt,
 } from './harmony-format';
-import { CONTEXT_TOKENS, MAX_COMPLETION_TOKENS } from './context-budget';
+import { CONTEXT_TOKENS, createTooLargeError, MAX_COMPLETION_TOKENS } from './context-budget';
 
 export interface OllamaClientConfig {
   readonly endpoint: string;
@@ -29,6 +30,8 @@ export interface Completion {
 }
 
 const TEMPERATURE = 0.2;
+const HTTP_BAD_REQUEST = 400;
+const CONTEXT_OVERFLOW_ERROR = 'exceed_context_size_error';
 
 export class OllamaClient {
   constructor(
@@ -47,13 +50,13 @@ export class OllamaClient {
 
   private complete(prompt: string): Promise<Completion> {
     return this.withTimeout(async (signal) => {
-      const response = await this.post({ prompt, raw: true, options: this.getOptions() }, signal);
-      if (!response.ok) {
-        throw new AssistantHttpError(
-          `Ollama answered HTTP ${String(response.status)} ${response.statusText}`.trim(),
-        );
-      }
-      return getCompletion(await this.readJson(response, signal));
+      const response = await this.post(
+        { prompt, raw: true, truncate: false, options: this.getOptions() },
+        signal,
+      );
+      const body = await this.readText(response, signal);
+      if (!response.ok) throw createGenerateError(response, body);
+      return getCompletion(parseJson(body));
     });
   }
 
@@ -105,16 +108,11 @@ export class OllamaClient {
     }
   }
 
-  private async readJson(response: Response, signal: AbortSignal): Promise<unknown> {
+  private async readText(response: Response, signal: AbortSignal): Promise<string> {
     try {
-      return await response.json();
+      return await response.text();
     } catch (error) {
       if (signal.aborted) throw this.createTimeoutError(error);
-      if (error instanceof SyntaxError) {
-        throw new AssistantResponseContractError('Ollama sent a body that is not JSON.', {
-          cause: error,
-        });
-      }
       throw error;
     }
   }
@@ -124,6 +122,29 @@ export class OllamaClient {
       `Ollama did not respond within ${formatDuration(this.config.timeoutMs)}.`,
       { cause },
     );
+  }
+}
+
+function createGenerateError(
+  response: Response,
+  body: string,
+): AssistantHttpError | AssistantRequestTooLargeError {
+  if (response.status === HTTP_BAD_REQUEST && body.includes(CONTEXT_OVERFLOW_ERROR)) {
+    return createTooLargeError();
+  }
+  return new AssistantHttpError(
+    `Ollama answered HTTP ${String(response.status)} ${response.statusText}`.trim(),
+  );
+}
+
+function parseJson(body: string): unknown {
+  try {
+    return JSON.parse(body);
+  } catch (error) {
+    if (!(error instanceof SyntaxError)) throw error;
+    throw new AssistantResponseContractError('Ollama sent a body that is not JSON.', {
+      cause: error,
+    });
   }
 }
 

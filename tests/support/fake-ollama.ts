@@ -4,6 +4,7 @@ interface OllamaRequestBody {
   model: string;
   prompt: string;
   raw?: boolean;
+  truncate?: boolean;
   options?: Record<string, number>;
   stream: boolean;
   keep_alive: number;
@@ -16,7 +17,23 @@ export interface OllamaCall {
 }
 
 export type OllamaReply =
-  { response: string } | { completion: string } | { status: number } | { hang: true };
+  | { response: string }
+  | { completion: string }
+  | { status: number }
+  | { contextOverflow: true }
+  | { hang: true };
+
+const CONTEXT_OVERFLOW_BODY = JSON.stringify({
+  error: JSON.stringify({
+    error: {
+      code: 400,
+      message: 'request (101586 tokens) exceeds the available context size (98304 tokens)',
+      type: 'exceed_context_size_error',
+      n_prompt_tokens: 101586,
+      n_ctx: 98304,
+    },
+  }),
+});
 
 const HARMONY_REQUEST =
   /<\|start\|>developer<\|message\|># Instructions\n\n([\s\S]*)<\|end\|><\|start\|>user<\|message\|>([\s\S]*?)<\|end\|><\|start\|>assistant/;
@@ -85,6 +102,7 @@ export class FakeOllama {
       });
     }
     if ('status' in reply) return new Response('error', { status: reply.status });
+    if ('contextOverflow' in reply) return new Response(CONTEXT_OVERFLOW_BODY, { status: 400 });
     return new Response(
       JSON.stringify({ response: completionOf(reply), prompt_eval_count: sent.prompt.length }),
       { status: 200 },

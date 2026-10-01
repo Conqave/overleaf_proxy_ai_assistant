@@ -43,6 +43,7 @@ describe('OllamaClient', () => {
       stream: false,
       keep_alive: -1,
       raw: true,
+      truncate: false,
       system: 'S',
       prompt: 'P',
       options: { num_ctx: CONTEXT_TOKENS, num_predict: 4_096, temperature: 0.2 },
@@ -114,6 +115,13 @@ describe('OllamaClient', () => {
     const ollama = new FakeOllama().reply({ status: 502 });
     await expect(make(ollama).client.generate({ system: 'S', prompt: 'P' })).rejects.toThrow(
       new AssistantHttpError('Ollama answered HTTP 502'),
+    );
+  });
+
+  it('reports a prompt that overflows the context window as too large', async () => {
+    const ollama = new FakeOllama().reply({ contextOverflow: true });
+    await expect(make(ollama).client.generate({ system: 'S', prompt: 'P' })).rejects.toThrow(
+      AssistantRequestTooLargeError,
     );
   });
 
