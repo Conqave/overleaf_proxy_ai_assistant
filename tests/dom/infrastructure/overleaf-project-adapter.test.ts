@@ -18,6 +18,7 @@ import {
   ProjectFileReadTimeoutError,
   ProjectTreeOutdatedError,
   ProjectUnavailableError,
+  UnexplainedCompileFailureError,
 } from '../../../src/ports/errors';
 import { EMPTY_LOG_ENTRIES, FakeOverleafIde } from '../../support/fake-overleaf';
 import { rejectOnAbort } from '../../support/fakes';
@@ -306,12 +307,39 @@ describe('OverleafProjectAdapter.compile', () => {
     expect(ide.store.watcherCount).toBe(0);
   });
 
-  it('reports a compile that ends with an empty log and no new PDF', async () => {
+  it('reports a compile that ends with an empty log and no new PDF as a failure', async () => {
     ide.compileOutcome = 'no-output';
-    await expectFailurePastDeadlines(
-      () => adapter.compile(cancel.signal),
-      CompileWithoutResultError,
-    );
+    await expect(adapter.compile(cancel.signal)).rejects.toThrow(UnexplainedCompileFailureError);
+    expect(ide.store.watcherCount).toBe(0);
+  });
+
+  it('reports the errors of a compile that produces no PDF, also when repeated', async () => {
+    ide.compileOutcome = 'no-pdf';
+    ide.logEntries = {
+      ...EMPTY_LOG_ENTRIES,
+      errors: [
+        { message: "File `zznonexistentclass.cls' not found.", file: './main.tex', line: 1 },
+      ],
+    };
+    const fatal = [
+      {
+        level: 'error',
+        message: "File `zznonexistentclass.cls' not found.",
+        path: 'main.tex',
+        lineNumber: 1,
+      },
+    ];
+    await expect(adapter.compile(cancel.signal)).resolves.toEqual(fatal);
+    await expect(adapter.compile(cancel.signal)).resolves.toEqual(fatal);
+    expect(ide.store.get('pdf.url')).toBe('build-0');
+  });
+
+  it('never reports a repeated compile without a new PDF or errors as clean', async () => {
+    ide.compileOutcome = 'no-pdf';
+    ide.logEntries = { ...EMPTY_LOG_ENTRIES, errors: [{ message: 'Fatal error.' }] };
+    await adapter.compile(cancel.signal);
+    ide.logEntries = EMPTY_LOG_ENTRIES;
+    await expect(adapter.compile(cancel.signal)).rejects.toThrow(UnexplainedCompileFailureError);
   });
 
   it('takes a log that Overleaf publishes together with the end of the compile', async () => {

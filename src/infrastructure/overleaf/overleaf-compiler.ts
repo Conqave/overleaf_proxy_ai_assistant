@@ -1,15 +1,16 @@
-import type { CompileDiagnostic } from '../../domain/agent-transcript';
+import { DiagnosticLevel, type CompileDiagnostic } from '../../domain/agent-transcript';
 import { NamedError } from '../../domain/errors';
 import type { CancellationSignal } from '../../ports/cancellation';
 import {
   CompileTimeoutError,
   CompileWithoutResultError,
   EditsNotSavedError,
+  UnexplainedCompileFailureError,
 } from '../../ports/errors';
 import { pause, throwAbortReason, withDeadline } from '../deadline';
 import { formatDuration } from '../duration';
 import { readCompileDiagnostics } from './compile-log';
-import { StoreKey, type OverleafStore } from './overleaf-store';
+import { OverleafStoreContractError, StoreKey, type OverleafStore } from './overleaf-store';
 
 const RECOMPILE_EVENT = 'pdf:recompile';
 const RECOMPILE_BUTTON_SELECTOR = '.toolbar-pdf-left .split-menu-button[data-ol-loading]';
@@ -18,11 +19,6 @@ const SAVE_POLL_MS = 25;
 const SAVE_MS = 20_000;
 const COMPILE_MS = 240_000;
 const COMPILE_LOG_MS = 15_000;
-
-interface CompileOutput {
-  readonly log: unknown;
-  readonly pdf: unknown;
-}
 
 export class OverleafToolbarContractError extends NamedError {
   constructor(problem: string) {
@@ -66,67 +62,90 @@ export class OverleafCompiler {
 
   private async recompile(signal: AbortSignal): Promise<readonly CompileDiagnostic[]> {
     const button = this.recompileButton();
-    if (!(await this.whenButton(button, isIdle, signal))) throwAbortReason(signal);
-    const before = this.readOutput();
-    const finished = this.whenButton(button, hasFinished, signal);
-    this.window.dispatchEvent(new this.window.CustomEvent(RECOMPILE_EVENT));
-    if (!(await finished)) throwAbortReason(signal);
-    return readCompileDiagnostics(await this.nextLog(button, before, signal));
+    if (!(await this.whenIdle(button, signal))) throwAbortReason(signal);
+    const previousPdf = this.store.get(StoreKey.PdfUrl);
+    const diagnostics = readCompileDiagnostics(await this.compileLog(button, signal));
+    const hasErrors = diagnostics.some(({ level }) => level === DiagnosticLevel.Error);
+    if (!hasErrors && this.store.get(StoreKey.PdfUrl) === previousPdf) {
+      throw new UnexplainedCompileFailureError(
+        'Overleaf finished the compile without a new PDF and without naming an error; see the PDF pane for the reason.',
+      );
+    }
+    return diagnostics;
   }
 
-  private nextLog(
-    button: HTMLElement,
-    before: CompileOutput,
-    cancel: AbortSignal,
-  ): Promise<unknown> {
-    const { store } = this;
-    const isNew = (): boolean => {
-      const { log, pdf } = this.readOutput();
-      return isIdle([], button) && pdf !== before.pdf && log !== null && log !== before.log;
-    };
-    return withDeadline(
-      COMPILE_LOG_MS,
-      () => this.withoutResult(),
-      [cancel],
-      async (signal) => {
-        const published = await store.waitUntil(
-          [StoreKey.LogEntries, StoreKey.PdfUrl],
-          isNew,
-          signal,
-        );
-        if (!published) throwAbortReason(signal);
-        return store.get(StoreKey.LogEntries);
-      },
-    );
-  }
-
-  private readOutput(): CompileOutput {
-    return { log: this.store.get(StoreKey.LogEntries), pdf: this.store.get(StoreKey.PdfUrl) };
-  }
-
-  private async whenButton(
-    button: HTMLElement,
-    isReached: (records: readonly MutationRecord[], button: HTMLElement) => boolean,
-    signal: AbortSignal,
-  ): Promise<boolean> {
-    if (isReached([], button)) return true;
-    if (signal.aborted) return false;
-    const reached = Promise.withResolvers<boolean>();
-    const observer = new this.window.MutationObserver((records) => {
+  private async compileLog(button: HTMLElement, signal: AbortSignal): Promise<unknown> {
+    const published = Promise.withResolvers<unknown>();
+    const previousLog = this.store.get(StoreKey.LogEntries);
+    let started = false;
+    let logDeadline: ReturnType<typeof setTimeout> | undefined;
+    const settle = (check: () => void): void => {
       try {
-        if (isReached(records, button)) reached.resolve(true);
+        check();
+      } catch (error) {
+        if (!isContractError(error)) throw error;
+        published.reject(error);
+      }
+    };
+    const observer = new this.window.MutationObserver((records) => {
+      settle(() => {
+        const finished = hasFinished(records);
+        started ||= finished || !isIdle(button);
+        if (finished) {
+          logDeadline ??= setTimeout(() => {
+            published.reject(
+              new CompileWithoutResultError(
+                'Overleaf finished the compile without a new PDF or log; see the PDF pane for the reason and try again.',
+              ),
+            );
+          }, COMPILE_LOG_MS);
+        }
+      });
+    });
+    const takeLog = (): void => {
+      settle(() => {
+        const log = this.store.get(StoreKey.LogEntries);
+        if (started && isIdle(button) && log !== null && log !== previousLog) {
+          published.resolve(log);
+        }
+      });
+    };
+    const abort = (): void => {
+      published.reject(signal.reason);
+    };
+    observer.observe(button, { attributeFilter: [LOADING_ATTRIBUTE], attributeOldValue: true });
+    const unwatch = this.store.watch(StoreKey.LogEntries, takeLog);
+    signal.addEventListener('abort', abort);
+    try {
+      this.window.dispatchEvent(new this.window.CustomEvent(RECOMPILE_EVENT));
+      return await published.promise;
+    } finally {
+      clearTimeout(logDeadline);
+      observer.disconnect();
+      unwatch();
+      signal.removeEventListener('abort', abort);
+    }
+  }
+
+  private async whenIdle(button: HTMLElement, signal: AbortSignal): Promise<boolean> {
+    if (signal.aborted) return false;
+    if (isIdle(button)) return true;
+    const idle = Promise.withResolvers<boolean>();
+    const observer = new this.window.MutationObserver(() => {
+      try {
+        if (isIdle(button)) idle.resolve(true);
       } catch (error) {
         if (!(error instanceof OverleafToolbarContractError)) throw error;
-        reached.reject(error);
+        idle.reject(error);
       }
     });
     const abort = (): void => {
-      reached.resolve(false);
+      idle.resolve(false);
     };
-    observer.observe(button, { attributeFilter: [LOADING_ATTRIBUTE], attributeOldValue: true });
+    observer.observe(button, { attributeFilter: [LOADING_ATTRIBUTE] });
     signal.addEventListener('abort', abort);
     try {
-      return await reached.promise;
+      return await idle.promise;
     } finally {
       observer.disconnect();
       signal.removeEventListener('abort', abort);
@@ -138,15 +157,9 @@ export class OverleafCompiler {
     if (button === null) throw new OverleafToolbarContractError('it has no Recompile button');
     return button;
   }
-
-  private withoutResult(): CompileWithoutResultError {
-    return new CompileWithoutResultError(
-      'Overleaf finished the compile without a new PDF or log; see the PDF pane for the reason and try again.',
-    );
-  }
 }
 
-function isIdle(_records: readonly MutationRecord[], button: HTMLElement): boolean {
+function isIdle(button: HTMLElement): boolean {
   return !readLoading(button.getAttribute(LOADING_ATTRIBUTE));
 }
 
@@ -161,4 +174,12 @@ function readLoading(value: string | null): boolean {
     );
   }
   return value === 'true';
+}
+
+function isContractError(
+  error: unknown,
+): error is OverleafToolbarContractError | OverleafStoreContractError {
+  return (
+    error instanceof OverleafToolbarContractError || error instanceof OverleafStoreContractError
+  );
 }

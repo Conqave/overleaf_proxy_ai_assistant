@@ -431,46 +431,53 @@ describe('assistant agent', () => {
     ]);
   });
 
-  it('asks for a fix when the applied change breaks the build and applies it', async () => {
-    const broken = 'This report describes the \\textbff{experiment}.';
-    const fixed = 'This report describes the \\textbf{experiment}.';
-    const lineFour = { PATH: 'main.tex', OPERATION: 'replace', LINE: '4' };
-    const { browser, send, click, texts, messages, ollama, ide, editorText } = await start({
-      replies: [
-        editReply({ ...lineFour, LINE_TEXT: EXPERIMENT_LINE }, broken),
-        editReply({ ...lineFour, LINE_TEXT: broken }, fixed),
-      ],
-    });
-    ide.compileLog = undefinedCommandLog(ide);
-    await send('Make the word experiment bold.');
-    await click('.ola-apply', () => {
-      expect(texts('.ola-result-body').at(-1)).toBe(fixed);
-    });
-    expect(messages()).toEqual([
-      'Make the word experiment bold.',
-      expect.stringContaining('Proposed replacement'),
-      'Done. Line replaced in main.tex.',
-      COMPILE_FIX_REQUEST,
-      expect.stringContaining('Proposed replacement'),
-    ]);
-    expect(texts('.ola-system')).toContain(COMPILE_FIX_REQUEST);
-    expect(texts('.ola-user')).toEqual(['Make the word experiment bold.']);
-    const fixPrompt = itemAt(ollama.prompts, 1, 'prompt').userMessage;
-    expect(fixPrompt).toContain(`User message:\n${COMPILE_FIX_REQUEST}`);
-    expect(fixPrompt).toContain(
-      'Result 1 (compile):\nerror main.tex:4: Undefined control sequence.',
-    );
-    await click('.ola-apply', () => {
-      expect(texts('.ola-system').at(-1)).toBe('Compiled without errors.');
-    });
-    expect(editorText().split('\n')[3]).toBe(fixed);
-    expect(ide.compileCount).toBe(2);
-    const stored = browser.window.localStorage.getItem(HISTORY_KEY);
-    if (stored === null) throw new TestFixtureError('the conversation was not saved');
-    const reloaded = await start({ storage: { [HISTORY_KEY]: stored } });
-    expect(reloaded.texts('.ola-system')).toEqual([COMPILE_FIX_REQUEST]);
-    expect(reloaded.texts('.ola-user')).toEqual(['Make the word experiment bold.']);
-  });
+  it.each([
+    ['still produces a PDF', 'pdf'],
+    ['stops it before any PDF', 'pdf-unless-errors'],
+  ] as const)(
+    'asks for a fix when the applied change %s and applies it',
+    async (_name, outcome) => {
+      const broken = 'This report describes the \\textbff{experiment}.';
+      const fixed = 'This report describes the \\textbf{experiment}.';
+      const lineFour = { PATH: 'main.tex', OPERATION: 'replace', LINE: '4' };
+      const { browser, send, click, texts, messages, ollama, ide, editorText } = await start({
+        replies: [
+          editReply({ ...lineFour, LINE_TEXT: EXPERIMENT_LINE }, broken),
+          editReply({ ...lineFour, LINE_TEXT: broken }, fixed),
+        ],
+      });
+      ide.compileLog = undefinedCommandLog(ide);
+      ide.compileOutcome = outcome;
+      await send('Make the word experiment bold.');
+      await click('.ola-apply', () => {
+        expect(texts('.ola-result-body').at(-1)).toBe(fixed);
+      });
+      expect(messages()).toEqual([
+        'Make the word experiment bold.',
+        expect.stringContaining('Proposed replacement'),
+        'Done. Line replaced in main.tex.',
+        COMPILE_FIX_REQUEST,
+        expect.stringContaining('Proposed replacement'),
+      ]);
+      expect(texts('.ola-system')).toContain(COMPILE_FIX_REQUEST);
+      expect(texts('.ola-user')).toEqual(['Make the word experiment bold.']);
+      const fixPrompt = itemAt(ollama.prompts, 1, 'prompt').userMessage;
+      expect(fixPrompt).toContain(`User message:\n${COMPILE_FIX_REQUEST}`);
+      expect(fixPrompt).toContain(
+        'Result 1 (compile):\nerror main.tex:4: Undefined control sequence.',
+      );
+      await click('.ola-apply', () => {
+        expect(texts('.ola-system').at(-1)).toBe('Compiled without errors.');
+      });
+      expect(editorText().split('\n')[3]).toBe(fixed);
+      expect(ide.compileCount).toBe(2);
+      const stored = browser.window.localStorage.getItem(HISTORY_KEY);
+      if (stored === null) throw new TestFixtureError('the conversation was not saved');
+      const reloaded = await start({ storage: { [HISTORY_KEY]: stored } });
+      expect(reloaded.texts('.ola-system')).toEqual([COMPILE_FIX_REQUEST]);
+      expect(reloaded.texts('.ola-user')).toEqual(['Make the word experiment bold.']);
+    },
+  );
 
   it.each([
     ['an HTTP error', [{ status: 500 }], 'Ollama answered HTTP 500'],

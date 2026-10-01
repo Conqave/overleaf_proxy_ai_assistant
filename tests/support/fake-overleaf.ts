@@ -102,7 +102,8 @@ export class FakeOverleafIde {
   editor: EditorView;
   opensDocs = true;
   compiles = true;
-  compileOutcome: 'pdf' | 'pdf-with-idle' | 'http-error' | 'no-output' = 'pdf';
+  compileOutcome:
+    'pdf' | 'pdf-with-idle' | 'pdf-unless-errors' | 'no-pdf' | 'http-error' | 'no-output' = 'pdf';
   logEntries: unknown = EMPTY_LOG_ENTRIES;
   compileLog: () => unknown = () => this.logEntries;
   compileCount = 0;
@@ -208,11 +209,15 @@ export class FakeOverleafIde {
     switch (this.compileOutcome) {
       case 'pdf':
       case 'pdf-with-idle':
-        this.store.set('pdf.url', `build-${String(this.compileCount)}`);
-        this.store.set('pdf.logEntries', null);
-        setTimeout(() => {
-          this.store.set('pdf.logEntries', structuredClone(this.compileLog()));
-        });
+        this.publishPdf();
+        this.publishLog();
+        break;
+      case 'pdf-unless-errors':
+        if (!hasErrors(this.compileLog())) this.publishPdf();
+        this.publishLog();
+        break;
+      case 'no-pdf':
+        this.publishLog();
         break;
       case 'http-error':
         this.store.set('pdf.url', null);
@@ -222,6 +227,17 @@ export class FakeOverleafIde {
         this.store.set('pdf.logEntries', structuredClone(EMPTY_LOG_ENTRIES));
         break;
     }
+  }
+
+  private publishPdf(): void {
+    this.store.set('pdf.url', `build-${String(this.compileCount)}`);
+  }
+
+  private publishLog(): void {
+    this.store.set('pdf.logEntries', null);
+    setTimeout(() => {
+      this.store.set('pdf.logEntries', structuredClone(this.compileLog()));
+    });
   }
 
   private async openDoc(id: string): Promise<void> {
@@ -307,4 +323,11 @@ export class FakeOverleafIde {
     if (element === null) throw new TestFixtureError(`the page has no ${selector}`);
     return element;
   }
+}
+
+function hasErrors(log: unknown): boolean {
+  if (typeof log !== 'object' || log === null || !('errors' in log) || !Array.isArray(log.errors)) {
+    throw new TestFixtureError('the fake compile log has no errors list');
+  }
+  return log.errors.length > 0;
 }

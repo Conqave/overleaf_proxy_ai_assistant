@@ -97,7 +97,7 @@ export class OverleafStore {
     }
   }
 
-  private watch(key: StoreKey, callback: () => void): () => void {
+  watch(key: StoreKey, callback: () => void): () => void {
     const unsubscribe = this.raw.watch(key, callback);
     if (!isUnsubscribe(unsubscribe)) {
       throw new OverleafStoreContractError(`watch(${key}) returned no unsubscribe function`);
