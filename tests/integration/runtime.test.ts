@@ -2,8 +2,9 @@ import { readFileSync } from 'node:fs';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { COMPILE_FIX_REQUEST } from '../../src/application/handle-assistant-request';
 import { type Browser, openBrowser } from '../support/browser';
-import { FakeOllama, type OllamaCall, type OllamaReply } from '../support/fake-ollama';
+import { FakeOllama, type OllamaPrompt, type OllamaReply } from '../support/fake-ollama';
 import { EMPTY_LOG_ENTRIES, FIXTURE_DOC_ID, type FakeOverleafIde } from '../support/fake-overleaf';
+import { itemAt } from '../support/guards';
 import { TestFixtureError } from '../support/test-errors';
 
 const BUNDLE = readFileSync(
@@ -64,12 +65,6 @@ function commandInput(root: ParentNode): HTMLTextAreaElement {
   return found;
 }
 
-function promptCall(ollama: FakeOllama, index: number): OllamaCall {
-  const call = ollama.promptCalls[index];
-  if (call === undefined) throw new TestFixtureError(`Ollama got no prompt ${String(index + 1)}`);
-  return call;
-}
-
 function session(browser: Browser, ide: FakeOverleafIde) {
   const doc = browser.document;
   const texts = (selector: string) =>
@@ -111,11 +106,14 @@ function session(browser: Browser, ide: FakeOverleafIde) {
 
 interface StartOptions {
   readonly replies?: readonly OllamaReply[];
+  readonly requestTimeoutMs?: number;
   readonly storage?: Readonly<Record<string, string>>;
 }
 
-async function start({ replies = [], storage = {} }: StartOptions) {
-  const browser = open(new FakeOllama().reply(...replies));
+async function start({ replies = [], requestTimeoutMs, storage = {} }: StartOptions) {
+  const ollama = new FakeOllama().reply(...replies);
+  if (requestTimeoutMs !== undefined) ollama.config = { ...ollama.config, requestTimeoutMs };
+  const browser = open(ollama);
   for (const [key, value] of Object.entries(storage)) {
     browser.window.localStorage.setItem(key, value);
   }
@@ -140,8 +138,8 @@ const smithEntryEdit = editReply(
   SMITH_ENTRY,
 );
 
-function contextText(call: OllamaCall): string {
-  return `Context ${(call.harmonyPrompt.length / 1000).toFixed(1)}k / 98.3k`;
+function contextText(call: OllamaPrompt): string {
+  return `Context ${(call.promptTokens / 1000).toFixed(1)}k / 98.3k`;
 }
 
 function undefinedCommandLog(ide: FakeOverleafIde): () => unknown {
@@ -160,7 +158,7 @@ describe('assistant startup', () => {
   it('opens with badge, panel and welcome message and warms the model', async () => {
     const { doc, messages, ollama } = await start({});
     await vi.waitFor(() => {
-      expect(ollama.calls.filter((c) => c.body.prompt === '')).toHaveLength(1);
+      expect(ollama.loads).toHaveLength(1);
     }, PAGE_WAIT);
     expect(element(doc, '.ola-badge').textContent).toBe('Hans');
     expect(element(doc, '.ola-head').textContent).toContain('Hans AI Assistant');
@@ -207,7 +205,8 @@ describe('assistant startup', () => {
     browser.loadOverleaf();
     await waitForStartupFailure(browser);
     expect(browser.document.getElementById('ola-root')).toBeNull();
-    expect(browser.ollama.calls).toHaveLength(0);
+    expect(browser.ollama.loads).toHaveLength(0);
+    expect(browser.ollama.prompts).toHaveLength(0);
   });
 
   it('does not start when the editor opens without the Overleaf store', async () => {
@@ -233,13 +232,13 @@ describe('assistant conversation', () => {
     const { send, messages, ollama } = await start({});
     await send('  ');
     expect(messages().at(-1)).toBe('Error: Please enter a command for the assistant.');
-    expect(ollama.promptCalls).toHaveLength(0);
+    expect(ollama.prompts).toHaveLength(0);
   });
 
   it('answers a greeting locally', async () => {
     const { send, messages, ollama, doc } = await start({});
     await send('hello');
-    expect(ollama.promptCalls).toHaveLength(0);
+    expect(ollama.prompts).toHaveLength(0);
     expect(messages()).toEqual(['hello', expect.stringContaining('Hi, I am here')]);
     expect(commandInput(doc).value).toBe('');
   });
@@ -296,12 +295,12 @@ describe('assistant agent', () => {
     });
     await send('What is this document about?');
     expect(texts('.ola-result-body').at(-1)).toBe('It describes an experiment.');
-    const call = promptCall(ollama, 0);
-    expect(call.body.system).toContain('ACTION: read_file');
-    expect(call.body.prompt).toContain(
+    const call = itemAt(ollama.prompts, 0, 'prompt');
+    expect(call.instructions).toContain('ACTION: read_file');
+    expect(call.userMessage).toContain(
       'Project files:\nmain.tex (open in the editor)\nrefs.bib\nfrog.jpg (binary)\nchapters/intro/intro.tex',
     );
-    expect(call.body.prompt).toContain('3: \\section{Introduction}');
+    expect(call.userMessage).toContain('3: \\section{Introduction}');
     expect(texts('.ola-context')).toEqual([contextText(call)]);
   });
 
@@ -314,7 +313,7 @@ describe('assistant agent', () => {
     });
     await send('Where is knuth84 defined?');
     expect(texts('.ola-result-body').at(-1)).toBe('knuth84 is defined in refs.bib.');
-    expect(promptCall(ollama, 1).body.prompt).toContain(
+    expect(itemAt(ollama.prompts, 1, 'prompt').userMessage).toContain(
       'Result 1 (search "knuth"):\nrefs.bib:1: @book{knuth84,',
     );
   });
@@ -324,7 +323,7 @@ describe('assistant agent', () => {
       replies: [reply('ACTION: read_file', 'PATH: refs.bib'), smithEntryEdit],
     });
     await send('Add the smith20 entry to the bibliography.');
-    expect(promptCall(ollama, 1).body.prompt).toContain(
+    expect(itemAt(ollama.prompts, 1, 'prompt').userMessage).toContain(
       'Result 1 (read_file refs.bib):\n1: @book{knuth84,\n2:   title = {The TeXbook}\n3: }',
     );
     expect(ide.store.get('editor.open_doc_id')).toBe(REFS_DOC_ID);
@@ -380,7 +379,7 @@ describe('assistant agent', () => {
     });
     expect(texts('.ola-system')).toContain(COMPILE_FIX_REQUEST);
     expect(texts('.ola-user')).toEqual(['Make the word experiment bold.']);
-    const fixPrompt = promptCall(ollama, 1).body.prompt;
+    const fixPrompt = itemAt(ollama.prompts, 1, 'prompt').userMessage;
     expect(fixPrompt).toContain(`User message:\n${COMPILE_FIX_REQUEST}`);
     expect(fixPrompt).toContain(
       'Result 1 (compile):\nerror main.tex:4: Undefined control sequence.',
@@ -399,16 +398,24 @@ describe('assistant agent', () => {
       [reply('hello'), reply('ACTION: dance')],
       'The assistant replied in an unexpected format',
     ],
-    [
-      'a model that does not answer in time',
-      [{ hang: true } as const],
-      'Ollama did not finish within 200 milliseconds',
-    ],
   ])('reports %s and stays usable', async (_name, replies: OllamaReply[], error) => {
     const { send, texts, messages } = await start({ replies });
     await send('What is this document about?');
     expect(texts('.ola-error')).toEqual([expect.stringContaining(error)]);
     expect(texts('.ola-status')).toEqual(['']);
+    await send('hi');
+    expect(messages().at(-1)).toContain('Hi, I am here');
+  });
+
+  it('reports a model that does not answer in time and stays usable', async () => {
+    const { send, texts, messages } = await start({
+      replies: [{ hang: true }],
+      requestTimeoutMs: 200,
+    });
+    await send('What is this document about?');
+    expect(texts('.ola-error')).toEqual([
+      expect.stringContaining('Ollama did not finish within 200 milliseconds'),
+    ]);
     await send('hi');
     expect(messages().at(-1)).toContain('Hi, I am here');
   });

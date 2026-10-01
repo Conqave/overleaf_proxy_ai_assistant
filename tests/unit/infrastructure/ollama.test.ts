@@ -32,12 +32,11 @@ const generate = (client: OllamaClient): Promise<Completion> =>
 describe('OllamaClient', () => {
   it('posts the request in the harmony format of the model and returns its final message', async () => {
     const ollama = new FakeOllama().reply({ response: 'raw' });
-    await expect(generate(make(ollama).client)).resolves.toMatchObject({
-      text: 'raw',
-    });
-    const call = itemAt(ollama.calls, 0, 'Ollama call');
+    const completion = await generate(make(ollama).client);
+    const call = itemAt(ollama.prompts, 0, 'prompt');
+    expect(completion).toEqual({ text: 'raw', promptTokens: call.promptTokens });
     expect(call.url).toBe('/ollama/main/api/generate');
-    expect(call.harmonyPrompt).toMatch(
+    expect(call.body.prompt).toMatch(
       /^<\|start\|>system<\|message\|>[^]*Reasoning: medium[^]*<\|end\|><\|start\|>developer<\|message\|># Instructions\n\nS<\|end\|><\|start\|>user<\|message\|>P<\|end\|><\|start\|>assistant$/,
     );
     expect(call.body).toEqual({
@@ -46,10 +45,12 @@ describe('OllamaClient', () => {
       keep_alive: -1,
       raw: true,
       truncate: false,
-      system: 'S',
-      prompt: 'P',
+      prompt: call.body.prompt,
       options: { num_ctx: CONTEXT_TOKENS, num_predict: 4_096, temperature: 0.2 },
     });
+    expect(call.instructions).toBe('S');
+    expect(call.userMessage).toBe('P');
+    expect(call.assistantPrefill).toBe('');
   });
 
   it('returns the final message that follows the analysis', async () => {
@@ -60,7 +61,7 @@ describe('OllamaClient', () => {
     await expect(generate(make(ollama).client)).resolves.toMatchObject({
       text: 'Done.',
     });
-    expect(ollama.promptCalls).toHaveLength(1);
+    expect(ollama.prompts).toHaveLength(1);
   });
 
   it('asks for the final message, keeping the analysis, when the model addresses a function', async () => {
@@ -72,14 +73,13 @@ describe('OllamaClient', () => {
       { completion: 'ACTION: read_file' },
     );
     const completion = await generate(make(ollama).client);
-    const first = itemAt(ollama.promptCalls, 0, 'prompt');
-    const second = itemAt(ollama.promptCalls, 1, 'prompt');
-    expect(completion).toEqual({
-      text: 'ACTION: read_file',
-      promptTokens: second.harmonyPrompt.length,
-    });
-    expect(second.harmonyPrompt).toBe(
-      `${first.harmonyPrompt}<|channel|>analysis<|message|>Read it.<|end|><|start|>assistant<|channel|>final<|message|>`,
+    const first = itemAt(ollama.prompts, 0, 'prompt');
+    const second = itemAt(ollama.prompts, 1, 'prompt');
+    expect(completion).toEqual({ text: 'ACTION: read_file', promptTokens: second.promptTokens });
+    expect(second.promptTokens).not.toBe(first.promptTokens);
+    expect(second.turns).toEqual(first.turns);
+    expect(second.assistantPrefill).toBe(
+      '<|channel|>analysis<|message|>Read it.<|end|><|start|>assistant<|channel|>final<|message|>',
     );
   });
 
@@ -93,7 +93,7 @@ describe('OllamaClient', () => {
         '<|channel|>commentary to=functions.read<|message|>{}',
       ),
     );
-    expect(ollama.promptCalls).toHaveLength(1);
+    expect(ollama.prompts).toHaveLength(1);
   });
 
   it.each([
@@ -119,7 +119,7 @@ describe('OllamaClient', () => {
       completion: 'ACTION: compile',
     });
     await expect(generate(make(ollama).client)).resolves.toMatchObject({ text: 'ACTION: compile' });
-    expect(itemAt(ollama.promptCalls, 1, 'Ollama call').harmonyPrompt).toContain(
+    expect(itemAt(ollama.prompts, 1, 'prompt').assistantPrefill).toBe(
       '<|channel|>analysis<|message|>Long thou<|end|><|start|>assistant<|channel|>final<|message|>',
     );
   });
@@ -247,9 +247,8 @@ describe('OllamaClient', () => {
     const { client } = make(ollama);
     await client.loadModel();
     await generate(client);
-    expect(itemAt(ollama.calls, 0, 'Ollama call').body.prompt).toBe('');
-    expect(itemAt(ollama.calls, 0, 'Ollama call').body.options).toEqual(
-      itemAt(ollama.calls, 1, 'Ollama call').body.options,
+    expect(itemAt(ollama.loads, 0, 'model load').body.options).toEqual(
+      itemAt(ollama.prompts, 0, 'prompt').body.options,
     );
   });
 });
@@ -321,14 +320,14 @@ describe('OllamaAgent', () => {
     const reason = new DOMException('superseded', 'AbortError');
     cancellation.abort(reason);
     await expect(decision).rejects.toBe(reason);
-    expect(ollama.promptCalls).toHaveLength(1);
+    expect(ollama.prompts).toHaveLength(1);
   });
 
   it('decides on a tool call from one model call', async () => {
     const ollama = new FakeOllama().reply({ response: 'ACTION: read_file\nPATH: refs.bib' });
     const { decision } = await agent(ollama).decide(step);
     expect(decision).toEqual({ kind: 'tool', call: { tool: 'read_file', path: 'refs.bib' } });
-    expect(ollama.promptCalls).toHaveLength(1);
+    expect(ollama.prompts).toHaveLength(1);
   });
 
   it('reports the context window and the counted size of its prompt', async () => {
@@ -336,7 +335,7 @@ describe('OllamaAgent', () => {
     const { contextUsage } = await agent(ollama).decide(step);
     expect(contextUsage).toEqual({
       contextTokens: CONTEXT_TOKENS,
-      promptTokens: itemAt(ollama.promptCalls, 0, 'Ollama call').harmonyPrompt.length,
+      promptTokens: itemAt(ollama.prompts, 0, 'prompt').promptTokens,
     });
   });
 
@@ -350,13 +349,9 @@ describe('OllamaAgent', () => {
       kind: 'reply',
       reply: { kind: 'answer', text: 'The file is not in the project.' },
     });
-    expect(contextUsage.promptTokens).toBe(
-      itemAt(ollama.promptCalls, 1, 'Ollama call').harmonyPrompt.length,
-    );
-    expect(itemAt(ollama.promptCalls, 1, 'Ollama call').body.prompt).toContain(
-      'read_file requires a path',
-    );
-    expect(itemAt(ollama.promptCalls, 1, 'Ollama call').body.prompt).toContain(
+    expect(contextUsage.promptTokens).toBe(itemAt(ollama.prompts, 1, 'prompt').promptTokens);
+    expect(itemAt(ollama.prompts, 1, 'prompt').userMessage).toContain('read_file requires a path');
+    expect(itemAt(ollama.prompts, 1, 'prompt').userMessage).toContain(
       'Reply again with exactly one action',
     );
   });
@@ -368,7 +363,7 @@ describe('OllamaAgent', () => {
     );
     const { decision } = await agent(ollama).decide(step);
     expect(decision).toEqual({ kind: 'tool', call: { tool: 'compile' } });
-    expect(itemAt(ollama.promptCalls, 1, 'Ollama call').body.prompt).toContain(
+    expect(itemAt(ollama.prompts, 1, 'prompt').userMessage).toContain(
       'It was rejected because: the reply has no final message; write it as plain text.',
     );
   });
@@ -381,14 +376,14 @@ describe('OllamaAgent', () => {
   it('does not retry transport errors', async () => {
     const ollama = new FakeOllama().reply({ status: 500 });
     await expect(agent(ollama).decide(step)).rejects.toThrow(AssistantHttpError);
-    expect(ollama.promptCalls).toHaveLength(1);
+    expect(ollama.prompts).toHaveLength(1);
   });
 
   it('refuses a message too long for the context window without calling the model', async () => {
     const long = { ...step, message: 'm'.repeat(AGENT_PROMPT_BUDGET) };
     const ollama = new FakeOllama();
     await expect(agent(ollama).decide(long)).rejects.toThrow(AssistantRequestTooLargeError);
-    expect(ollama.promptCalls).toHaveLength(0);
+    expect(ollama.prompts).toHaveLength(0);
   });
 
   it('returns a well-formed action unchecked and leaves its policy to the application', async () => {
@@ -397,6 +392,6 @@ describe('OllamaAgent', () => {
     });
     const { decision } = await agent(ollama).decide(step);
     expect(decision).toMatchObject({ reply: { kind: 'edit', path: 'missing.tex' } });
-    expect(ollama.promptCalls).toHaveLength(1);
+    expect(ollama.prompts).toHaveLength(1);
   });
 });
