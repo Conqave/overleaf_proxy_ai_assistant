@@ -30,20 +30,60 @@ const make = (ollama: FakeOllama) => {
 const plan = (value: unknown) => ({ response: JSON.stringify(value) });
 
 describe('OllamaClient', () => {
-  it('posts the configured request and returns the raw response', async () => {
+  it('posts the request in the harmony format of the model and returns its final message', async () => {
     const ollama = new FakeOllama().reply({ response: 'raw' });
     await expect(make(ollama).client.generate({ system: 'S', prompt: 'P' })).resolves.toBe('raw');
-    expect(ollama.calls[0]).toEqual({
-      url: '/ollama/main/api/generate',
-      body: {
-        model: 'm',
-        stream: false,
-        keep_alive: -1,
-        system: 'S',
-        prompt: 'P',
-        options: { num_ctx: MIN_CONTEXT_TOKENS, temperature: 0.2 },
-      },
+    const [call] = ollama.calls;
+    expect(call!.url).toBe('/ollama/main/api/generate');
+    expect(call!.harmonyPrompt).toMatch(
+      /^<\|start\|>system<\|message\|>[^]*Reasoning: medium[^]*<\|end\|><\|start\|>developer<\|message\|># Instructions\n\nS<\|end\|><\|start\|>user<\|message\|>P<\|end\|><\|start\|>assistant$/,
+    );
+    expect(call!.body).toEqual({
+      model: 'm',
+      stream: false,
+      keep_alive: -1,
+      raw: true,
+      system: 'S',
+      prompt: 'P',
+      options: { num_ctx: MIN_CONTEXT_TOKENS, temperature: 0.2 },
     });
+  });
+
+  it('returns the final message that follows the analysis', async () => {
+    const ollama = new FakeOllama().reply({
+      completion:
+        '<|channel|>analysis<|message|>Think.<|end|><|start|>assistant<|channel|>final<|message|>Done.',
+    });
+    await expect(make(ollama).client.generate({ system: 'S', prompt: 'P' })).resolves.toBe('Done.');
+    expect(ollama.promptCalls).toHaveLength(1);
+  });
+
+  it('asks for the final message, keeping the analysis, when the model addresses a function', async () => {
+    const ollama = new FakeOllama().reply(
+      {
+        completion:
+          '<|channel|>analysis<|message|>Read it.<|end|><|start|>assistant<|channel|>commentary to=assistant<|message|>{"PATH":"a.tex"}',
+      },
+      { completion: 'ACTION: read_file' },
+    );
+    await expect(make(ollama).client.generate({ system: 'S', prompt: 'P' })).resolves.toBe(
+      'ACTION: read_file',
+    );
+    const [first, second] = ollama.promptCalls;
+    expect(second!.harmonyPrompt).toBe(
+      `${first!.harmonyPrompt}<|channel|>analysis<|message|>Read it.<|end|><|start|>assistant<|channel|>final<|message|>`,
+    );
+  });
+
+  it('asks for the final message without an analysis when the model skipped it', async () => {
+    const ollama = new FakeOllama().reply(
+      { completion: '<|channel|>commentary to=functions.read<|message|>{}' },
+      { completion: 'ACTION: compile' },
+    );
+    await make(ollama).client.generate({ system: 'S', prompt: 'P' });
+    expect(ollama.promptCalls[1]!.harmonyPrompt).toContain(
+      '<|start|>assistant<|channel|>analysis<|message|><|end|><|start|>assistant<|channel|>final<|message|>',
+    );
   });
 
   it('reports HTTP errors with their status', async () => {

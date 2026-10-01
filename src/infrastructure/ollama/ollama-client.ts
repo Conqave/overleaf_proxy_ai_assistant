@@ -4,6 +4,11 @@ import {
   AssistantTimeoutError,
   AssistantUnreachableError,
 } from '../../ports/errors';
+import {
+  parseHarmonyCompletion,
+  renderFinalContinuation,
+  renderHarmonyPrompt,
+} from './harmony-format';
 
 export interface OllamaClientConfig {
   readonly endpoint: string;
@@ -29,12 +34,16 @@ export class OllamaClient {
     return this.config.contextTokens;
   }
 
-  generate(request: GenerateRequest): Promise<string> {
+  async generate(request: GenerateRequest): Promise<string> {
+    const prompt = renderHarmonyPrompt(request);
+    const completion = parseHarmonyCompletion(await this.complete(prompt));
+    if (completion.kind === 'final') return completion.text;
+    return await this.complete(renderFinalContinuation(prompt, completion.analysis));
+  }
+
+  private complete(prompt: string): Promise<string> {
     return this.withTimeout(async (signal) => {
-      const response = await this.post(
-        { system: request.system, prompt: request.prompt, options: this.getOptions() },
-        signal,
-      );
+      const response = await this.post({ prompt, raw: true, options: this.getOptions() }, signal);
       if (!response.ok) {
         throw new AssistantHttpError(
           response.status,
