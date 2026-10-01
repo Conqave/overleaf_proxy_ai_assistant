@@ -5,6 +5,7 @@ import { createDocumentSnapshot } from '../../../src/domain/document';
 import { createDocumentCommand } from '../../../src/domain/document-command';
 import { ProjectFileKind } from '../../../src/domain/project-file';
 import { createAgentExchange } from '../../../src/infrastructure/ollama/agent-protocol';
+import { SEARCH_OUTPUT_CHARS } from '../../../src/infrastructure/ollama/context-budget';
 import {
   createCorrectionRequest,
   getCorrectionReserveChars,
@@ -104,7 +105,7 @@ describe('agent exchange', () => {
     const { prompt } = createAgentExchange(request({ transcript: turns }), budget).request;
     expect(prompt).toContain('Result 1 (read_file refs.bib):\n1: @book{a,\n2: }');
     expect(prompt).toContain(
-      'Result 2 (search "fig:a"):\nmain.tex:2: See \\ref{fig:a}.\n(more matches omitted',
+      'Result 2 (search "fig:a"):\nmain.tex:2: See \\ref{fig:a}.\n(more matches or text omitted',
     );
     expect(prompt).toContain(
       'Result 3 (compile):\nerror main.tex:2: Undefined control sequence.\nwarning main.tex: Overfull box.\ntypesetting Font shape undefined.',
@@ -148,6 +149,31 @@ describe('agent exchange', () => {
     };
     const { prompt } = createAgentExchange(request({ transcript: [empty] }), budget).request;
     expect(prompt).toContain('Result 1 (read_file e.tex):\n(empty file)');
+  });
+
+  it('shortens a long search output and asks for a more specific query at its end', () => {
+    const long: AgentTurn = {
+      kind: 'tool',
+      call: { tool: AgentTool.Search, query: 'the' },
+      result: {
+        tool: AgentTool.Search,
+        matches: Array.from({ length: 20 }, (_, index) => ({
+          path: 'main.tex',
+          lineNumber: index + 1,
+          lineText: 'the '.repeat(250),
+        })),
+        truncated: false,
+      },
+    };
+    const { prompt } = createAgentExchange(request({ transcript: [long] }), budget).request;
+    const shown = prompt.slice(prompt.indexOf('Result 1'), prompt.indexOf('Lookups left'));
+    expect(shown.length).toBeLessThan(SEARCH_OUTPUT_CHARS + 200);
+    expect(shown).toContain('[AUTOCOMPACTED: omitted');
+    expect(
+      shown
+        .trimEnd()
+        .endsWith('(more matches or text omitted; search for something more specific)'),
+    ).toBe(true);
   });
 
   it('says so when a search or compile found nothing', () => {

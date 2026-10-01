@@ -6,7 +6,7 @@ import { DocumentOperation } from '../../domain/document-command';
 import { ProjectFileKind, type ProjectFile } from '../../domain/project-file';
 import { isWholeDocument, numberLine, READ_LIMITS, type LineSpan } from '../../domain/read-window';
 import type { AgentRequest, AgentStepRequest } from '../../ports/agent-port';
-import { createMessageTooLargeError } from './context-budget';
+import { createMessageTooLargeError, SEARCH_OUTPUT_CHARS } from './context-budget';
 import { getCorrectionReserveChars, type ProtocolExchange } from './correction-exchange';
 import { parseAgentDecision } from './reply-parser';
 import {
@@ -22,6 +22,7 @@ import {
 import {
   block,
   blockHeading,
+  compact,
   conversationBlock,
   CONVERSATION_LABEL,
   LINE_BREAK,
@@ -39,7 +40,7 @@ const SMALL_BLOCK_LABELS: readonly string[] = [FILES_LABEL, CONVERSATION_LABEL, 
 const NO_PROBLEMS = '(no problems)';
 const NO_MATCHES = '(no matches)';
 const EMPTY_FILE = '(empty file)';
-const MORE_MATCHES = '(more matches omitted; search for something more specific)';
+const MORE_MATCHES = '(more matches or text omitted; search for something more specific)';
 const REJECTED = 'rejected';
 const COMPILE_RESULT_LABEL = 'Compile result after the applied change';
 
@@ -341,8 +342,10 @@ function resultText(result: ToolResult): string {
       const found = result.matches.map(
         (match) => `${match.path}:${String(match.lineNumber)}: ${match.lineText}`,
       );
-      const listed = found.length ? found : [NO_MATCHES];
-      return lines(...listed, ...(result.truncated ? [MORE_MATCHES] : []));
+      const listed = found.length ? lines(...found) : NO_MATCHES;
+      const shown = compact(listed, SEARCH_OUTPUT_CHARS);
+      if (!result.truncated && shown === listed) return listed;
+      return lines(shown, MORE_MATCHES);
     }
     case AgentTool.Compile:
       return diagnosticsText(result.diagnostics);
