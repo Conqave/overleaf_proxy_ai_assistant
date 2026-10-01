@@ -33,6 +33,7 @@ import {
   AssistantProtocolError,
   AssistantUnreachableError,
   CompileTimeoutError,
+  EditorShowsOtherFileError,
   EditorUnavailableError,
   FileOpenTimeoutError,
   ProjectFileReadError,
@@ -433,6 +434,13 @@ describe('HandleAssistantRequest', () => {
     await expect(send('summarize')).rejects.toThrow(EditorUnavailableError);
     expect(agent.requests).toHaveLength(0);
     expect(conversation.messages().map((m) => m.role)).toEqual(['user', 'user']);
+  });
+
+  it('waits for the editor to show the open file and never mixes up two files', async () => {
+    editor.shownFileId = 'doc:refs.bib';
+    await expect(send('summarize')).rejects.toThrow(EditorShowsOtherFileError);
+    expect(agent.requests).toHaveLength(0);
+    expect(project.signals).toHaveLength(1);
   });
 
   it('accepts one request at a time', async () => {

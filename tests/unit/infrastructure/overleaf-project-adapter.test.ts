@@ -74,17 +74,20 @@ describe('OverleafProjectAdapter files', () => {
       'frog.jpg',
       'chapters/intro/intro.tex',
     ]);
-    expect(adapter.openFilePath()).toBe('main.tex');
+    expect(adapter.shownFile()).toEqual(file('main.tex'));
+    expect(adapter.isShown(file('main.tex'))).toBe(true);
+    expect(adapter.isShown(file('refs.bib'))).toBe(false);
   });
 
   it('reports an open document added after the page loaded', () => {
     ide.store.set('editor.open_doc_id', 'doc-added');
-    expect(() => adapter.openFilePath()).toThrow(ProjectTreeOutdatedError);
+    expect(() => adapter.shownFile()).toThrow(ProjectTreeOutdatedError);
   });
 
   it('names no open file while Overleaf shows a binary file', () => {
     ide.click('file-frog');
-    expect(() => adapter.openFilePath()).toThrow(NoOpenTextFileError);
+    expect(() => adapter.shownFile()).toThrow(NoOpenTextFileError);
+    expect(adapter.isShown(file('main.tex'))).toBe(false);
   });
 
   it('reads the open file from the editor, unsaved edits included', async () => {
@@ -146,7 +149,7 @@ describe('OverleafProjectAdapter.openFile', () => {
     await adapter.openFile(file('chapters/intro/intro.tex'), cancel.signal);
     expect(ide.isExpanded('folder-chapters')).toBe(true);
     expect(ide.isExpanded('folder-intro')).toBe(true);
-    expect(adapter.openFilePath()).toBe('chapters/intro/intro.tex');
+    expect(adapter.shownFile().path).toBe('chapters/intro/intro.tex');
     expect(bridge.openEditor?.view.state.doc.toString()).toBe(ide.textOf('doc-intro'));
   });
 
@@ -154,7 +157,7 @@ describe('OverleafProjectAdapter.openFile', () => {
     const view = ide.editor;
     ide.click('file-frog');
     await adapter.openFile(file('main.tex'), cancel.signal);
-    expect(adapter.openFilePath()).toBe('main.tex');
+    expect(adapter.shownFile().path).toBe('main.tex');
     expect(ide.editor).toBe(view);
   });
 

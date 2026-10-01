@@ -1,7 +1,7 @@
 import type { CompileDiagnostic } from '../../domain/agent-transcript';
 import { createDocumentSnapshot, type DocumentSnapshot } from '../../domain/document';
 import { NamedError, ProjectFileNotFoundError } from '../../domain/errors';
-import type { ProjectFile, TextFile } from '../../domain/project-file';
+import { ProjectFileKind, type ProjectFile, type TextFile } from '../../domain/project-file';
 import {
   CompileTimeoutError,
   FileOpenTimeoutError,
@@ -61,7 +61,7 @@ export class OverleafProjectAdapter implements ProjectPort {
     return readProjectTree(this.deps.store.get(StoreKey.Project)).files;
   }
 
-  openFilePath(): string {
+  shownFile(): TextFile {
     if (this.isBinaryFileShown()) {
       throw new NoOpenTextFileError('Overleaf shows a binary file; open a text file to continue.');
     }
@@ -72,7 +72,16 @@ export class OverleafProjectAdapter implements ProjectPort {
         'The open file was added after the page loaded; reload Overleaf to work on it.',
       );
     }
-    return file.path;
+    if (file.kind !== ProjectFileKind.Text) {
+      throw new OverleafStoreContractError(
+        `${StoreKey.OpenDocId} names the binary file ${file.path}`,
+      );
+    }
+    return file;
+  }
+
+  isShown(file: TextFile): boolean {
+    return !this.isBinaryFileShown() && this.openDocId() === file.id;
   }
 
   async readFile(file: TextFile, cancel: CancellationSignal): Promise<DocumentSnapshot> {
@@ -99,7 +108,7 @@ export class OverleafProjectAdapter implements ProjectPort {
   }
 
   private async open(file: TextFile, signal: AbortSignal): Promise<void> {
-    if (file.id === this.openDocId() && !this.isBinaryFileShown()) {
+    if (this.isShown(file)) {
       await this.shownEditor(file, signal);
       return;
     }

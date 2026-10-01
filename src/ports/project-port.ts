@@ -5,7 +5,8 @@ import type { CancellationSignal } from './cancellation';
 
 export interface ProjectPort {
   listFiles(): readonly ProjectFile[];
-  openFilePath(): string;
+  shownFile(): TextFile;
+  isShown(file: TextFile): boolean;
   readFile(file: TextFile, signal: CancellationSignal): Promise<DocumentSnapshot>;
   openFile(file: TextFile, signal: CancellationSignal): Promise<void>;
   compile(signal: CancellationSignal): Promise<readonly CompileDiagnostic[]>;

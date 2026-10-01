@@ -5,6 +5,7 @@ import { createDocumentSnapshot, type DocumentSnapshot } from '../../src/domain/
 import type { DocumentCommand } from '../../src/domain/document-command';
 import {
   createProjectFiles,
+  findTextFile,
   ProjectFileKind,
   type ProjectFile,
   type TextFile,
@@ -15,7 +16,11 @@ import type { CancellationSignal } from '../../src/ports/cancellation';
 import type { ConversationRepository } from '../../src/ports/conversation-repository';
 import type { EditorPort } from '../../src/ports/editor-port';
 import type { ProjectPort } from '../../src/ports/project-port';
-import { EditorUnavailableError, PersistenceError } from '../../src/ports/errors';
+import {
+  EditorShowsOtherFileError,
+  EditorUnavailableError,
+  PersistenceError,
+} from '../../src/ports/errors';
 import { TestFixtureError, UnexpectedFakeCallError } from './test-errors';
 
 export class FakeEditor implements EditorPort {
@@ -25,28 +30,31 @@ export class FakeEditor implements EditorPort {
   preview: ResolvedEdit | null = null;
   applyFailure: Error | null = null;
   applied: DocumentCommand[] = [];
+  shownFileId = '';
 
   constructor(public lines: string[]) {}
 
-  readDocument(): DocumentSnapshot {
-    this.ensureAvailable();
+  readDocument(file: TextFile): DocumentSnapshot {
+    this.ensureShowing(file);
     return createDocumentSnapshot(this.lines);
   }
-  readSelection(): string {
+  readSelection(file: TextFile): string {
+    this.ensureShowing(file);
     return this.selection;
   }
-  readCursorLine(): number {
+  readCursorLine(file: TextFile): number {
+    this.ensureShowing(file);
     return this.cursorLine;
   }
-  showPreview(edit: ResolvedEdit): void {
-    this.ensureAvailable();
+  showPreview(file: TextFile, edit: ResolvedEdit): void {
+    this.ensureShowing(file);
     this.preview = edit;
   }
   clearPreview(): void {
     this.preview = null;
   }
-  apply({ command }: ResolvedEdit): void {
-    this.ensureAvailable();
+  apply(file: TextFile, { command }: ResolvedEdit): void {
+    this.ensureShowing(file);
     if (this.applyFailure) throw this.applyFailure;
     const index = command.target.lineNumber - 1;
     const content = 'content' in command ? command.content.split('\n') : [];
@@ -66,8 +74,9 @@ export class FakeEditor implements EditorPort {
     }
     this.applied.push(command);
   }
-  private ensureAvailable(): void {
+  private ensureShowing(file: TextFile): void {
     if (!this.available) throw new EditorUnavailableError('no editor');
+    if (file.id !== this.shownFileId) throw new EditorShowsOtherFileError(`not ${file.path}`);
   }
 }
 
@@ -123,7 +132,7 @@ export class FakeProject implements ProjectPort {
       })),
       ...binaryPaths.map((path) => ({ id: `file:${path}`, path, kind: ProjectFileKind.Binary })),
     ]);
-    editor.lines = this.document(openPath);
+    this.switchTo(openPath);
   }
 
   willCompile(...results: Step<readonly CompileDiagnostic[]>[]): this {
@@ -133,13 +142,17 @@ export class FakeProject implements ProjectPort {
   switchTo(path: string): void {
     this.openPath = path;
     this.editor.lines = this.document(path);
+    this.editor.shownFileId = findTextFile(this.files, path).id;
   }
   listFiles(): readonly ProjectFile[] {
     if (this.failure.listFiles) throw this.failure.listFiles;
     return this.files;
   }
-  openFilePath(): string {
-    return this.openPath;
+  shownFile(): TextFile {
+    return findTextFile(this.files, this.openPath);
+  }
+  isShown(file: TextFile): boolean {
+    return file.path === this.openPath;
   }
   readFile(file: TextFile, signal: CancellationSignal): Promise<DocumentSnapshot> {
     this.reads.push(file.path);
@@ -149,9 +162,10 @@ export class FakeProject implements ProjectPort {
     return Promise.resolve(createDocumentSnapshot(lines));
   }
   openFile(file: TextFile, signal: CancellationSignal): Promise<void> {
-    this.opened.push(file.path);
     this.signals.push(signal);
     if (this.failure.openFile) return Promise.reject(this.failure.openFile);
+    if (this.isShown(file)) return Promise.resolve();
+    this.opened.push(file.path);
     this.switchTo(file.path);
     this.onOpen(file.path);
     return Promise.resolve();

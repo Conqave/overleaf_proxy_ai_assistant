@@ -16,6 +16,8 @@ export class AssistantReplyTruncatedError extends OperationalError {}
 
 export class EditorUnavailableError extends OperationalError {}
 
+export class EditorShowsOtherFileError extends OperationalError {}
+
 export class PersistenceError extends OperationalError {}
 
 export class ProjectUnavailableError extends OperationalError {}

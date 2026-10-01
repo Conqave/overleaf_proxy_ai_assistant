@@ -126,7 +126,8 @@ export class HandleAssistantRequest {
   ): Promise<AgentResult> {
     const { agent, conversation } = this.deps;
     const { epoch, signal, onProgress } = run;
-    const workspace = this.readWorkspace();
+    const workspace = await this.readWorkspace(signal);
+    conversation.ensureCurrent(epoch);
     const transcript: AgentTurn[] = [...initialTranscript];
     for (let step = 1; ; step += 1) {
       onProgress({ stage: 'thinking', step });
@@ -156,13 +157,16 @@ export class HandleAssistantRequest {
     }
   }
 
-  private readWorkspace(): AgentWorkspace {
+  private async readWorkspace(signal: CancellationSignal): Promise<AgentWorkspace> {
     const { project, editor } = this.deps;
+    const files = project.listFiles();
+    const shown = project.shownFile();
+    await project.openFile(shown, signal);
     return {
-      files: project.listFiles(),
-      openFile: { path: project.openFilePath(), document: editor.readDocument() },
-      cursorLine: editor.readCursorLine(),
-      selection: editor.readSelection(),
+      files,
+      openFile: { path: shown.path, document: editor.readDocument(shown) },
+      cursorLine: editor.readCursorLine(shown),
+      selection: editor.readSelection(shown),
     };
   }
 
@@ -202,10 +206,10 @@ export class HandleAssistantRequest {
 
   private showPreview(change: PendingDocumentChange): void {
     const { editor } = this.deps;
-    const { edit } = change.change;
+    const { file, edit } = change.change;
     try {
-      edit.assertCurrent(editor.readDocument());
-      editor.showPreview(edit);
+      edit.assertCurrent(editor.readDocument(file));
+      editor.showPreview(file, edit);
     } catch (error) {
       change.discard();
       editor.clearPreview();

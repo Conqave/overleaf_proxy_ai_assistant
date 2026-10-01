@@ -9,7 +9,6 @@ export async function showProjectFile(
   onProgress: (progress: AgentProgress) => void,
   signal: CancellationSignal,
 ): Promise<void> {
-  if (project.openFilePath() === file.path) return;
-  onProgress({ stage: 'opening', path: file.path });
+  if (!project.isShown(file)) onProgress({ stage: 'opening', path: file.path });
   await project.openFile(file, signal);
 }

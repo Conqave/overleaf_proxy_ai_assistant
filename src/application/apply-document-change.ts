@@ -37,8 +37,8 @@ export class ApplyDocumentChange {
     try {
       editor.clearPreview();
       await showProjectFile(project, file, onProgress, signal);
-      edit.assertCurrent(editor.readDocument());
-      editor.apply(edit);
+      edit.assertCurrent(editor.readDocument(file));
+      editor.apply(file, edit);
     } catch (error) {
       change.markFailed();
       throw error;
