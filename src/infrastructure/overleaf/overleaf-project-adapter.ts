@@ -7,6 +7,7 @@ import {
   FileOpenTimeoutError,
   NoOpenTextFileError,
   ProjectFileReadError,
+  ProjectTreeOutdatedError,
   ProjectUnavailableError,
 } from '../../ports/errors';
 import type { ProjectPort } from '../../ports/project-port';
@@ -16,7 +17,9 @@ import { OverleafStoreContractError, StoreKey, type OverleafStore } from './over
 import { readProjectTree } from './project-tree';
 
 export const RECOMPILE_EVENT = 'pdf:recompile';
-const TREE_ENTITY_SELECTOR = '.file-tree .entity[data-file-id]';
+const FILE_TREE_SELECTOR = '.file-tree';
+const ENTITY_SELECTOR = '.entity[data-file-id]';
+const HTTP_NOT_FOUND = 404;
 const EXPAND_ICON_SELECTOR = '.file-tree-expand-icon';
 
 export interface OverleafProjectTimeouts {
@@ -54,7 +57,9 @@ export class OverleafProjectAdapter implements ProjectPort {
     const id = this.openDocId();
     const file = this.listFiles().find((candidate) => candidate.id === id);
     if (file === undefined) {
-      throw new OverleafStoreContractError(`the open document ${id} is not in project.rootFolder`);
+      throw new ProjectTreeOutdatedError(
+        'The open file was added after the page loaded; reload Overleaf to work on it.',
+      );
     }
     return file.path;
   }
@@ -69,6 +74,9 @@ export class OverleafProjectAdapter implements ProjectPort {
       return createDocumentSnapshot(view.state.doc.toJSON());
     }
     const response = await this.download(file);
+    if (response.status === HTTP_NOT_FOUND) {
+      throw new ProjectFileNotFoundError(`${file.path} is no longer in the project.`);
+    }
     if (!response.ok) {
       throw new ProjectFileReadError(
         `${file.path} could not be read: Overleaf answered HTTP ${String(response.status)}.`,
@@ -88,9 +96,9 @@ export class OverleafProjectAdapter implements ProjectPort {
     if (folderIds === undefined) {
       throw new ProjectFileNotFoundError(`The project has no file ${file.path}.`);
     }
-    for (const folderId of folderIds) this.expandFolder(folderId);
+    for (const folderId of folderIds) this.expandFolder(folderId, file);
     const { store } = this.deps;
-    this.findEntity(file.id).click();
+    this.findEntity(file.id, file).click();
     const opened = await store.waitUntil(
       [StoreKey.OpenDocId, StoreKey.Opening, StoreKey.OpenFile],
       () =>
@@ -173,8 +181,8 @@ export class OverleafProjectAdapter implements ProjectPort {
     }
   }
 
-  private expandFolder(folderId: string): void {
-    const entity = this.findEntity(folderId);
+  private expandFolder(folderId: string, file: ProjectFile): void {
+    const entity = this.findEntity(folderId, file);
     const item = entity.closest('[role="treeitem"]');
     if (item === null) {
       throw new OverleafFileTreeContractError(`folder ${folderId} is not inside a tree item`);
@@ -187,11 +195,13 @@ export class OverleafProjectAdapter implements ProjectPort {
     button.click();
   }
 
-  private findEntity(id: string): HTMLElement {
-    const entities = this.deps.window.document.querySelectorAll<HTMLElement>(TREE_ENTITY_SELECTOR);
+  private findEntity(id: string, file: ProjectFile): HTMLElement {
+    const tree = this.deps.window.document.querySelector(FILE_TREE_SELECTOR);
+    if (tree === null) throw new OverleafFileTreeContractError('the page shows no file tree');
+    const entities = tree.querySelectorAll<HTMLElement>(ENTITY_SELECTOR);
     const entity = [...entities].find((element) => element.dataset.fileId === id);
     if (entity === undefined) {
-      throw new OverleafFileTreeContractError(`no entry shows the entity ${id}`);
+      throw new ProjectFileNotFoundError(`${file.path} is no longer in the project's file tree.`);
     }
     return entity;
   }

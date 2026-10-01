@@ -1,21 +1,18 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { NotATextFileError } from '../../../src/domain/errors';
+import { NotATextFileError, ProjectFileNotFoundError } from '../../../src/domain/errors';
 import { findTextFile, type ProjectFile } from '../../../src/domain/project-file';
 import { OverleafEditorBridge } from '../../../src/infrastructure/overleaf/overleaf-editor-bridge';
 import {
   OverleafFileTreeContractError,
   OverleafProjectAdapter,
 } from '../../../src/infrastructure/overleaf/overleaf-project-adapter';
-import {
-  OverleafStore,
-  OverleafStoreContractError,
-  StoreKey,
-} from '../../../src/infrastructure/overleaf/overleaf-store';
+import { OverleafStore, StoreKey } from '../../../src/infrastructure/overleaf/overleaf-store';
 import {
   CompileTimeoutError,
   FileOpenTimeoutError,
   NoOpenTextFileError,
   ProjectFileReadError,
+  ProjectTreeOutdatedError,
   ProjectUnavailableError,
 } from '../../../src/ports/errors';
 import { FakeOverleafIde } from '../../support/fake-overleaf';
@@ -71,9 +68,9 @@ describe('OverleafProjectAdapter files', () => {
     expect(adapter.openFilePath()).toBe('main.tex');
   });
 
-  it('rejects an open document the project tree does not know', () => {
-    ide.store.set('editor.open_doc_id', 'doc-unknown');
-    expect(() => adapter.openFilePath()).toThrow(OverleafStoreContractError);
+  it('reports an open document added after the page loaded', () => {
+    ide.store.set('editor.open_doc_id', 'doc-added');
+    expect(() => adapter.openFilePath()).toThrow(ProjectTreeOutdatedError);
   });
 
   it('names no open file while Overleaf shows a binary file', () => {
@@ -102,8 +99,10 @@ describe('OverleafProjectAdapter files', () => {
     expect(requests).toEqual(['/Project/project-1/doc/doc-refs/download']);
   });
 
-  it('classifies a refused download and an unreachable Overleaf', async () => {
+  it('classifies a deleted file, a refused download and an unreachable Overleaf', async () => {
     answer = () => Promise.resolve(new Response('', { status: 404 }));
+    await expect(adapter.readFile(file('refs.bib'))).rejects.toThrow(ProjectFileNotFoundError);
+    answer = () => Promise.resolve(new Response('', { status: 500 }));
     await expect(adapter.readFile(file('refs.bib'))).rejects.toThrow(ProjectFileReadError);
     answer = () => Promise.reject(new TypeError('Failed to fetch'));
     await expect(adapter.readFile(file('refs.bib'))).rejects.toThrow(ProjectUnavailableError);
@@ -145,8 +144,13 @@ describe('OverleafProjectAdapter.openFile', () => {
     expect(ide.store.watcherCount).toBe(0);
   });
 
-  it('rejects a file tree that does not show the file', async () => {
-    document.querySelector('.file-tree')!.replaceChildren();
+  it('reports a file deleted since the page loaded', async () => {
+    ide.remove('doc-refs');
+    await expect(adapter.openFile(file('refs.bib'))).rejects.toThrow(ProjectFileNotFoundError);
+  });
+
+  it('rejects a page without a file tree', async () => {
+    ide.removeFileTree();
     await expect(adapter.openFile(file('refs.bib'))).rejects.toThrow(OverleafFileTreeContractError);
   });
 });

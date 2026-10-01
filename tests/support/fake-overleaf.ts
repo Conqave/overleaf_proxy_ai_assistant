@@ -128,6 +128,16 @@ export class FakeOverleafIde {
     this.entity(id).click();
   }
 
+  remove(id: string): void {
+    const item = this.entity(id).closest('[role="treeitem"]');
+    if (item === null) throw new TestFixtureError(`${id} is not inside a tree item`);
+    item.remove();
+  }
+
+  removeFileTree(): void {
+    this.treeRoot.remove();
+  }
+
   private readonly recompile = (): void => {
     if (!this.compiles) return;
     this.store.set('pdf.logEntries', null);
