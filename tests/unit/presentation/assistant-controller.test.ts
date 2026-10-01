@@ -1,5 +1,5 @@
 import { JSDOM } from 'jsdom';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { ApplyDocumentChange } from '../../../src/application/apply-document-change';
 import { ConversationLog } from '../../../src/application/conversation-log';
 import { StartNewConversation } from '../../../src/application/conversation-session';
@@ -177,6 +177,21 @@ describe('AssistantController reject', () => {
     expect(texts('.ola-error')).toEqual([
       'Unexpected internal error. Details are in the browser console.',
     ]);
+  });
+});
+
+describe('AssistantController new chat', () => {
+  it('shows nothing for a request the user cancelled with a new chat', async () => {
+    const { controller, project, texts } = await openAssistant();
+    project.holdsReads = true;
+    const sending = controller.send('add the knuth84 entry');
+    await vi.waitFor(() => {
+      expect(project.reads).toEqual(['refs.bib']);
+    });
+    await controller.newConversation();
+    await sending;
+    expect(texts('.ola-error')).toEqual([]);
+    expect(texts('.ola-msg')).toEqual([expect.stringContaining('Ready to help')]);
   });
 });
 

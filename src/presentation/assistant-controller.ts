@@ -3,6 +3,7 @@ import type { ConversationLog } from '../application/conversation-log';
 import type { StartNewConversation } from '../application/conversation-session';
 import type { AgentResult, HandleAssistantRequest } from '../application/handle-assistant-request';
 import type { AgentProgress } from '../application/agent-progress';
+import { RequestSupersededError } from '../application/errors';
 import type { OperationLock } from '../application/operation-lock';
 import type { RejectDocumentChange } from '../application/reject-document-change';
 import { InvariantViolation, OperationalError } from '../domain/errors';
@@ -136,6 +137,7 @@ export class AssistantController implements ViewEvents {
     try {
       await action();
     } catch (error) {
+      if (error instanceof RequestSupersededError) return;
       if (!(error instanceof OperationalError)) {
         this.requireView().showNotice(INTERNAL_ERROR, 'error');
         throw error;

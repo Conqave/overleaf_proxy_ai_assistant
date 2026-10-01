@@ -633,18 +633,18 @@ describe('assistant under interference', () => {
   });
 
   it('cancels a running request for a new chat and stays usable', async () => {
-    const { doc, send, click, messages, ollama } = await start({ replies: [{ hang: true }] });
+    const { doc, send, click, texts, messages, ollama } = await start({
+      replies: [{ hang: true }],
+    });
     commandInput(doc).value = 'What is this document about?';
     button(doc, '.ola-send').click();
     await vi.waitFor(() => {
       expect(ollama.prompts).toHaveLength(1);
     }, PAGE_WAIT);
     await click('.ola-new-chat', () => {
-      expect(messages()).toEqual([
-        expect.stringContaining('Ready to help'),
-        'Error: The conversation was reset before the assistant finished; the reply was dropped.',
-      ]);
+      expect(messages()).toEqual([expect.stringContaining('Ready to help')]);
     });
+    expect(texts('.ola-error')).toEqual([]);
     ollama.reply(greetingReply);
     await send('hi');
     expect(messages().at(-1)).toContain(GREETING_ANSWER);
@@ -667,10 +667,7 @@ describe('assistant under interference', () => {
     expect(input.value).toBe('And the second one?');
     expect(ollama.prompts).toHaveLength(1);
     await click('.ola-new-chat', () => {
-      expect(messages()).toEqual([
-        expect.stringContaining('Ready to help'),
-        expect.stringContaining('The conversation was reset'),
-      ]);
+      expect(messages()).toEqual([expect.stringContaining('Ready to help')]);
     });
   });
 });
