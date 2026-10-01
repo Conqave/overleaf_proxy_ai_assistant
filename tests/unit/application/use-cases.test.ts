@@ -76,7 +76,6 @@ function editOf(path: string, lines: readonly string[], lineNumber: number): Age
     kind: 'reply',
     reply: {
       kind: 'edit',
-      rationale: 'After the last line.',
       change: {
         path,
         edit: ResolvedEdit.resolve(
@@ -201,7 +200,6 @@ describe('HandleAssistantRequest', () => {
       kind: 'proposal',
       path: 'main.tex',
       command: change.change.edit.command,
-      rationale: 'After the last line.',
     });
     expect(editor.preview).toBe(change.change.edit);
     expect(project.opened).toEqual([]);

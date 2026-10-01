@@ -88,8 +88,7 @@ function parseMessage(value: unknown): ConversationMessage {
   if (kind === AssistantMessageKind.Proposal) {
     const path = parsePath(fields.get('path'));
     const command = parseCommand(fields.get('command'));
-    if (!fields.has('rationale')) return { id, role, kind, path, command };
-    return { id, role, kind, path, command, rationale: getString(fields, 'rationale') };
+    return { id, role, kind, path, command };
   }
   if (kind === AssistantMessageKind.Greeting) return { id, role, kind };
   if (!isReplyKind(kind)) throw new UnknownStoredFormatError('unknown message kind');

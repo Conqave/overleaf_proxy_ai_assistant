@@ -28,11 +28,6 @@ export interface HeaderReply {
   readonly content?: string;
 }
 
-export interface ParsedEdit {
-  readonly edit: ResolvedEdit;
-  readonly rationale?: string;
-}
-
 export const LINE_PATTERN = /\r?\n/;
 
 export function rejectJson(text: string, example: string): void {
@@ -43,7 +38,7 @@ export function rejectJson(text: string, example: string): void {
   }
 }
 
-export function parseEdit(reply: HeaderReply, shown: DocumentSnapshot): ParsedEdit {
+export function parseEdit(reply: HeaderReply, shown: DocumentSnapshot): ResolvedEdit {
   const { fields, content } = reply;
   const lineNumber = getLineNumber(fields, EditField.Line);
   const command = parseCommand({
@@ -55,11 +50,7 @@ export function parseEdit(reply: HeaderReply, shown: DocumentSnapshot): ParsedEd
     content,
     reason: getOptionalField(fields, EditField.Reason),
   });
-  const rationale = getOptionalField(fields, EditField.Plan);
-  return {
-    edit: resolveShown(shown, command),
-    ...(rationale === undefined ? {} : { rationale }),
-  };
+  return resolveShown(shown, command);
 }
 
 function parseCommand(input: DocumentCommandInput): DocumentCommand {

@@ -152,7 +152,7 @@ export class HandleAssistantRequest {
       case 'edit':
         await showProjectFile(this.deps.project, reply.change.path, onProgress);
         this.ensureCurrent(epoch);
-        return this.propose(reply.change, reply.rationale);
+        return this.propose(reply.change);
     }
   }
 
@@ -160,7 +160,7 @@ export class HandleAssistantRequest {
     if (this.deps.conversation.epoch !== epoch) throw new RequestSupersededError();
   }
 
-  private propose(edit: ProjectEdit, rationale: string | undefined): AssistantRequestResult {
+  private propose(edit: ProjectEdit): AssistantRequestResult {
     const change = new PendingDocumentChange(this.deps.newId(), edit);
     this.deps.pendingChanges.add(change);
     this.showPreview(change);
@@ -170,7 +170,6 @@ export class HandleAssistantRequest {
       kind: 'proposal',
       path: edit.path,
       command: edit.edit.command,
-      ...(rationale === undefined ? {} : { rationale }),
     };
     this.deps.conversation.append(message);
     return { message, changeId: change.id };

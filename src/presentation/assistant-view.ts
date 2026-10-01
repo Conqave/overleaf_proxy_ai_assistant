@@ -184,9 +184,6 @@ export class AssistantView {
   private renderProposal(message: ProposalMessage): HTMLElement[] {
     const { command } = message;
     const parts: HTMLElement[] = [];
-    if (message.rationale !== undefined) {
-      parts.push(this.el('div', 'ola-result-rationale', message.rationale));
-    }
     if (command.reason !== undefined) {
       parts.push(this.el('div', 'ola-result-reason', command.reason));
     }

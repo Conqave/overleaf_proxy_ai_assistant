@@ -4,7 +4,6 @@ export const EditField = {
   EndLine: 'END_LINE',
   LineText: 'LINE_TEXT',
   Reason: 'REASON',
-  Plan: 'PLAN',
 } as const;
 export type EditField = (typeof EditField)[keyof typeof EditField];
 

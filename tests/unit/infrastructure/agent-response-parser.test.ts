@@ -100,14 +100,13 @@ describe('parseAgentDecision replies', () => {
 
   it('resolves an edit of the open file against the open document', () => {
     const decision = parseAgentDecision(
-      'ACTION: edit\nPATH: main.tex\nOPERATION: replace\nLINE: 1\nLINE_TEXT: \\title{A}\nREASON: r\nPLAN: p\nCONTENT:\n\\title{B}',
+      'ACTION: edit\nPATH: main.tex\nOPERATION: replace\nLINE: 1\nLINE_TEXT: \\title{A}\nREASON: r\nCONTENT:\n\\title{B}',
       request(),
     );
     expect(decision).toMatchObject({
       kind: 'reply',
       reply: {
         kind: 'edit',
-        rationale: 'p',
         change: { path: 'main.tex', edit: { document: main, command: { content: '\\title{B}' } } },
       },
     });
@@ -178,7 +177,6 @@ describe('parseAgentDecision edit header', () => {
       LINE: '3',
       LINE_TEXT: '\\section{Results}',
       REASON: 'Adds a table.',
-      PLAN: 'After the results heading.',
       ...overrides,
     };
     const head = Object.entries(fields)
@@ -206,7 +204,6 @@ describe('parseAgentDecision edit header', () => {
     const content = '\\begin{tabular}{l|r}\nA & 1 \\\\\\hline\n\\end{tabular}';
     expect(parse(edit({}, content))).toMatchObject({
       kind: 'edit',
-      rationale: 'After the results heading.',
       change: {
         path: 'main.tex',
         edit: {
@@ -271,12 +268,11 @@ describe('parseAgentDecision edit header', () => {
     expect(editProblem(`${edit({}, '')}\nCONTENT:`)).toContain('requires non-empty content');
   });
 
-  it('accepts an edit without the optional REASON and PLAN', () => {
-    const reply = parse(edit({ REASON: null, PLAN: null }));
+  it('accepts an edit without the optional REASON', () => {
+    const reply = parse(edit({ REASON: null }));
     expect(reply).toMatchObject({ kind: 'edit' });
-    expect(reply).not.toHaveProperty('rationale');
     expect(reply).not.toHaveProperty('change.edit.command.reason');
-    expect(parse(edit({ REASON: '', PLAN: '' }))).not.toHaveProperty('rationale');
+    expect(parse(edit({ REASON: '' }))).not.toHaveProperty('change.edit.command.reason');
   });
 
   it('completes a long line from its quoted start', () => {
@@ -305,8 +301,8 @@ describe('parseAgentDecision edit header', () => {
   });
 
   it('rejects a header line written after the content', () => {
-    expect(editProblem(edit({ PLAN: null }, '\\begin{table}\nPLAN: After the heading.'))).toContain(
-      '"PLAN: After the heading." comes after CONTENT:',
+    expect(editProblem(edit({ REASON: null }, '\\begin{table}\nREASON: Adds a table.'))).toContain(
+      '"REASON: Adds a table." comes after CONTENT:',
     );
   });
 

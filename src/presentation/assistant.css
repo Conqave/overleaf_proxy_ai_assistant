@@ -204,16 +204,6 @@
   color: #fff;
   margin-bottom: 6px;
 }
-#ola-root .ola-result-rationale {
-  margin-bottom: 8px;
-  padding: 8px 10px;
-  border-left: 3px solid #2ecc71;
-  border-radius: 6px;
-  background: rgba(46, 204, 113, 0.1);
-  color: rgba(255, 255, 255, 0.82);
-  font-size: 12px;
-  line-height: 1.4;
-}
 #ola-root .ola-result-reason {
   margin-bottom: 8px;
 }

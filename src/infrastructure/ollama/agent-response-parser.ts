@@ -156,12 +156,8 @@ function parseEditReply(rows: readonly string[], request: AgentStepRequest): Age
   const reply = parseHeaderReply(rows, AGENT_EDIT_FIELDS);
   const path = getRequiredField(reply.fields, AgentField.Path);
   findProjectTextFile(request, path);
-  const { edit, rationale } = parseEdit(reply, getShown(request, path));
-  return {
-    kind: 'edit',
-    change: { path, edit },
-    ...(rationale === undefined ? {} : { rationale }),
-  };
+  const edit = parseEdit(reply, getShown(request, path));
+  return { kind: 'edit', change: { path, edit } };
 }
 
 function getShown(request: AgentStepRequest, path: string): DocumentSnapshot {

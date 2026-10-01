@@ -46,7 +46,6 @@ const EDIT_FORMAT = lines(
     '<that line copied exactly from its start; for a long line its first sentence is enough>',
   ),
   `${fieldLine(F.Reason, '<short user-facing reason>')} (optional)`,
-  `${fieldLine(F.Plan, '<one short sentence about the placement>')} (optional)`,
   CONTENT_MARKER,
   `<the new LaTeX lines, exactly as they go into the document; nothing else follows ${CONTENT_MARKER}>`,
 );
@@ -131,7 +130,6 @@ const AGENT_SYSTEM = lines(
   fieldLine(F.Line, '12'),
   fieldLine(F.LineText, '}'),
   fieldLine(F.Reason, 'Dodaję brakujący wpis knuth84.'),
-  fieldLine(F.Plan, 'Nowy wpis po ostatnim wpisie.'),
   CONTENT_MARKER,
   '@book{knuth84,',
   '  author = {Donald Knuth},',

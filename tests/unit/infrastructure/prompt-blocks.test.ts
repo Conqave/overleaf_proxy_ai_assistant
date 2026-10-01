@@ -65,7 +65,6 @@ describe('conversation history', () => {
         content: 'New body.',
         reason: 'Clearer.',
       }),
-      rationale: 'p',
     };
     expect(promptOf({ conversation: [proposal] })).toContain(
       '[assistant] Proposed replace at line 2: Clearer.\nNew body.',

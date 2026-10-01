@@ -21,7 +21,6 @@ const messages: ConversationMessage[] = [
       content: '\\begin{table}\n\\end{table}',
       reason: 'Adds a table.',
     }),
-    rationale: 'After results.',
   },
   {
     id: '3',

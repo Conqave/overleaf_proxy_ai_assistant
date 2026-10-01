@@ -46,7 +46,6 @@ export interface ProposalMessage {
   readonly kind: typeof AssistantMessageKind.Proposal;
   readonly path: string;
   readonly command: DocumentCommand;
-  readonly rationale?: string;
 }
 
 export type AssistantMessage = GreetingMessage | ReplyMessage | ProposalMessage;

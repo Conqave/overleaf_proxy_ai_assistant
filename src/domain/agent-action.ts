@@ -92,7 +92,7 @@ export interface ProjectEdit {
 export type AgentReply =
   | { readonly kind: 'answer'; readonly text: string }
   | { readonly kind: 'question'; readonly text: string }
-  | { readonly kind: 'edit'; readonly change: ProjectEdit; readonly rationale?: string };
+  | { readonly kind: 'edit'; readonly change: ProjectEdit };
 
 export type AgentDecision =
   | { readonly kind: 'tool'; readonly call: ToolCall }
