@@ -2,8 +2,11 @@ import { describe, expect, it, vi } from 'vitest';
 import { HarmonyFormatError } from '../../../src/infrastructure/ollama/harmony-format';
 import { OllamaAgent } from '../../../src/infrastructure/ollama/ollama-agent';
 import { OllamaClient, type Completion } from '../../../src/infrastructure/ollama/ollama-client';
-import { AGENT_PROMPT_BUDGET } from '../../../src/infrastructure/ollama/agent-protocol';
-import { CONTEXT_TOKENS, PROMPT_TOKENS } from '../../../src/infrastructure/ollama/context-budget';
+import {
+  CONTEXT_TOKENS,
+  ContextOverflowError,
+  PROMPT_TOKENS,
+} from '../../../src/infrastructure/ollama/context-budget';
 import { preloadOllamaModel } from '../../../src/infrastructure/ollama/ollama-preload';
 import {
   AssistantHttpError,
@@ -14,7 +17,7 @@ import {
   AssistantTimeoutError,
   AssistantUnreachableError,
 } from '../../../src/ports/errors';
-import { FakeOllama } from '../../support/fake-ollama';
+import { FAKE_OVERFLOW_PROMPT_TOKENS, FakeOllama } from '../../support/fake-ollama';
 import { itemAt } from '../../support/guards';
 import { createDocumentSnapshot } from '../../../src/domain/document';
 import { ProjectFileKind } from '../../../src/domain/project-file';
@@ -167,15 +170,20 @@ describe('OllamaClient', () => {
     const ollama = new FakeOllama().reply(
       cutOff('<|channel|>analysis<|message|>Think', PROMPT_TOKENS + 1),
     );
-    await expect(generate(make(ollama).client)).rejects.toThrow(AssistantRequestTooLargeError);
+    await expect(generate(make(ollama).client)).rejects.toThrow(ContextOverflowError);
     expect(ollama.prompts).toHaveLength(1);
   });
 
-  it('reports a reply cut off by a full context window as a request too large', async () => {
+  it('reports a reply cut off by a full context window as a context overflow', async () => {
     const ollama = new FakeOllama().reply(
       cutOff('<|channel|>final<|message|>ACTION: ans', CONTEXT_TOKENS - 100),
     );
-    await expect(generate(make(ollama).client)).rejects.toThrow(AssistantRequestTooLargeError);
+    const overflow = generate(make(ollama).client);
+    await expect(overflow).rejects.toThrow(ContextOverflowError);
+    await expect(overflow).rejects.toMatchObject({
+      promptChars: itemAt(ollama.prompts, 0, 'prompt').body.prompt.length,
+      promptTokens: CONTEXT_TOKENS - 100,
+    });
   });
 
   it('reports an unknown done reason as a broken response contract', async () => {
@@ -194,9 +202,22 @@ describe('OllamaClient', () => {
     );
   });
 
-  it('reports a prompt that overflows the context window as too large', async () => {
+  it('reports a prompt rejected for the context window with its counted size', async () => {
     const ollama = new FakeOllama().reply({ contextOverflow: true });
-    await expect(generate(make(ollama).client)).rejects.toThrow(AssistantRequestTooLargeError);
+    const overflow = generate(make(ollama).client);
+    await expect(overflow).rejects.toThrow(ContextOverflowError);
+    await expect(overflow).rejects.toMatchObject({
+      promptChars: itemAt(ollama.prompts, 0, 'prompt').body.prompt.length,
+      promptTokens: FAKE_OVERFLOW_PROMPT_TOKENS,
+    });
+  });
+
+  it('reports a context overflow without its token count as a broken response contract', async () => {
+    const body = JSON.stringify({ error: 'exceed_context_size_error' });
+    const client = new OllamaClient(config, () =>
+      Promise.resolve(new Response(body, { status: 400 })),
+    );
+    await expect(generate(client)).rejects.toThrow(AssistantResponseContractError);
   });
 
   it('reports a body that is not JSON as a broken response contract', async () => {
@@ -345,6 +366,13 @@ describe('OllamaAgent', () => {
     transcript: [],
   };
   const agent = (ollama: FakeOllama) => new OllamaAgent(make(ollama).client);
+  const document = createDocumentSnapshot(
+    Array.from({ length: 4_000 }, (_, index) => `Zdanie ${String(index)} z żółwiem.`),
+  );
+  const large = {
+    ...step,
+    workspace: { ...step.workspace, openFile: { path: 'main.tex', document } },
+  };
 
   it('gives the whole decision, correction included, one deadline', async () => {
     const ollama = new FakeOllama().reply({ response: 'hello' }, { response: 'ACTION: compile' });
@@ -441,7 +469,7 @@ describe('OllamaAgent', () => {
   });
 
   it('refuses a message too long for the context window without calling the model', async () => {
-    const long = { ...step, message: 'm'.repeat(AGENT_PROMPT_BUDGET) };
+    const long = { ...step, message: 'm'.repeat(2 * PROMPT_TOKENS) };
     const ollama = new FakeOllama();
     await expect(agent(ollama).decide(long)).rejects.toThrow(AssistantRequestTooLargeError);
     expect(ollama.prompts).toHaveLength(0);
@@ -467,6 +495,32 @@ describe('OllamaAgent', () => {
         command: { target: { lineText: 'f <|> g' }, content: 'h <|> g' },
       },
     });
+  });
+
+  it('rebuilds the prompt once to the size the model measured when it overflows', async () => {
+    const ollama = new FakeOllama().reply(
+      { contextOverflow: true },
+      { response: 'ACTION: answer\nTEXT:\nDone.' },
+    );
+    const { decision } = await agent(ollama).decide(large);
+    expect(decision).toMatchObject({ reply: { kind: 'answer', text: 'Done.' } });
+    const first = itemAt(ollama.prompts, 0, 'prompt').body.prompt.length;
+    const second = itemAt(ollama.prompts, 1, 'prompt');
+    const measured = (first / FAKE_OVERFLOW_PROMPT_TOKENS) * PROMPT_TOKENS;
+    expect(second.body.prompt.length).toBeLessThan(measured);
+    expect(second.body.prompt.length).toBeGreaterThan(measured * 0.85);
+    expect(second.userMessage).toContain(`User message:\n${step.message}`);
+    expect(second.userMessage).toContain('[AUTOCOMPACTED: omitted');
+  });
+
+  it('names the context window when even the rebuilt prompt overflows', async () => {
+    const ollama = new FakeOllama().reply({ contextOverflow: true }, { contextOverflow: true });
+    await expect(agent(ollama).decide(large)).rejects.toThrow(
+      new AssistantRequestTooLargeError(
+        `Even with the documents, results and conversation shortened, the request took ${String(FAKE_OVERFLOW_PROMPT_TOKENS)} tokens of the model's context window of 98304; please start a new chat and try again.`,
+      ),
+    );
+    expect(ollama.prompts).toHaveLength(2);
   });
 
   it('returns a well-formed action unchecked and leaves its policy to the application', async () => {

@@ -201,14 +201,13 @@ describe('agent prompt budget', () => {
   });
 
   it('gives the open file the whole room when there are no tool results', () => {
-    const exchange = createAgentExchange(
-      request({
-        workspace: { ...request().workspace, openFile: { path: 'main.tex', document: long } },
-      }),
-      budget,
-    );
+    const withLong = request({
+      workspace: { ...request().workspace, openFile: { path: 'main.tex', document: long } },
+    });
+    const exchange = createAgentExchange(withLong, budget);
+    const roomier = createAgentExchange(withLong, budget + 1_000);
     expect(size(exchange)).toBeLessThanOrEqual(budget);
-    expect(size(exchange)).toBeGreaterThan(budget - 100);
+    expect(size(roomier) - size(exchange)).toBe(1_000);
   });
 
   it('compacts the open file and older results before the newest result', () => {

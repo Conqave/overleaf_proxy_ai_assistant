@@ -5,7 +5,7 @@ import type { DocumentSnapshot } from '../../domain/document';
 import { DocumentOperation } from '../../domain/document-command';
 import { ProjectFileKind, type ProjectFile } from '../../domain/project-file';
 import type { AgentStepRequest } from '../../ports/agent-port';
-import { createTooLargeError, PROMPT_BUDGET_CHARS } from './context-budget';
+import { createMessageTooLargeError } from './context-budget';
 import { getCorrectionReserveChars, type ProtocolExchange } from './correction-exchange';
 import { parseAgentDecision } from './reply-parser';
 import {
@@ -158,14 +158,15 @@ const AGENT_SYSTEM = lines(
 
 const RETRY = `Reply again with exactly one action: the first line ${fieldLine(AgentField.Action, AGENT_ACTIONS.join('|'))}, then only the lines that action takes. No JSON.`;
 
-export const AGENT_PROMPT_BUDGET = PROMPT_BUDGET_CHARS - getCorrectionReserveChars(RETRY);
+const CORRECTION_RESERVE_CHARS = getCorrectionReserveChars(RETRY);
 
 export function createAgentExchange(
   request: AgentStepRequest,
-  budget: number,
+  promptChars: number,
 ): ProtocolExchange<AgentDecision> {
+  const budget = promptChars - CORRECTION_RESERVE_CHARS - AGENT_SYSTEM.length;
   return {
-    request: { system: AGENT_SYSTEM, prompt: buildPrompt(request, budget - AGENT_SYSTEM.length) },
+    request: { system: AGENT_SYSTEM, prompt: buildPrompt(request, budget) },
     retryInstruction: RETRY,
     parse: parseAgentDecision,
   };
@@ -183,12 +184,13 @@ interface RenderedBlocks {
 
 function buildPrompt(request: AgentStepRequest, budget: number): string {
   const { workspace, transcript } = request;
-  const smallBlock = Math.floor(budget / SMALL_BLOCK_SHARE);
+  const requestBlock = userMessage(request.message);
+  const smallBlock = Math.floor((budget - requestBlock.length) / SMALL_BLOCK_SHARE);
   if (SMALL_BLOCK_LABELS.some((label) => smallBlock < minBlockChars(label))) {
-    throw createTooLargeError();
+    throw createMessageTooLargeError();
   }
   const before = [
-    userMessage(request.message),
+    requestBlock,
     ...conversationBlock(request.conversation, smallBlock),
     block(FILES_LABEL, fileList(workspace.files, workspace.openFile.path), smallBlock),
   ];
@@ -215,7 +217,7 @@ function renderBlocks(
   results: readonly PromptBlock[],
 ): RenderedBlocks {
   const resultFloors = sum(results.map(floorSize));
-  if (available < floorSize(open) + resultFloors) throw createTooLargeError();
+  if (available < floorSize(open) + resultFloors) throw createMessageTooLargeError();
   const preferred = Math.max(
     Math.floor(available / OPEN_FILE_SHARE),
     available - sum(results.map(fullSize)),

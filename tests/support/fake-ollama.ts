@@ -51,13 +51,15 @@ const ASSISTANT_START = '<|start|>assistant';
 const HARMONY_TURNS = /<\|start\|>([a-z]+)<\|message\|>([^]*?)<\|end\|>/gy;
 const PROMPT_ROLES = 'system,developer,user';
 
+export const FAKE_OVERFLOW_PROMPT_TOKENS = 101_586;
+
 const CONTEXT_OVERFLOW_BODY = JSON.stringify({
   error: JSON.stringify({
     error: {
       code: 400,
-      message: 'request (101586 tokens) exceeds the available context size (98304 tokens)',
+      message: `request (${String(FAKE_OVERFLOW_PROMPT_TOKENS)} tokens) exceeds the available context size (98304 tokens)`,
       type: 'exceed_context_size_error',
-      n_prompt_tokens: 101586,
+      n_prompt_tokens: FAKE_OVERFLOW_PROMPT_TOKENS,
       n_ctx: 98304,
     },
   }),

@@ -1,7 +1,6 @@
 import {
   AssistantHttpError,
   AssistantReplyTruncatedError,
-  AssistantRequestTooLargeError,
   AssistantResponseContractError,
   AssistantTimeoutError,
   AssistantUnreachableError,
@@ -17,7 +16,7 @@ import { withDeadline } from '../deadline';
 import { formatDuration } from '../duration';
 import {
   CONTEXT_TOKENS,
-  createTooLargeError,
+  ContextOverflowError,
   MAX_COMPLETION_TOKENS,
   PROMPT_TOKENS,
 } from './context-budget';
@@ -39,6 +38,7 @@ export interface Completion {
 }
 
 interface ModelOutput extends Completion {
+  readonly promptChars: number;
   readonly stoppedAtLimit: boolean;
 }
 
@@ -73,7 +73,9 @@ export class OllamaClient {
     analysis: string,
     signal: AbortSignal,
   ): Promise<Completion> {
-    if (first.promptTokens > PROMPT_TOKENS) throw createTooLargeError();
+    if (first.promptTokens > PROMPT_TOKENS) {
+      throw new ContextOverflowError(first.promptChars, first.promptTokens);
+    }
     const second = await this.complete(renderFinalContinuation(prompt, analysis), signal);
     return finish(second, parseFinalContinuation(second.text));
   }
@@ -84,8 +86,8 @@ export class OllamaClient {
       signal,
     );
     const body = await this.readText(response, signal);
-    if (!response.ok) throw createGenerateError(response, body);
-    return getCompletion(parseJson(body));
+    if (!response.ok) throw createGenerateError(response, body, prompt.length);
+    return { ...getCompletion(parseJson(body)), promptChars: prompt.length };
   }
 
   loadModel(): Promise<void> {
@@ -155,13 +157,45 @@ export class OllamaClient {
 function createGenerateError(
   response: Response,
   body: string,
-): AssistantHttpError | AssistantRequestTooLargeError {
+  promptChars: number,
+): AssistantHttpError | ContextOverflowError {
   if (response.status === HTTP_BAD_REQUEST && body.includes(CONTEXT_OVERFLOW_ERROR)) {
-    return createTooLargeError();
+    return new ContextOverflowError(promptChars, getOverflowPromptTokens(body));
   }
   return new AssistantHttpError(
     `Ollama answered HTTP ${String(response.status)} ${response.statusText}`.trim(),
   );
+}
+
+function getOverflowPromptTokens(body: string): number {
+  const outer = parseJson(body);
+  if (typeof outer !== 'object' || outer === null || !('error' in outer)) {
+    throw new AssistantResponseContractError(
+      'Ollama reported a context overflow without an "error".',
+    );
+  }
+  if (typeof outer.error !== 'string') {
+    throw new AssistantResponseContractError(
+      'Ollama reported a context overflow with a non-text "error".',
+    );
+  }
+  const inner = parseJson(outer.error);
+  const details =
+    typeof inner === 'object' && inner !== null && 'error' in inner ? inner.error : undefined;
+  const promptTokens =
+    typeof details === 'object' && details !== null && 'n_prompt_tokens' in details
+      ? details.n_prompt_tokens
+      : undefined;
+  if (!isTokenCount(promptTokens) || promptTokens === 0) {
+    throw new AssistantResponseContractError(
+      'Ollama reported a context overflow without the "n_prompt_tokens" of the prompt.',
+    );
+  }
+  return promptTokens;
+}
+
+function isTokenCount(value: unknown): value is number {
+  return typeof value === 'number' && Number.isInteger(value) && value >= 0;
 }
 
 function parseJson(body: string): unknown {
@@ -177,17 +211,15 @@ function parseJson(body: string): unknown {
 
 function finish(output: ModelOutput, text: string): Completion {
   if (!output.stoppedAtLimit) return { text, promptTokens: output.promptTokens };
-  checkContextLeft(output);
+  if (output.promptTokens + MAX_COMPLETION_TOKENS > CONTEXT_TOKENS) {
+    throw new ContextOverflowError(output.promptChars, output.promptTokens);
+  }
   throw new AssistantReplyTruncatedError(
     `The assistant's reply was longer than the ${MAX_COMPLETION_TOKENS.toLocaleString('en-US')} tokens one reply may have and was cut off; ask for the change in smaller parts.`,
   );
 }
 
-function checkContextLeft(output: ModelOutput): void {
-  if (output.promptTokens + MAX_COMPLETION_TOKENS > CONTEXT_TOKENS) throw createTooLargeError();
-}
-
-function getCompletion(data: unknown): ModelOutput {
+function getCompletion(data: unknown): Omit<ModelOutput, 'promptChars'> {
   if (typeof data !== 'object' || data === null || !('response' in data)) {
     throw new AssistantResponseContractError('Ollama returned no "response" field.');
   }
@@ -198,7 +230,7 @@ function getCompletion(data: unknown): ModelOutput {
     throw new AssistantResponseContractError('Ollama returned no "prompt_eval_count" field.');
   }
   const promptTokens = data.prompt_eval_count;
-  if (typeof promptTokens !== 'number' || !Number.isInteger(promptTokens) || promptTokens < 0) {
+  if (!isTokenCount(promptTokens)) {
     throw new AssistantResponseContractError(
       'Ollama returned a "prompt_eval_count" that is not a token count.',
     );
