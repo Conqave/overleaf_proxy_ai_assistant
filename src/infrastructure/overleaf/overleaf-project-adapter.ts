@@ -14,7 +14,7 @@ import type { CancellationSignal } from '../../ports/cancellation';
 import type { ProjectPort } from '../../ports/project-port';
 import { throwAbortReason, withDeadline } from '../deadline';
 import { formatDuration } from '../duration';
-import { OverleafCompiler, type OverleafCompileTimeouts } from './overleaf-compiler';
+import { OverleafCompiler } from './overleaf-compiler';
 import type { OpenEditor, OverleafEditorBridge } from './overleaf-editor-bridge';
 import { OverleafStoreContractError, StoreKey, type OverleafStore } from './overleaf-store';
 import { readProjectTree } from './project-tree';
@@ -23,19 +23,8 @@ const FILE_TREE_SELECTOR = '.file-tree';
 const ENTITY_SELECTOR = '.entity[data-file-id]';
 const HTTP_NOT_FOUND = 404;
 const EXPAND_ICON_SELECTOR = '.file-tree-expand-icon';
-
-export interface OverleafProjectTimeouts extends OverleafCompileTimeouts {
-  readonly fileOpenMs: number;
-  readonly fileReadMs: number;
-}
-
-export const OVERLEAF_PROJECT_TIMEOUTS: OverleafProjectTimeouts = {
-  fileOpenMs: 20_000,
-  fileReadMs: 20_000,
-  saveMs: 20_000,
-  compileMs: 240_000,
-  compileLogMs: 15_000,
-};
+const FILE_OPEN_MS = 20_000;
+const FILE_READ_MS = 20_000;
 
 export interface OverleafProjectDependencies {
   readonly window: Window & typeof globalThis;
@@ -43,7 +32,6 @@ export interface OverleafProjectDependencies {
   readonly bridge: OverleafEditorBridge;
   readonly fetch: typeof fetch;
   readonly projectId: string;
-  readonly timeouts: OverleafProjectTimeouts;
 }
 
 export class OverleafFileTreeContractError extends NamedError {
@@ -56,7 +44,7 @@ export class OverleafProjectAdapter implements ProjectPort {
   private readonly compiler: OverleafCompiler;
 
   constructor(private readonly deps: OverleafProjectDependencies) {
-    this.compiler = new OverleafCompiler(deps.window, deps.store, deps.timeouts);
+    this.compiler = new OverleafCompiler(deps.window, deps.store);
   }
 
   listFiles(): readonly ProjectFile[] {
@@ -94,10 +82,10 @@ export class OverleafProjectAdapter implements ProjectPort {
       return createDocumentSnapshot(view.state.doc.toJSON());
     }
     const text = await withDeadline(
-      this.deps.timeouts.fileReadMs,
+      FILE_READ_MS,
       () =>
         new ProjectFileReadTimeoutError(
-          `${file.path} could not be read within ${formatDuration(this.deps.timeouts.fileReadMs)}.`,
+          `${file.path} could not be read within ${formatDuration(FILE_READ_MS)}.`,
         ),
       [cancel],
       (signal) => this.download(file, signal),
@@ -143,10 +131,10 @@ export class OverleafProjectAdapter implements ProjectPort {
     run: (signal: AbortSignal) => Promise<T>,
   ): Promise<T> {
     return withDeadline(
-      this.deps.timeouts.fileOpenMs,
+      FILE_OPEN_MS,
       () =>
         new FileOpenTimeoutError(
-          `${file.path} did not open within ${formatDuration(this.deps.timeouts.fileOpenMs)}.`,
+          `${file.path} did not open within ${formatDuration(FILE_OPEN_MS)}.`,
         ),
       [cancel],
       run,

@@ -23,8 +23,7 @@ import { EMPTY_LOG_ENTRIES, FakeOverleafIde } from '../../support/fake-overleaf'
 import { rejectOnAbort } from '../../support/fakes';
 import { TestFixtureError } from '../../support/test-errors';
 
-const TIMEOUT_MS = 10_000;
-const COMPILE_TIMEOUT_MS = 60_000;
+const PAST_EVERY_DEADLINE_MS = 5 * 60_000;
 
 class RequestCancelledForTest extends NamedError {}
 
@@ -58,13 +57,6 @@ beforeEach(() => {
       return answer(signal);
     },
     projectId: 'project-1',
-    timeouts: {
-      fileOpenMs: TIMEOUT_MS,
-      fileReadMs: TIMEOUT_MS,
-      saveMs: TIMEOUT_MS,
-      compileMs: COMPILE_TIMEOUT_MS,
-      compileLogMs: TIMEOUT_MS,
-    },
   });
   return () => {
     uninstall();
@@ -76,14 +68,13 @@ afterEach(() => {
   ide.destroy();
 });
 
-async function expectFailureAfter(
-  waitedMs: number,
+async function expectFailurePastDeadlines(
   operation: () => Promise<unknown>,
   error: new (...args: never[]) => Error,
 ): Promise<void> {
   vi.useFakeTimers();
   const outcome = expect(operation()).rejects.toThrow(error);
-  await vi.advanceTimersByTimeAsync(waitedMs);
+  await vi.advanceTimersByTimeAsync(PAST_EVERY_DEADLINE_MS);
   await outcome;
 }
 
@@ -151,8 +142,7 @@ describe('OverleafProjectAdapter files', () => {
 describe('OverleafProjectAdapter download limits', () => {
   it('gives up on a download that does not finish in time', async () => {
     answer = rejectOnAbort;
-    await expectFailureAfter(
-      TIMEOUT_MS,
+    await expectFailurePastDeadlines(
       () => adapter.readFile(file('refs.bib'), cancel.signal),
       ProjectFileReadTimeoutError,
     );
@@ -192,8 +182,7 @@ describe('OverleafProjectAdapter.openFile', () => {
 
   it('times out when Overleaf does not open the file and stops watching', async () => {
     ide.opensDocs = false;
-    await expectFailureAfter(
-      TIMEOUT_MS,
+    await expectFailurePastDeadlines(
       () => adapter.openFile(file('refs.bib'), cancel.signal),
       FileOpenTimeoutError,
     );
@@ -275,7 +264,7 @@ describe('OverleafProjectAdapter.compile', () => {
   it('refuses to compile while Overleaf has not saved the latest edits', async () => {
     ide.sharedDocument.bufferedOps = true;
     ide.sharedDocument.savesEdits = false;
-    await expectFailureAfter(TIMEOUT_MS, () => adapter.compile(cancel.signal), EditsNotSavedError);
+    await expectFailurePastDeadlines(() => adapter.compile(cancel.signal), EditsNotSavedError);
     expect(ide.compileCount).toBe(0);
   });
 
@@ -286,18 +275,13 @@ describe('OverleafProjectAdapter.compile', () => {
 
   it('times out when Overleaf never runs the compile and stops watching', async () => {
     ide.compiles = false;
-    await expectFailureAfter(
-      COMPILE_TIMEOUT_MS,
-      () => adapter.compile(cancel.signal),
-      CompileTimeoutError,
-    );
+    await expectFailurePastDeadlines(() => adapter.compile(cancel.signal), CompileTimeoutError);
     expect(ide.store.watcherCount).toBe(0);
   });
 
   it('reports a compile that ends without any log long before the compile timeout', async () => {
     ide.compileOutcome = 'http-error';
-    await expectFailureAfter(
-      TIMEOUT_MS,
+    await expectFailurePastDeadlines(
       () => adapter.compile(cancel.signal),
       CompileWithoutResultError,
     );
@@ -306,8 +290,7 @@ describe('OverleafProjectAdapter.compile', () => {
 
   it('reports a compile that ends with an empty log and no new PDF', async () => {
     ide.compileOutcome = 'no-output';
-    await expectFailureAfter(
-      TIMEOUT_MS,
+    await expectFailurePastDeadlines(
       () => adapter.compile(cancel.signal),
       CompileWithoutResultError,
     );

@@ -2,7 +2,6 @@ import { readFileSync } from 'node:fs';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { COMPILE_FIX_REQUEST } from '../../src/application/handle-assistant-request';
 import { AGENT_POLICY } from '../../src/domain/agent-policy';
-import { OVERLEAF_PROJECT_TIMEOUTS } from '../../src/infrastructure/overleaf/overleaf-project-adapter';
 import { type Browser, openBrowser } from '../support/browser';
 import {
   FAKE_REQUEST_TIMEOUT_MS,
@@ -26,6 +25,7 @@ const BUNDLE = readFileSync(
 );
 const HISTORY_KEY = 'ola-conversation:user-1:project-1';
 const PAGE_WAIT = { timeout: 10_000 };
+const PAST_OVERLEAF_DEADLINES_MS = 5 * 60_000;
 const REFS_DOC_ID = 'doc-refs';
 const REFS_TEXT = '@book{knuth84,\n  title = {The TeXbook}\n}';
 const SMITH_ENTRY = '@article{smith20,\n  title = {Smith}\n}';
@@ -595,7 +595,7 @@ describe('assistant under interference', () => {
       assistant,
       'Does it compile?',
       isCompiling(assistant),
-      OVERLEAF_PROJECT_TIMEOUTS.compileLogMs,
+      PAST_OVERLEAF_DEADLINES_MS,
     );
     expect(assistant.texts('.ola-error')).toEqual([
       expect.stringContaining('Overleaf finished the compile without a new PDF or log'),
@@ -609,7 +609,7 @@ describe('assistant under interference', () => {
       assistant,
       'Does it compile?',
       isCompiling(assistant),
-      OVERLEAF_PROJECT_TIMEOUTS.compileMs,
+      PAST_OVERLEAF_DEADLINES_MS,
     );
     expect(assistant.texts('.ola-error')).toEqual([
       expect.stringContaining('The project did not compile within 4 minutes.'),

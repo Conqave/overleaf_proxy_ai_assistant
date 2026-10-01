@@ -15,12 +15,9 @@ const RECOMPILE_EVENT = 'pdf:recompile';
 const RECOMPILE_BUTTON_SELECTOR = '.toolbar-pdf-left .split-menu-button[data-ol-loading]';
 const LOADING_ATTRIBUTE = 'data-ol-loading';
 const SAVE_POLL_MS = 25;
-
-export interface OverleafCompileTimeouts {
-  readonly saveMs: number;
-  readonly compileMs: number;
-  readonly compileLogMs: number;
-}
+const SAVE_MS = 20_000;
+const COMPILE_MS = 240_000;
+const COMPILE_LOG_MS = 15_000;
 
 interface CompileOutput {
   readonly log: unknown;
@@ -37,24 +34,23 @@ export class OverleafCompiler {
   constructor(
     private readonly window: Window & typeof globalThis,
     private readonly store: OverleafStore,
-    private readonly timeouts: OverleafCompileTimeouts,
   ) {}
 
   async compile(cancel: CancellationSignal): Promise<readonly CompileDiagnostic[]> {
     await withDeadline(
-      this.timeouts.saveMs,
+      SAVE_MS,
       () =>
         new EditsNotSavedError(
-          `Overleaf did not save the latest edits within ${formatDuration(this.timeouts.saveMs)}; check the connection and try again.`,
+          `Overleaf did not save the latest edits within ${formatDuration(SAVE_MS)}; check the connection and try again.`,
         ),
       [cancel],
       (signal) => this.whenEditsSaved(signal),
     );
     return await withDeadline(
-      this.timeouts.compileMs,
+      COMPILE_MS,
       () =>
         new CompileTimeoutError(
-          `The project did not compile within ${formatDuration(this.timeouts.compileMs)}.`,
+          `The project did not compile within ${formatDuration(COMPILE_MS)}.`,
         ),
       [cancel],
       (signal) => this.recompile(signal),
@@ -89,7 +85,7 @@ export class OverleafCompiler {
       return isIdle([], button) && pdf !== before.pdf && log !== null && log !== before.log;
     };
     return withDeadline(
-      this.timeouts.compileLogMs,
+      COMPILE_LOG_MS,
       () => this.withoutResult(),
       [cancel],
       async (signal) => {

@@ -18,10 +18,7 @@ import {
   getPageIdentity,
   MissingPageIdentityError,
 } from '../infrastructure/overleaf/overleaf-page';
-import {
-  OVERLEAF_PROJECT_TIMEOUTS,
-  OverleafProjectAdapter,
-} from '../infrastructure/overleaf/overleaf-project-adapter';
+import { OverleafProjectAdapter } from '../infrastructure/overleaf/overleaf-project-adapter';
 import {
   OverleafStore,
   OverleafStoreContractError,
@@ -55,7 +52,6 @@ function compose(
     bridge,
     fetch: window.fetch.bind(window),
     projectId: identity.projectId,
-    timeouts: OVERLEAF_PROJECT_TIMEOUTS,
   });
   const conversation = new ConversationLog(
     new LocalStorageConversationRepository(window, identity),
