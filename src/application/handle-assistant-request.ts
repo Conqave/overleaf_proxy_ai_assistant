@@ -1,6 +1,6 @@
-import type { ProjectEdit } from '../domain/agent-action';
+import type { AgentDecision, ProjectEdit } from '../domain/agent-action';
 import { hasMistakesLeft } from '../domain/agent-policy';
-import type { AgentTurn, CompileDiagnostic } from '../domain/agent-transcript';
+import type { AgentTurn, CompileDiagnostic, ToolResult } from '../domain/agent-transcript';
 import {
   ProposalStatus,
   type ConversationMessage,
@@ -13,7 +13,12 @@ import type { AgentPort, AgentRequest, AgentWorkspace, ContextUsage } from '../p
 import type { CancellationController, CancellationSignal } from '../ports/cancellation';
 import type { EditorPort } from '../ports/editor-port';
 import type { ProjectPort } from '../ports/project-port';
-import { acceptDecision, isAgentMistake, type AcceptedDecision } from './agent-decision';
+import {
+  acceptDecision,
+  isAgentMistake,
+  type AcceptedDecision,
+  type AgentMistake,
+} from './agent-decision';
 import type { AgentProgress } from './agent-progress';
 import type { ConversationLog } from './conversation-log';
 import { AgentMistakeLimitError, EmptyRequestError } from './errors';
@@ -137,14 +142,20 @@ export class HandleAssistantRequest {
         accepted = acceptDecision(decision, workspace, transcript);
       } catch (error) {
         if (!isAgentMistake(error)) throw error;
-        transcript.push({ kind: 'mistake', decision, problem: error.message });
-        if (!hasMistakesLeft(transcript)) throw new AgentMistakeLimitError(error);
+        recordMistake(transcript, decision, error);
         continue;
       }
       if (accepted.kind !== 'tool') {
         return await this.answer(accepted, contextUsage, run);
       }
-      const result = await this.tools.run(accepted.run, onProgress, signal);
+      let result: ToolResult;
+      try {
+        result = await this.tools.run(accepted.run, onProgress, signal);
+      } catch (error) {
+        if (!isAgentMistake(error)) throw error;
+        recordMistake(transcript, decision, error);
+        continue;
+      }
       conversation.ensureCurrent(epoch);
       transcript.push({ kind: 'tool', call: accepted.call, result });
     }
@@ -205,4 +216,13 @@ export class HandleAssistantRequest {
     this.deps.conversation.append(message);
     return message;
   }
+}
+
+function recordMistake(
+  transcript: AgentTurn[],
+  decision: AgentDecision,
+  mistake: AgentMistake,
+): void {
+  transcript.push({ kind: 'mistake', decision, problem: mistake.message });
+  if (!hasMistakesLeft(transcript)) throw new AgentMistakeLimitError(mistake);
 }

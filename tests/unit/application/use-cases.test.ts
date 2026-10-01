@@ -77,6 +77,7 @@ let review: ReviewAppliedChange;
 let lock: OperationLock;
 let progress: AgentProgress[];
 let busy: boolean[];
+let newId: () => string;
 
 const isBusy = () => busy.at(-1) === true;
 const record = (p: AgentProgress) => {
@@ -136,6 +137,19 @@ async function proposeEdit(...decisions: AgentDecision[]): Promise<string> {
   return changeIdOf(await send('add more'));
 }
 
+function createHandle(): HandleAssistantRequest {
+  return new HandleAssistantRequest({
+    agent,
+    project,
+    editor,
+    conversation,
+    pendingChanges,
+    lock,
+    newId,
+    createController: () => new AbortController(),
+  });
+}
+
 beforeEach(() => {
   editor = new FakeEditor([]);
   project = new FakeProject(
@@ -157,17 +171,8 @@ beforeEach(() => {
   lock.onChange((isNowBusy) => {
     busy.push(isNowBusy);
   });
-  const newId = sequentialIds();
-  handle = new HandleAssistantRequest({
-    agent,
-    project,
-    editor,
-    conversation,
-    pendingChanges,
-    lock,
-    newId,
-    createController: () => new AbortController(),
-  });
+  newId = sequentialIds();
+  handle = createHandle();
   review = new ReviewAppliedChange({ project, conversation, handleRequest: handle });
   apply = new ApplyDocumentChange({ editor, project, pendingChanges, conversation, lock, review });
   reject = new RejectDocumentChange({ editor, pendingChanges, lock });
@@ -262,7 +267,12 @@ describe('HandleAssistantRequest', () => {
       {
         kind: 'tool',
         call: { tool: 'read_file', path: 'refs.bib' },
-        result: { tool: 'read_file', path: 'refs.bib', document: createDocumentSnapshot(BIB) },
+        result: {
+          tool: 'read_file',
+          path: 'refs.bib',
+          document: createDocumentSnapshot(BIB),
+          shown: { first: 1, last: BIB.length },
+        },
       },
     ]);
     expect(project.opened).toEqual(['refs.bib']);
@@ -274,6 +284,50 @@ describe('HandleAssistantRequest', () => {
       { stage: 'reading', path: 'refs.bib' },
       { stage: 'thinking', step: 2 },
       { stage: 'opening', path: 'refs.bib' },
+    ]);
+  });
+
+  it('edits a long file only in the lines a ranged read showed', async () => {
+    const long = Array.from({ length: 3_000 }, (_, index) => `Line ${String(index + 1)}.`);
+    project = new FakeProject(editor, { 'main.tex': MAIN, 'long.tex': long }, 'main.tex');
+    handle = createHandle();
+    agent.will(
+      tool({ tool: 'read_file', path: 'long.tex' }),
+      editOf('long.tex', long, 2_500),
+      tool({ tool: 'read_file', path: 'long.tex', range: { startLine: 2_400, endLine: 2_600 } }),
+      editOf('long.tex', long, 2_500),
+    );
+    const result = await send('extend line 2500');
+    expect(requestAt(1).transcript[0]).toMatchObject({
+      result: { tool: 'read_file', shown: { first: 1 } },
+    });
+    expect(requestAt(2).transcript[1]).toMatchObject({
+      kind: 'mistake',
+      problem: textContaining('line 2500 of long.tex was not shown to you'),
+    });
+    expect(requestAt(3).transcript[2]).toHaveProperty('result.shown', {
+      first: 2_400,
+      last: 2_600,
+    });
+    expect(result.message).toMatchObject({
+      kind: 'proposal',
+      path: 'long.tex',
+      command: { target: { lineNumber: 2_500 } },
+    });
+  });
+
+  it('sends a read starting past the end of the file back to the agent', async () => {
+    agent.will(
+      tool({ tool: 'read_file', path: 'refs.bib', range: { startLine: 9 } }),
+      answer('The file is short.'),
+    );
+    await send('show the end of refs.bib');
+    expect(requestAt(1).transcript).toEqual([
+      {
+        kind: 'mistake',
+        decision: tool({ tool: 'read_file', path: 'refs.bib', range: { startLine: 9 } }),
+        problem: 'the file has 3 lines, so it has no line 9; read from a line up to 3',
+      },
     ]);
   });
 

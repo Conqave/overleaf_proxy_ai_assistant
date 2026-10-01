@@ -2,6 +2,7 @@ import type { DocumentCommand } from './document-command';
 import type { ResolvedEdit } from './resolved-edit';
 import { createProjectPath, type TextFile } from './project-file';
 import { InvalidProjectPathError, InvalidToolCallError } from './errors';
+import { createReadRange, isSameReadRange, type ReadRange } from './read-window';
 
 export const AgentTool = {
   ReadFile: 'read_file',
@@ -11,7 +12,7 @@ export const AgentTool = {
 export type AgentTool = (typeof AgentTool)[keyof typeof AgentTool];
 
 export type ToolCall =
-  | { readonly tool: typeof AgentTool.ReadFile; readonly path: string }
+  | { readonly tool: typeof AgentTool.ReadFile; readonly path: string; readonly range?: ReadRange }
   | { readonly tool: typeof AgentTool.Search; readonly query: string }
   | { readonly tool: typeof AgentTool.Compile };
 
@@ -19,6 +20,8 @@ export interface ToolCallInput {
   readonly tool: unknown;
   readonly path?: unknown;
   readonly query?: unknown;
+  readonly startLine?: unknown;
+  readonly endLine?: unknown;
 }
 
 export const SEARCH_QUERY_CHARS = { min: 2, max: 200 } as const;
@@ -35,15 +38,20 @@ export function createToolCall(input: ToolCallInput): ToolCall {
     throw new InvalidToolCallError(`unknown tool: ${JSON.stringify(tool)}`);
   }
   switch (tool) {
-    case AgentTool.ReadFile:
+    case AgentTool.ReadFile: {
       rejectArgument(tool, 'query', input.query);
-      return Object.freeze({ tool, path: parsePath(input.path) });
+      const path = parsePath(input.path);
+      const range = createReadRange(input.startLine, input.endLine);
+      return Object.freeze(range === undefined ? { tool, path } : { tool, path, range });
+    }
     case AgentTool.Search:
       rejectArgument(tool, 'path', input.path);
+      rejectLineArguments(tool, input);
       return Object.freeze({ tool, query: parseQuery(input.query) });
     case AgentTool.Compile:
       rejectArgument(tool, 'path', input.path);
       rejectArgument(tool, 'query', input.query);
+      rejectLineArguments(tool, input);
       return Object.freeze({ tool });
   }
 }
@@ -51,7 +59,11 @@ export function createToolCall(input: ToolCallInput): ToolCall {
 export function isSameToolCall(first: ToolCall, second: ToolCall): boolean {
   switch (first.tool) {
     case AgentTool.ReadFile:
-      return second.tool === AgentTool.ReadFile && second.path === first.path;
+      return (
+        second.tool === AgentTool.ReadFile &&
+        second.path === first.path &&
+        isSameReadRange(first.range, second.range)
+      );
     case AgentTool.Search:
       return second.tool === AgentTool.Search && second.query === first.query;
     case AgentTool.Compile:
@@ -61,6 +73,11 @@ export function isSameToolCall(first: ToolCall, second: ToolCall): boolean {
 
 function rejectArgument(tool: AgentTool, name: string, value: unknown): void {
   if (value !== undefined) throw new InvalidToolCallError(`${tool} takes no ${name}`);
+}
+
+function rejectLineArguments(tool: AgentTool, input: ToolCallInput): void {
+  rejectArgument(tool, 'start line', input.startLine);
+  rejectArgument(tool, 'end line', input.endLine);
 }
 
 function parsePath(value: unknown): string {

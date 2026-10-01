@@ -21,7 +21,12 @@ const turns: readonly AgentTurn[] = [
   {
     kind: 'tool',
     call: { tool: AgentTool.ReadFile, path: 'refs.bib' },
-    result: { tool: AgentTool.ReadFile, path: 'refs.bib', document: bib },
+    result: {
+      tool: AgentTool.ReadFile,
+      path: 'refs.bib',
+      document: bib,
+      shown: { first: 1, last: 2 },
+    },
   },
   {
     kind: 'tool',
@@ -106,6 +111,43 @@ describe('agent exchange', () => {
     );
     expect(prompt.indexOf('Result 1')).toBeLessThan(prompt.indexOf('Result 3'));
     expect(prompt.endsWith('Lookups left: 3')).toBe(true);
+  });
+
+  it('shows a part of a long file with the lines it covers and how to read on', () => {
+    const chapter = createDocumentSnapshot(
+      Array.from({ length: 30 }, (_, index) => `Line ${String(index + 1)}.`),
+    );
+    const part: AgentTurn = {
+      kind: 'tool',
+      call: { tool: AgentTool.ReadFile, path: 'ch.tex', range: { startLine: 10, endLine: 11 } },
+      result: {
+        tool: AgentTool.ReadFile,
+        path: 'ch.tex',
+        document: chapter,
+        shown: { first: 10, last: 11 },
+      },
+    };
+    const { prompt, system } = createAgentExchange(request({ transcript: [part] }), budget).request;
+    expect(prompt).toContain(
+      'Result 1 (read_file ch.tex from line 10 to 11):\n10: Line 10.\n11: Line 11.\n[Showing lines 10–11 of 30. Read another range with START_LINE and END_LINE, or search.]',
+    );
+    expect(system).toContain('add START_LINE and END_LINE (line numbers, both optional)');
+    expect(system).toContain('A result "Showing lines A–B of N" shows only part of the file');
+  });
+
+  it('shows an empty file as empty', () => {
+    const empty: AgentTurn = {
+      kind: 'tool',
+      call: { tool: AgentTool.ReadFile, path: 'e.tex' },
+      result: {
+        tool: AgentTool.ReadFile,
+        path: 'e.tex',
+        document: createDocumentSnapshot([]),
+        shown: { first: 1, last: 0 },
+      },
+    };
+    const { prompt } = createAgentExchange(request({ transcript: [empty] }), budget).request;
+    expect(prompt).toContain('Result 1 (read_file e.tex):\n(empty file)');
   });
 
   it('says so when a search or compile found nothing', () => {
@@ -203,7 +245,12 @@ describe('agent prompt budget', () => {
   const longRead = (path: string): AgentTurn => ({
     kind: 'tool',
     call: { tool: AgentTool.ReadFile, path },
-    result: { tool: AgentTool.ReadFile, path, document: long },
+    result: {
+      tool: AgentTool.ReadFile,
+      path,
+      document: long,
+      shown: { first: 1, last: long.lines.length },
+    },
   });
 
   it('gives the open file the whole room when there are no tool results', () => {

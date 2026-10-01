@@ -4,6 +4,7 @@ import type { AgentTurn, CompileDiagnostic, ToolResult } from '../../domain/agen
 import type { DocumentSnapshot } from '../../domain/document';
 import { DocumentOperation } from '../../domain/document-command';
 import { ProjectFileKind, type ProjectFile } from '../../domain/project-file';
+import { isWholeDocument, numberLine, READ_LIMITS, type LineSpan } from '../../domain/read-window';
 import type { AgentRequest, AgentStepRequest } from '../../ports/agent-port';
 import { createMessageTooLargeError } from './context-budget';
 import { getCorrectionReserveChars, type ProtocolExchange } from './correction-exchange';
@@ -37,6 +38,7 @@ const FILES_LABEL = 'Project files:';
 const SMALL_BLOCK_LABELS: readonly string[] = [FILES_LABEL, CONVERSATION_LABEL, SELECTION_LABEL];
 const NO_PROBLEMS = '(no problems)';
 const NO_MATCHES = '(no matches)';
+const EMPTY_FILE = '(empty file)';
 const MORE_MATCHES = '(more matches omitted; search for something more specific)';
 const REJECTED = 'rejected';
 const COMPILE_RESULT_LABEL = 'Compile result after the applied change';
@@ -89,7 +91,7 @@ const AGENT_SYSTEM = lines(
   'You have no functions and no tools to call. Never send a message to a recipient or a function: the whole reply goes to the final channel as plain text, including read_file, search and compile, which are only lines of text that the editor reads.',
   '',
   'Lookups collect information you do not have yet. A lookup is your final answer for this turn: write its lines as the final answer and stop. The editor then performs it and asks you again with its outcome added as "Result N".',
-  `- ${A.ReadFile}: shows the numbered lines of one text file of the project.`,
+  `- ${A.ReadFile}: shows the numbered lines of one text file of the project, at most ${String(READ_LIMITS.maxLines)} lines or ${String(READ_LIMITS.maxChars)} characters at a time. For a long file add ${AgentField.StartLine} and ${EditField.EndLine} (line numbers, both optional) to read another part.`,
   actionLine(A.ReadFile),
   fieldLine(AgentField.Path, 'sample.bib'),
   `- ${A.Search}: finds a text in every text file of the project, case-insensitively, and lists each matching line as path:line: text. Use it to find where a \\label, \\cite key, \\ref, command or phrase is.`,
@@ -113,8 +115,9 @@ const AGENT_SYSTEM = lines(
   '',
   'How to work:',
   '- The open file is already shown with numbered lines: never read it; answer or edit it directly.',
-  `- Any other file must be read with ${A.ReadFile} before you edit it or quote it.`,
+  `- Any other file must be read with ${A.ReadFile} before you edit it or quote it; you can only edit lines that were shown to you.`,
   `- ${AgentField.Path} is always a path exactly as listed under Project files; files marked (binary) cannot be read or edited. If a file the user names is not listed, say so in an ${A.Answer}.`,
+  `- A result "Showing lines A–B of N" shows only part of the file; lines up to N exist. Read the part you need with ${AgentField.StartLine} and ${EditField.EndLine}, or ${A.Search} for it, before you answer or edit.`,
   `- Use ${A.Search} to find labels, citations, commands or text when you do not know which file has them.`,
   `- When the user says the project does not compile or reports errors or warnings, your first action is ${A.Compile}, before any ${A.ReadFile}; then read the file it names and fix the first error it reports; the errors after it are often only its consequences, so change nothing else.`,
   `- A System request about compile errors comes with "${COMPILE_RESULT_LABEL}": do not ${A.Compile} again; read the file it names and fix the first error it reports.`,
@@ -273,7 +276,19 @@ function toolsLeft(transcript: readonly AgentTurn[]): string {
 }
 
 function numberLines(document: DocumentSnapshot): string {
-  return document.lines.map((line, index) => `${String(index + 1)}: ${line}`).join(LINE_BREAK);
+  return document.lines.map((line, index) => numberLine(index + 1, line)).join(LINE_BREAK);
+}
+
+function readText(document: DocumentSnapshot, shown: LineSpan): string {
+  if (document.lines.length === 0) return EMPTY_FILE;
+  const numbered = document.lines
+    .slice(shown.first - 1, shown.last)
+    .map((line, index) => numberLine(shown.first + index, line));
+  if (isWholeDocument(shown, document)) return lines(...numbered);
+  return lines(
+    ...numbered,
+    `[Showing lines ${String(shown.first)}–${String(shown.last)} of ${String(document.lines.length)}. Read another range with ${AgentField.StartLine} and ${EditField.EndLine}, or search.]`,
+  );
 }
 
 function attachedBlocks(request: AgentRequest): PromptBlock[] {
@@ -309,7 +324,8 @@ function describeDecision(decision: AgentDecision): string {
 function describeCall(call: ToolCall): string {
   switch (call.tool) {
     case AgentTool.ReadFile:
-      return `${call.tool} ${call.path}`;
+      if (call.range === undefined) return `${call.tool} ${call.path}`;
+      return `${call.tool} ${call.path} from line ${String(call.range.startLine)}${call.range.endLine === undefined ? '' : ` to ${String(call.range.endLine)}`}`;
     case AgentTool.Search:
       return `${call.tool} ${JSON.stringify(call.query)}`;
     case AgentTool.Compile:
@@ -320,7 +336,7 @@ function describeCall(call: ToolCall): string {
 function resultText(result: ToolResult): string {
   switch (result.tool) {
     case AgentTool.ReadFile:
-      return numberLines(result.document);
+      return readText(result.document, result.shown);
     case AgentTool.Search: {
       const found = result.matches.map(
         (match) => `${match.path}:${String(match.lineNumber)}: ${match.lineText}`,

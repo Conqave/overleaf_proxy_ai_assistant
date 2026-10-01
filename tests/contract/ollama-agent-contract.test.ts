@@ -138,7 +138,12 @@ const CLOSED_TRANSCRIPT: readonly AgentTurn[] = [
   {
     kind: 'tool',
     call: { tool: AgentTool.ReadFile, path: BIB },
-    result: { tool: AgentTool.ReadFile, path: BIB, document: getText(TEXTS, BIB) },
+    result: {
+      tool: AgentTool.ReadFile,
+      path: BIB,
+      document: getText(TEXTS, BIB),
+      shown: { first: 1, last: getText(TEXTS, BIB).lines.length },
+    },
   },
   ...['tabular', 'caption', 'section', 'label', 'figure'].map((query): AgentTurn => ({
     kind: 'tool',
@@ -146,6 +151,21 @@ const CLOSED_TRANSCRIPT: readonly AgentTurn[] = [
     result: { tool: AgentTool.Search, ...searchProject(textFiles(TEXTS), query) },
   })),
 ];
+
+const MEASUREMENTS = 'chapters/measurements.tex';
+const LONG_TEXTS: ReadonlyMap<string, DocumentSnapshot> = new Map([
+  ...TEXTS,
+  [
+    MEASUREMENTS,
+    createDocumentSnapshot(
+      Array.from(
+        { length: 3_000 },
+        (_, index) =>
+          `Pomiar ${String(index + 1)}: temperatura ${String(20 + (index % 7))} stopni, ciśnienie ${String(1_000 + (index % 13))} hPa.`,
+      ),
+    ),
+  ],
+]);
 
 const UNTOUCHED_PROJECT = {
   texts: TEXTS,
@@ -322,6 +342,18 @@ const CASES: readonly Case[] = [
     request: 'co jest w pliku appendix.tex?',
     tools: [[], [AgentTool.Search]],
     answer: /appendix\.tex[^]*\b(nie|brak)\b|\b(nie|brak)\b[^]*appendix\.tex/i,
+  },
+  {
+    ...UNTOUCHED_PROJECT,
+    texts: LONG_TEXTS,
+    name: 'reads a far part of a long file before editing it',
+    request: `w pliku ${MEASUREMENTS} zmień temperaturę w pomiarze 2600 na 35 stopni`,
+    edit: {
+      path: MEASUREMENTS,
+      operation: 'replace',
+      line: 2_600,
+      content: /^Pomiar 2600: temperatura 35 stopni/,
+    },
   },
 ];
 

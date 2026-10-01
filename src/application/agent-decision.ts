@@ -6,22 +6,29 @@ import {
   type ToolCall,
 } from '../domain/agent-action';
 import { checkToolCall } from '../domain/agent-policy';
-import { getShownDocument, type AgentTurn } from '../domain/agent-transcript';
+import { assertEditShown, getShownDocument, type AgentTurn } from '../domain/agent-transcript';
 import {
   DocumentRangeError,
   DocumentTargetNotFoundError,
   NotATextFileError,
   ProjectFileNotFoundError,
+  ReadRangeError,
   RepeatedToolCallError,
   ToolBudgetExhaustedError,
   UnreadFileEditError,
+  UnshownLinesEditError,
 } from '../domain/errors';
 import { findTextFile, listTextFiles, type TextFile } from '../domain/project-file';
 import { ResolvedEdit } from '../domain/resolved-edit';
+import type { ReadRange } from '../domain/read-window';
 import type { AgentWorkspace } from '../ports/agent-port';
 
 export type ProjectToolRun =
-  | { readonly tool: typeof AgentTool.ReadFile; readonly file: TextFile }
+  | {
+      readonly tool: typeof AgentTool.ReadFile;
+      readonly file: TextFile;
+      readonly range: ReadRange | undefined;
+    }
   | {
       readonly tool: typeof AgentTool.Search;
       readonly query: string;
@@ -41,6 +48,8 @@ export type AgentMistake =
   | ProjectFileNotFoundError
   | NotATextFileError
   | UnreadFileEditError
+  | UnshownLinesEditError
+  | ReadRangeError
   | DocumentTargetNotFoundError
   | DocumentRangeError;
 
@@ -51,6 +60,8 @@ export function isAgentMistake(error: unknown): error is AgentMistake {
     error instanceof ProjectFileNotFoundError ||
     error instanceof NotATextFileError ||
     error instanceof UnreadFileEditError ||
+    error instanceof UnshownLinesEditError ||
+    error instanceof ReadRangeError ||
     error instanceof DocumentTargetNotFoundError ||
     error instanceof DocumentRangeError
   );
@@ -69,7 +80,7 @@ export function acceptDecision(
 function planToolRun(call: ToolCall, workspace: AgentWorkspace): ProjectToolRun {
   switch (call.tool) {
     case AgentTool.ReadFile:
-      return { tool: call.tool, file: findTextFile(workspace.files, call.path) };
+      return { tool: call.tool, file: findTextFile(workspace.files, call.path), range: call.range };
     case AgentTool.Search:
       return { tool: call.tool, query: call.query, files: listTextFiles(workspace.files) };
     case AgentTool.Compile:
@@ -89,7 +100,9 @@ function acceptReply(
     case 'edit': {
       const file = findTextFile(workspace.files, reply.path);
       const shown = getShownDocument(workspace.openFile, transcript, file.path);
-      return { kind: 'edit', change: { file, edit: ResolvedEdit.resolve(shown, reply.command) } };
+      const edit = ResolvedEdit.resolve(shown.document, reply.command);
+      assertEditShown(file.path, shown, edit.command);
+      return { kind: 'edit', change: { file, edit } };
     }
   }
 }

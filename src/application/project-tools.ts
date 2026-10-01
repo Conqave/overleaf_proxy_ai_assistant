@@ -2,6 +2,7 @@ import { AgentTool } from '../domain/agent-action';
 import type { ToolResult } from '../domain/agent-transcript';
 import type { DocumentSnapshot } from '../domain/document';
 import type { TextFile } from '../domain/project-file';
+import { getReadSpan } from '../domain/read-window';
 import { searchProject, type SearchedFile } from '../domain/project-search';
 import type { CancellationController, CancellationSignal } from '../ports/cancellation';
 import type { ProjectPort } from '../ports/project-port';
@@ -22,13 +23,16 @@ export class ProjectTools {
     signal: CancellationSignal,
   ): Promise<ToolResult> {
     switch (run.tool) {
-      case AgentTool.ReadFile:
+      case AgentTool.ReadFile: {
         onProgress({ stage: 'reading', path: run.file.path });
+        const document = await this.project.readFile(run.file, signal);
         return {
           tool: run.tool,
           path: run.file.path,
-          document: await this.project.readFile(run.file, signal),
+          document,
+          shown: getReadSpan(document, run.range),
         };
+      }
       case AgentTool.Search: {
         onProgress({ stage: 'searching', query: run.query });
         const searched = await this.readAll(run.files, signal);

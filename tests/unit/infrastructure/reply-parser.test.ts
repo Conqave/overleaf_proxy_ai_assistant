@@ -21,6 +21,14 @@ describe('parseAgentDecision tool calls', () => {
     ['ACTION: read_file\nPATH: refs.bib', { tool: 'read_file', path: 'refs.bib' }],
     ['ACTION: search\nQUERY:  \\label{fig:a} ', { tool: 'search', query: '\\label{fig:a}' }],
     ['\n ACTION: compile\n', { tool: 'compile' }],
+    [
+      'ACTION: read_file\nPATH: refs.bib\nSTART_LINE: 40\nEND_LINE: 80',
+      { tool: 'read_file', path: 'refs.bib', range: { startLine: 40, endLine: 80 } },
+    ],
+    [
+      'ACTION: read_file\nPATH: refs.bib\nEND_LINE: 80',
+      { tool: 'read_file', path: 'refs.bib', range: { startLine: 1, endLine: 80 } },
+    ],
   ])('parses %j', (raw, call) => {
     expect(parseAgentDecision(raw)).toEqual({ kind: 'tool', call });
   });
@@ -32,6 +40,17 @@ describe('parseAgentDecision tool calls', () => {
     ['a one-letter query', 'ACTION: search\nQUERY: a', 'must have 2 to 200 characters'],
     ['a compile with content', 'ACTION: compile\nCONTENT:\nx', 'has no content'],
     ['an unknown field', 'ACTION: compile\nFILE: main.tex', 'unexpected line "FILE: main.tex"'],
+    ['a text start line', 'ACTION: read_file\nPATH: a.tex\nSTART_LINE: ten', 'must be a number'],
+    [
+      'a range ending before it starts',
+      'ACTION: read_file\nPATH: a.tex\nSTART_LINE: 9\nEND_LINE: 2',
+      'comes before the start line',
+    ],
+    [
+      'a search with a start line',
+      'ACTION: search\nQUERY: ab\nSTART_LINE: 2',
+      'takes no start line',
+    ],
   ])('rejects %s', (_name, raw, expected) => {
     expect(problem(raw)).toContain(expected);
   });

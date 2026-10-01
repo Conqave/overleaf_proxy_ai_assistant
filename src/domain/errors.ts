@@ -29,6 +29,10 @@ export class RepeatedToolCallError extends NamedError {}
 
 export class UnreadFileEditError extends NamedError {}
 
+export class UnshownLinesEditError extends NamedError {}
+
+export class ReadRangeError extends NamedError {}
+
 export class ProjectFileNotFoundError extends OperationalError {}
 
 export class NotATextFileError extends OperationalError {}

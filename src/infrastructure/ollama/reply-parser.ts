@@ -32,7 +32,12 @@ import {
 
 const ACTION_LINE = createFieldPattern([AgentField.Action]);
 
-const TOOL_FIELDS: readonly string[] = [AgentField.Path, AgentField.Query];
+const TOOL_FIELDS: readonly string[] = [
+  AgentField.Path,
+  AgentField.Query,
+  AgentField.StartLine,
+  EditField.EndLine,
+];
 
 const AGENT_EDIT_FIELDS: readonly string[] = [AgentField.Path, ...EDIT_FIELDS];
 
@@ -93,6 +98,8 @@ function createCall(tool: ToolCall['tool'], fields: HeaderReply['fields']): Tool
       tool,
       path: fields.get(AgentField.Path),
       query: fields.get(AgentField.Query),
+      startLine: getOptionalLineNumber(fields, AgentField.StartLine),
+      endLine: getOptionalLineNumber(fields, EditField.EndLine),
     });
   } catch (error) {
     if (!(error instanceof InvalidToolCallError)) throw error;
@@ -239,6 +246,13 @@ function getRequiredField(fields: ReadonlyMap<string, string>, name: string): st
   const value = fields.get(name);
   if (value === undefined) throw new InvalidAssistantResponse(`${name} is missing`);
   return value;
+}
+
+function getOptionalLineNumber(
+  fields: ReadonlyMap<string, string>,
+  name: string,
+): number | undefined {
+  return fields.has(name) ? getLineNumber(fields, name) : undefined;
 }
 
 function getLineNumber(fields: ReadonlyMap<string, string>, name: string): number {

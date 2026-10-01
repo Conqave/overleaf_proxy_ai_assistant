@@ -13,7 +13,12 @@ function readTurn(path: string): AgentTurn {
   return {
     kind: 'tool',
     call: { tool: 'read_file', path },
-    result: { tool: 'read_file', path, document: createDocumentSnapshot(['x']) },
+    result: {
+      tool: 'read_file',
+      path,
+      document: createDocumentSnapshot(['x']),
+      shown: { first: 1, last: 1 },
+    },
   };
 }
 
