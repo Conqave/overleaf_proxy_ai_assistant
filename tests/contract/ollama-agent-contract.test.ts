@@ -26,8 +26,19 @@ const readFixture = (path: string): DocumentSnapshot =>
       .split('\n'),
   );
 
+function includeChapter(main: DocumentSnapshot): DocumentSnapshot {
+  const at = main.lines.findIndex((line) => line.startsWith('\\section{Some examples'));
+  if (at === -1) throw new TestFixtureError('the example document has no second section');
+  return createDocumentSnapshot([
+    ...main.lines.slice(0, at),
+    '\\input{chapters/results}',
+    '',
+    ...main.lines.slice(at),
+  ]);
+}
+
 const TEXTS: ReadonlyMap<string, DocumentSnapshot> = new Map([
-  [MAIN, readFixture('overleaf-example.tex')],
+  [MAIN, includeChapter(readFixture('overleaf-example.tex'))],
   [BIB, readFixture('project/sample.bib')],
   [RESULTS, readFixture(`project/${RESULTS}`)],
 ]);
@@ -258,6 +269,7 @@ const CASES: readonly Case[] = [
     diagnostics: BROKEN_DIAGNOSTICS,
     tools: [
       [AgentTool.Compile, AgentTool.ReadFile],
+      [AgentTool.ReadFile, AgentTool.Compile],
       [AgentTool.ReadFile, AgentTool.Compile, AgentTool.ReadFile],
     ],
     edit: {
