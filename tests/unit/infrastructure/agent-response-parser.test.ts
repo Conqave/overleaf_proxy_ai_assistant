@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { AgentTool } from '../../../src/domain/agent-action';
+import { AgentTool, type AgentReply } from '../../../src/domain/agent-action';
 import type { AgentTurn } from '../../../src/domain/agent-transcript';
 import { createDocumentSnapshot } from '../../../src/domain/document';
 import { ProjectFileKind } from '../../../src/domain/project-file';
@@ -153,5 +153,183 @@ describe('parseAgentDecision replies', () => {
     ],
   ])('rejects %s', (_name, raw, expected) => {
     expect(problem(raw)).toContain(expected);
+  });
+});
+
+describe('parseAgentDecision edit header', () => {
+  const shown = createDocumentSnapshot([
+    '\\title{A}',
+    '',
+    '\\section{Results}',
+    'Long paragraph. More.',
+  ]);
+  const shownRequest = (document = shown): AgentStepRequest => ({
+    ...request(),
+    workspace: { ...request().workspace, openFile: { path: 'main.tex', document } },
+  });
+  const edit = (
+    overrides: Record<string, string | null> = {},
+    content = '\\begin{table}\n\\end{table}',
+  ) => {
+    const fields: Record<string, string | null> = {
+      ACTION: 'edit',
+      PATH: 'main.tex',
+      OPERATION: 'insert_after',
+      LINE: '3',
+      LINE_TEXT: '\\section{Results}',
+      REASON: 'Adds a table.',
+      PLAN: 'After the results heading.',
+      ...overrides,
+    };
+    const head = Object.entries(fields)
+      .filter((entry): entry is [string, string] => entry[1] !== null)
+      .map(([name, value]) => `${name}: ${value}`);
+    return [...head, ...(content === '' ? [] : ['CONTENT:', content])].join('\n');
+  };
+
+  const parse = (raw: string, document = shown): AgentReply => {
+    const decision = parseAgentDecision(raw, shownRequest(document));
+    if (decision.kind !== 'reply') throw new TestFixtureError('the reply was a tool call');
+    return decision.reply;
+  };
+  const editProblem = (raw: string): string => {
+    try {
+      parse(raw);
+    } catch (error) {
+      if (error instanceof InvalidAssistantResponse) return error.problem;
+      throw error;
+    }
+    throw new TestFixtureError('the reply was accepted');
+  };
+
+  it('returns a validated edit resolved against the shown document', () => {
+    const content = '\\begin{tabular}{l|r}\nA & 1 \\\\\\hline\n\\end{tabular}';
+    expect(parse(edit({}, content))).toMatchObject({
+      kind: 'edit',
+      rationale: 'After the results heading.',
+      change: {
+        path: 'main.tex',
+        edit: {
+          document: shown,
+          command: {
+            operation: 'insert_after',
+            target: { lineNumber: 3, lineText: '\\section{Results}' },
+            content,
+            reason: 'Adds a table.',
+          },
+        },
+      },
+    });
+  });
+
+  it('keeps leading blank lines of the content and drops trailing ones', () => {
+    expect(parse(edit({}, '\n\\section{X}\n\n'))).toMatchObject({
+      change: { edit: { command: { content: '\n\\section{X}' } } },
+    });
+  });
+
+  it('accepts Windows line endings', () => {
+    expect(parse(edit({}, 'X').replace(/\n/g, '\r\n'))).toMatchObject({
+      change: { edit: { command: { operation: 'insert_after', content: 'X' } } },
+    });
+  });
+
+  it('accepts a delete of one line without content or END_LINE', () => {
+    expect(parse(edit({ OPERATION: 'delete' }, ''))).toMatchObject({
+      change: { edit: { command: { operation: 'delete', lineCount: 1 } } },
+    });
+  });
+
+  it('reads END_LINE as the last line of a replaced or deleted range', () => {
+    expect(parse(edit({ OPERATION: 'replace', END_LINE: '4' }, 'New.'))).toMatchObject({
+      change: {
+        edit: { command: { operation: 'replace', target: { lineNumber: 3 }, lineCount: 2 } },
+      },
+    });
+    expect(parse(edit({ OPERATION: 'delete', END_LINE: '4' }, ''))).toMatchObject({
+      change: { edit: { command: { operation: 'delete', lineCount: 2 } } },
+    });
+  });
+
+  it('tells the model when END_LINE is before LINE or given for an insertion', () => {
+    expect(editProblem(edit({ OPERATION: 'delete', END_LINE: '2' }, ''))).toContain(
+      'the delete range must end at or after its first line 3',
+    );
+    expect(editProblem(edit({ END_LINE: '4' }))).toContain('takes no range end');
+  });
+
+  it('sends a range past the end of the shown document back to the model', () => {
+    expect(editProblem(edit({ OPERATION: 'delete', END_LINE: '9' }, ''))).toContain(
+      'END_LINE must be a line of the document',
+    );
+  });
+
+  it('reads an empty CONTENT block as no content', () => {
+    expect(parse(`${edit({ OPERATION: 'delete' }, '')}\nCONTENT:\n`)).toMatchObject({
+      change: { edit: { command: { operation: 'delete' } } },
+    });
+    expect(editProblem(`${edit({}, '')}\nCONTENT:`)).toContain('requires non-empty content');
+  });
+
+  it('accepts an edit without the optional REASON and PLAN', () => {
+    const reply = parse(edit({ REASON: null, PLAN: null }));
+    expect(reply).toMatchObject({ kind: 'edit' });
+    expect(reply).not.toHaveProperty('rationale');
+    expect(reply).not.toHaveProperty('change.edit.command.reason');
+    expect(parse(edit({ REASON: '', PLAN: '' }))).not.toHaveProperty('rationale');
+  });
+
+  it('completes a long line from its quoted start', () => {
+    const long = createDocumentSnapshot([
+      'Track changes are available on all plans. They record every edit.',
+    ]);
+    const reply = parse(
+      'ACTION: edit\nPATH: main.tex\nOPERATION: delete\nLINE: 1\nLINE_TEXT: Track changes are available on all plans.',
+      long,
+    );
+    expect(reply).toMatchObject({
+      change: { edit: { command: { target: { lineText: long.lines[0] } } } },
+    });
+  });
+
+  it('tells the model which line starts with the text it quoted', () => {
+    expect(editProblem(edit({ LINE: '2', LINE_TEXT: '\\section{Results}' }))).toContain(
+      'LINE_TEXT quotes line 3, not line 2, which is an empty line; to target line 3 write LINE: 3',
+    );
+  });
+
+  it('shows the lines around the targeted line when the quote belongs to another line', () => {
+    expect(editProblem(edit({ LINE: '2', LINE_TEXT: '\\section{Results}' }))).toContain(
+      'The lines around line 2 are:\n1: \\title{A}\n2: \n3: \\section{Results}\n4: Long paragraph. More.',
+    );
+  });
+
+  it('rejects a header line written after the content', () => {
+    expect(editProblem(edit({ PLAN: null }, '\\begin{table}\nPLAN: After the heading.'))).toContain(
+      '"PLAN: After the heading." comes after CONTENT:',
+    );
+  });
+
+  it('names the real line when LINE_TEXT does not match what the model was shown', () => {
+    expect(editProblem(edit({ LINE: '4', LINE_TEXT: 'Long paragraph.' }))).toContain(
+      'which reads: Long paragraph. More.',
+    );
+    expect(editProblem(edit({ LINE: '9', LINE_TEXT: 'x' }))).toContain('the document has 4 lines');
+  });
+
+  it.each([
+    ['unknown field', edit({ ANCHOR: 'x' })],
+    ['field glued to its value', edit().replace('LINE: 3', 'LINE:3')],
+    ['field twice', edit().replace('CONTENT:', 'LINE: 3\nCONTENT:')],
+    ['unknown operation', edit({ OPERATION: 'explain' })],
+    ['missing line', edit({ LINE: null })],
+    ['line as text', edit({ LINE: 'three' })],
+    ['missing line text', edit({ LINE_TEXT: null })],
+    ['END_LINE as text', edit({ OPERATION: 'delete', END_LINE: 'four' }, '')],
+    ['missing content', edit({}, '')],
+    ['content on delete', edit({ OPERATION: 'delete' })],
+    ['fenced content', edit({}, '```latex\n\\section{X}\n```')],
+  ])('rejects %s', (_name, raw) => {
+    expect(() => parse(raw)).toThrow(InvalidAssistantResponse);
   });
 });

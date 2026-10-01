@@ -1,6 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
 import { OllamaAgent } from '../../../src/infrastructure/ollama/ollama-agent';
-import { OllamaAssistant } from '../../../src/infrastructure/ollama/ollama-assistant';
 import { OllamaClient } from '../../../src/infrastructure/ollama/ollama-client';
 import {
   getPromptBudget,
@@ -26,11 +25,7 @@ const config = {
   contextTokens: MIN_CONTEXT_TOKENS,
   timeoutMs: 50,
 };
-const make = (ollama: FakeOllama) => {
-  const client = new OllamaClient(config, ollama.fetch);
-  return { client, assistant: new OllamaAssistant(client) };
-};
-const plan = (value: unknown) => ({ response: JSON.stringify(value) });
+const make = (ollama: FakeOllama) => ({ client: new OllamaClient(config, ollama.fetch) });
 
 describe('OllamaClient', () => {
   it('posts the request in the harmony format of the model and returns its final message', async () => {
@@ -213,83 +208,6 @@ describe('preloadOllamaModel', () => {
   });
 });
 
-describe('OllamaAssistant', () => {
-  const request = { message: 'hi there', conversation: [] };
-
-  it('returns a valid plan from one call', async () => {
-    const ollama = new FakeOllama().reply(plan({ intent: 'summary', needs: [] }));
-    await expect(make(ollama).assistant.plan(request)).resolves.toMatchObject({
-      intent: 'summary',
-    });
-    expect(ollama.promptCalls).toHaveLength(1);
-  });
-
-  it('sizes its prompts to the context window of its client', async () => {
-    const long = { message: 'm'.repeat(getPromptBudget(MIN_CONTEXT_TOKENS)), conversation: [] };
-    await expect(make(new FakeOllama()).assistant.plan(long)).rejects.toThrow(
-      AssistantRequestTooLargeError,
-    );
-    const ollama = new FakeOllama().reply(plan({ intent: 'summary' }));
-    const wide = new OllamaClient(
-      { ...config, contextTokens: 2 * MIN_CONTEXT_TOKENS },
-      ollama.fetch,
-    );
-    await expect(new OllamaAssistant(wide).plan(long)).resolves.toMatchObject({
-      intent: 'summary',
-    });
-  });
-
-  it('retries once, asking again for the format of the exchange', async () => {
-    const ollama = new FakeOllama().reply({ response: 'nope' }, plan({ intent: 'explain' }));
-    await expect(make(ollama).assistant.plan(request)).resolves.toMatchObject({
-      intent: 'explain',
-    });
-    expect(ollama.promptCalls[1]!.body.prompt).toContain(
-      'rejected because: the reply is not valid JSON',
-    );
-    expect(ollama.promptCalls[1]!.body.prompt).toContain('one JSON object');
-  });
-
-  it('fails with a protocol error after a second invalid reply', async () => {
-    const ollama = new FakeOllama().reply({ response: 'nope' }, { response: '{"intent":1}' });
-    await expect(make(ollama).assistant.plan(request)).rejects.toThrow(AssistantProtocolError);
-    expect(ollama.promptCalls).toHaveLength(2);
-  });
-
-  it('does not retry transport errors', async () => {
-    const ollama = new FakeOllama().reply({ status: 500 });
-    await expect(make(ollama).assistant.plan(request)).rejects.toThrow(AssistantHttpError);
-    expect(ollama.promptCalls).toHaveLength(1);
-  });
-
-  it('never proposes an edit when the plan is not an edit', async () => {
-    const editLike = 'OPERATION: delete\nLINE: 1\nLINE_TEXT: a';
-    const ollama = new FakeOllama().reply({ response: editLike });
-    const reply = await make(ollama).assistant.reply({
-      ...request,
-      plan: { intent: 'explain', needs: [] },
-      evidence: { document: createDocumentSnapshot(['a']) },
-    });
-    expect(reply).toEqual({ kind: 'answer', text: editLike });
-  });
-
-  it('sends a mistyped edit target back to the model with the real line text', async () => {
-    const shown = createDocumentSnapshot(['\\section{A}', 'Body text. More.']);
-    const ollama = new FakeOllama().reply(
-      { response: 'OPERATION: delete\nLINE: 2\nLINE_TEXT: Body text.\nREASON: r\nPLAN: p' },
-      { response: 'OPERATION: delete\nLINE: 2\nLINE_TEXT: Body text. More.\nREASON: r\nPLAN: p' },
-    );
-    const reply = await make(ollama).assistant.reply({
-      ...request,
-      plan: { intent: 'edit', needs: [] },
-      evidence: { document: shown },
-    });
-    expect(reply).toMatchObject({ kind: 'edit', edit: { command: { target: { lineNumber: 2 } } } });
-    expect(ollama.promptCalls[1]!.body.prompt).toContain('which reads: Body text. More.');
-    expect(ollama.promptCalls[1]!.body.prompt).toContain('No JSON');
-  });
-});
-
 describe('OllamaAgent', () => {
   const step: AgentStepRequest = {
     message: 'Which title does the cited work have?',
@@ -344,5 +262,47 @@ describe('OllamaAgent', () => {
   it('fails with a protocol error after a second invalid reply', async () => {
     const ollama = new FakeOllama().reply({ response: 'hello' }, { response: 'ACTION: dance' });
     await expect(agent(ollama).decide(step)).rejects.toThrow(AssistantProtocolError);
+  });
+
+  it('does not retry transport errors', async () => {
+    const ollama = new FakeOllama().reply({ status: 500 });
+    await expect(agent(ollama).decide(step)).rejects.toThrow(AssistantHttpError);
+    expect(ollama.promptCalls).toHaveLength(1);
+  });
+
+  it('sizes its prompts to the context window of its client', async () => {
+    const long = { ...step, message: 'm'.repeat(getPromptBudget(MIN_CONTEXT_TOKENS)) };
+    await expect(agent(new FakeOllama()).decide(long)).rejects.toThrow(
+      AssistantRequestTooLargeError,
+    );
+    const ollama = new FakeOllama().reply({ response: 'ACTION: compile' });
+    const wide = new OllamaClient(
+      { ...config, contextTokens: 2 * MIN_CONTEXT_TOKENS },
+      ollama.fetch,
+    );
+    await expect(new OllamaAgent(wide).decide(long)).resolves.toMatchObject({
+      decision: { kind: 'tool', call: { tool: 'compile' } },
+    });
+  });
+
+  it('sends a mistyped edit target back to the model with the real line text', async () => {
+    const edit = (lineText: string) => ({
+      response: `ACTION: edit\nPATH: main.tex\nOPERATION: delete\nLINE: 2\nLINE_TEXT: ${lineText}`,
+    });
+    const shown = {
+      path: 'main.tex',
+      document: createDocumentSnapshot(['\\cite{a}', 'Body text. More.']),
+    };
+    const ollama = new FakeOllama().reply(edit('Body text.'), edit('Body text. More.'));
+    const { decision } = await agent(ollama).decide({
+      ...step,
+      workspace: { ...step.workspace, openFile: shown },
+    });
+    expect(decision).toMatchObject({
+      reply: { change: { edit: { command: { target: { lineNumber: 2 } } } } },
+    });
+    const [, correction] = ollama.promptCalls;
+    expect(correction?.body.prompt).toContain('which reads: Body text. More.');
+    expect(correction?.body.prompt).toContain('No JSON');
   });
 });

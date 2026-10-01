@@ -20,7 +20,6 @@ export class FakeEditor implements EditorPort {
   available = true;
   selection = '';
   cursorLine = 1;
-  logs = '';
   preview: ResolvedEdit | null = null;
   applyFailure: Error | null = null;
   applied: DocumentCommand[] = [];
@@ -36,9 +35,6 @@ export class FakeEditor implements EditorPort {
   }
   readCursorLine(): number {
     return this.cursorLine;
-  }
-  readCompileLogs(): string {
-    return this.logs;
   }
   showPreview(edit: ResolvedEdit): void {
     this.ensureAvailable();

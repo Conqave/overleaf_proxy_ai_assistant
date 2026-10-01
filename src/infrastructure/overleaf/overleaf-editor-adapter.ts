@@ -5,13 +5,8 @@ import { EditorUnavailableError } from '../../ports/errors';
 import { createChange } from './document-change';
 import type { OpenEditor, OverleafEditorBridge } from './overleaf-editor-bridge';
 
-const LOGS_SELECTOR = '.logs-pane';
-
 export class OverleafEditorAdapter implements EditorPort {
-  constructor(
-    private readonly bridge: OverleafEditorBridge,
-    private readonly document: Document,
-  ) {}
+  constructor(private readonly bridge: OverleafEditorBridge) {}
 
   readDocument(): DocumentSnapshot {
     return createDocumentSnapshot(this.editor().view.state.doc.toJSON());
@@ -26,12 +21,6 @@ export class OverleafEditorAdapter implements EditorPort {
   readCursorLine(): number {
     const { state } = this.editor().view;
     return state.doc.lineAt(state.selection.main.head).number;
-  }
-
-  readCompileLogs(): string {
-    const logs = this.document.querySelector(LOGS_SELECTOR);
-    if (logs === null) return '';
-    return logs.textContent.replace(/\u00a0/g, ' ').trim();
   }
 
   showPreview(edit: ResolvedEdit): void {

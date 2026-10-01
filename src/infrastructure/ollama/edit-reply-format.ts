@@ -5,15 +5,10 @@ export const EditField = {
   LineText: 'LINE_TEXT',
   Reason: 'REASON',
   Plan: 'PLAN',
-  Question: 'QUESTION',
 } as const;
 export type EditField = (typeof EditField)[keyof typeof EditField];
 
 export const EDIT_FIELDS: readonly EditField[] = Object.values(EditField);
-
-export const EDIT_COMMAND_FIELDS: readonly EditField[] = EDIT_FIELDS.filter(
-  (field) => field !== EditField.Question,
-);
 
 const FIELD_MARK = ':';
 

@@ -1,5 +1,3 @@
-import { createAssistantPlan, type AssistantPlan } from '../../domain/assistant-plan';
-import type { AssistantReply } from '../../domain/assistant-reply';
 import type { DocumentSnapshot } from '../../domain/document';
 import {
   createDocumentCommand,
@@ -9,20 +7,12 @@ import {
 import {
   DocumentRangeError,
   DocumentTargetNotFoundError,
-  InvalidAssistantPlanError,
   InvalidDocumentCommandError,
   InvariantViolation,
 } from '../../domain/errors';
 import { findLinesStartingWith, MIN_QUOTED_START } from '../../domain/document-target';
 import { ResolvedEdit } from '../../domain/resolved-edit';
-import {
-  CONTENT,
-  CONTENT_MARKER,
-  EDIT_FIELDS,
-  EditField,
-  createFieldPattern,
-  fieldLine,
-} from './edit-reply-format';
+import { CONTENT, CONTENT_MARKER, EditField, createFieldPattern } from './edit-reply-format';
 
 const NEARBY_LINES = 2;
 
@@ -31,29 +21,6 @@ export class InvalidAssistantResponse extends Error {
     super(`invalid assistant response: ${problem}`);
     this.name = 'InvalidAssistantResponse';
   }
-}
-
-export function parsePlanResponse(raw: string): AssistantPlan {
-  const fields = decode(raw);
-  allowOnly(fields, ['intent', 'needs', 'reason']);
-  const input = {
-    intent: fields.get('intent'),
-    needs: fields.get('needs'),
-    reason: fields.get('reason'),
-  };
-  try {
-    return createAssistantPlan(input);
-  } catch (error) {
-    if (error instanceof InvalidAssistantPlanError)
-      throw new InvalidAssistantResponse(error.message);
-    throw error;
-  }
-}
-
-export function parseAnswerResponse(raw: string): string {
-  const text = raw.trim();
-  if (text === '') throw new InvalidAssistantResponse('the reply is empty');
-  return text;
 }
 
 export interface HeaderReply {
@@ -66,24 +33,6 @@ export interface ParsedEdit {
   readonly rationale?: string;
 }
 
-export function parseEditResponse(raw: string, shown: DocumentSnapshot): AssistantReply {
-  const text = raw.trim();
-  if (text === '') throw new InvalidAssistantResponse('the reply is empty');
-  rejectJson(
-    text,
-    `${fieldLine(EditField.Operation, '<operation>')}, ${fieldLine(EditField.Line, '<number>')}`,
-  );
-  const reply = parseHeaderReply(text.split(LINE_PATTERN), EDIT_FIELDS);
-  if (reply.fields.has(EditField.Question)) {
-    if (reply.fields.size > 1 || reply.content !== undefined) {
-      throw new InvalidAssistantResponse(`a ${EditField.Question} reply must contain nothing else`);
-    }
-    return { kind: 'question', text: getQuestion(reply.fields) };
-  }
-  const { edit, rationale } = parseEdit(reply, shown);
-  return { kind: 'edit', edit, ...(rationale === undefined ? {} : { rationale }) };
-}
-
 export const LINE_PATTERN = /\r?\n/;
 
 export function rejectJson(text: string, example: string): void {
@@ -92,12 +41,6 @@ export function rejectJson(text: string, example: string): void {
       `the reply is JSON; write the plain header lines instead (${example}), without braces or quotes`,
     );
   }
-}
-
-export function getQuestion(fields: ReadonlyMap<string, string>): string {
-  const question = getRequiredField(fields, EditField.Question);
-  if (question === '') throw new InvalidAssistantResponse(`${EditField.Question} is empty`);
-  return question;
 }
 
 export function parseEdit(reply: HeaderReply, shown: DocumentSnapshot): ParsedEdit {
@@ -229,26 +172,4 @@ function describeNearbyLines(shown: DocumentSnapshot, lineNumber: number): strin
     .slice(first - 1, lineNumber + NEARBY_LINES)
     .map((text, index) => `${String(first + index)}: ${text}`)
     .join('\n');
-}
-
-function decode(raw: string): Map<string, unknown> {
-  const text = raw.trim();
-  if (text === '') throw new InvalidAssistantResponse('the reply is empty');
-  let data: unknown;
-  try {
-    data = JSON.parse(text);
-  } catch {
-    throw new InvalidAssistantResponse('the reply is not valid JSON');
-  }
-  if (typeof data !== 'object' || data === null || Array.isArray(data)) {
-    throw new InvalidAssistantResponse('the reply must be a JSON object');
-  }
-  return new Map(Object.entries(data));
-}
-
-function allowOnly(fields: Map<string, unknown>, keys: readonly string[]): void {
-  const unexpected = [...fields.keys()].filter((key) => !keys.includes(key));
-  if (unexpected.length) {
-    throw new InvalidAssistantResponse(`unexpected properties: ${unexpected.join(', ')}`);
-  }
 }

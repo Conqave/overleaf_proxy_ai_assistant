@@ -213,6 +213,34 @@ const CASES: readonly Case[] = [
   },
   {
     ...UNTOUCHED_PROJECT,
+    name: 'inserts a table after an existing table',
+    request: 'wstaw po tabeli z widgetami tabelę z trzema pomiarami temperatury',
+    tools: [[]],
+    edit: {
+      path: MAIN,
+      operation: 'insert_after',
+      line: lineOf(MAIN, '\\end{table}'),
+      content:
+        /^\\begin\{table\}[\s\S]*\\begin\{tabular\}[\s\S]*\\end\{tabular\}[\s\S]*\\end\{table\}$/,
+    },
+  },
+  {
+    ...UNTOUCHED_PROJECT,
+    name: 'deletes a paragraph',
+    request: 'usuń akapit o track changes',
+    tools: [[]],
+    edit: {
+      path: MAIN,
+      operation: 'delete',
+      line: lineOf(MAIN, 'Track changes are available'),
+      lastLines: [
+        lineOf(MAIN, 'Track changes are available'),
+        lineOf(MAIN, 'Track changes are available') + 1,
+      ],
+    },
+  },
+  {
+    ...UNTOUCHED_PROJECT,
     name: 'translates the selected paragraph',
     request: 'przetłumacz zaznaczony akapit na polski',
     selection: lineText(MAIN, lineOf(MAIN, 'Your introduction goes here')),

@@ -11,8 +11,6 @@ export class InvariantViolation extends NamedError {}
 
 export class InvalidDocumentCommandError extends NamedError {}
 
-export class InvalidAssistantPlanError extends NamedError {}
-
 export class DocumentTargetNotFoundError extends OperationalError {}
 
 export class DocumentConflictError extends OperationalError {}

@@ -24,7 +24,7 @@ const edit = (input: Parameters<typeof createDocumentCommand>[0]): ResolvedEdit 
 const results = { lineNumber: 6, lineText: 'The results are shown below.' };
 
 function open(text: string = FIXTURE_DOCUMENT): EditorView {
-  document.body.innerHTML = '<div id="editor"></div><div class="logs-pane">x:4: Undefined.</div>';
+  document.body.innerHTML = '<div id="editor"></div>';
   return openOverleafEditor(window, document.getElementById('editor')!, text);
 }
 
@@ -32,7 +32,7 @@ beforeEach(() => {
   shownDocId = FIXTURE_DOC_ID;
   bridge = new OverleafEditorBridge(() => shownDocId);
   const uninstall = bridge.install(window);
-  adapter = new OverleafEditorAdapter(bridge, document);
+  adapter = new OverleafEditorAdapter(bridge);
   editor = open();
   return () => {
     uninstall();
@@ -95,12 +95,6 @@ describe('OverleafEditorAdapter', () => {
     editor.dispatch({ selection: { anchor: line.from + 5, head: line.to } });
     expect(adapter.readSelection()).toBe('report describes the experiment.');
     expect(adapter.readCursorLine()).toBe(4);
-  });
-
-  it('reads compile logs, and none while the log pane is closed', () => {
-    expect(adapter.readCompileLogs()).toBe('x:4: Undefined.');
-    document.querySelector('.logs-pane')?.remove();
-    expect(adapter.readCompileLogs()).toBe('');
   });
 
   it('inserts before the target line', () => {

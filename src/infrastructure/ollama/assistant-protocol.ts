@@ -1,28 +1,12 @@
-import type { AssistantPlan } from '../../domain/assistant-plan';
-import type { AssistantReply } from '../../domain/assistant-reply';
 import {
   AssistantMessageKind,
   type ConversationMessage,
   type GreetingMessage,
 } from '../../domain/conversation';
-import { documentText, type DocumentSnapshot } from '../../domain/document';
 import { DocumentOperation, type DocumentCommand } from '../../domain/document-command';
 import { InvariantViolation } from '../../domain/errors';
-import type { PlanningRequest, ReplyRequest } from '../../ports/assistant-port';
 import { AssistantRequestTooLargeError } from '../../ports/errors';
-import {
-  CONTENT,
-  CONTENT_MARKER,
-  EDIT_COMMAND_FIELDS,
-  EditField,
-  fieldLine,
-  fieldName,
-} from './edit-reply-format';
-import {
-  parseAnswerResponse,
-  parseEditResponse,
-  parsePlanResponse,
-} from './assistant-response-parser';
+import { CONTENT, CONTENT_MARKER, EditField, fieldLine } from './edit-reply-format';
 import { MAX_COMPLETION_TOKENS, type GenerateRequest } from './ollama-client';
 
 export const MIN_CONTEXT_TOKENS = 16_384;
@@ -32,7 +16,6 @@ const CONVERSATION_WINDOW = 12;
 export const SMALL_BLOCK_SHARE = 8;
 const REJECTED_REPLY_CHARS = 3_000;
 const CORRECTION_RESERVE_CHARS = 4_096;
-const MIN_DOCUMENT_CHARS = 1_024;
 const MIN_KEPT_CHARS = 32;
 
 export const LINE_BREAK = '\n';
@@ -41,13 +24,8 @@ const COMPACT_MARKER_CHARS = compactMarker(Number.MAX_SAFE_INTEGER).length;
 const MIN_COMPACT_CHARS = COMPACT_MARKER_CHARS + 2 * MIN_KEPT_CHARS;
 
 const USER_MESSAGE_LABEL = 'User message:';
-const PLANNER_REASON_LABEL = 'Planner reason:';
 export const CONVERSATION_LABEL = 'Conversation so far:';
-const CARET_LABEL = 'Lines around the caret:';
 export const SELECTION_LABEL = 'Selected text:';
-const LOGS_LABEL = 'Compile logs:';
-const NUMBERED_DOCUMENT_LABEL = 'Numbered document lines:';
-const DOCUMENT_LABEL = 'Document text:';
 
 export interface ProtocolExchange<T> {
   readonly request: GenerateRequest;
@@ -57,12 +35,6 @@ export interface ProtocolExchange<T> {
 
 export const LANGUAGE_RULE =
   'Write every user-facing text in the language of the user message (Polish message → Polish text). Text that goes into a file keeps the language of that file unless the user asks for a translation, and names and titles the user gives are used exactly as given, untranslated ("dodaj sekcję Conclusions" → \\section{Conclusions}).';
-const JSON_RULE =
-  'Output exactly one JSON object and nothing else: no markdown fences, no text before or after it.';
-
-const PLAN_SCHEMA =
-  '{"intent":"summary|explain|edit","needs":["line_context","selection","logs"],"reason":"short reason"}';
-
 const F = EditField;
 
 export const EDIT_FORMAT = lines(
@@ -77,32 +49,6 @@ export const EDIT_FORMAT = lines(
   `${fieldLine(F.Plan, '<one short sentence about the placement>')} (optional)`,
   CONTENT_MARKER,
   `<the new LaTeX lines, exactly as they go into the document; nothing else follows ${CONTENT_MARKER}>`,
-);
-
-const PLANNING_SYSTEM = lines(
-  'You are Hans, the planner of an assistant built into the Overleaf LaTeX editor.',
-  'The user is always talking about the LaTeX document open in the editor. You do not see it now; the answering step always gets the whole document, plus whatever you list in "needs".',
-  'Classify the request and list the extra information the answer needs.',
-  JSON_RULE,
-  `Shape: ${PLAN_SCHEMA}`,
-  'Intents:',
-  '- summary: what the document is about, an overview or summary of it.',
-  '- explain: questions, explanations and error analysis that do not change the document.',
-  '- edit: add, insert, delete, remove, replace, move, fix, rewrite, translate or reformat document content (e.g. "wstaw sekcję", "dodaj tabelę", "usuń akapit", "popraw podpis", "przetłumacz").',
-  'Needs (optional, often empty):',
-  '- line_context: lines around the caret, when the user says "here", "this line" or similar.',
-  '- selection: the selected text, when the user refers to "the selection", "zaznaczony", "this text".',
-  '- logs: compile logs, for compile errors and warnings.',
-  'Always choose one of the three intents; the next step sees the document and asks the user if something is unclear. "needs" and "reason" may be omitted.',
-  'Example: {"intent":"edit","needs":[],"reason":"The user wants a new section."}',
-);
-
-const ANSWER_SYSTEM = lines(
-  'You are Hans, an assistant built into the Overleaf LaTeX editor.',
-  'Answer the user from the evidence provided. Be direct and concise; do not mention internal planning.',
-  LANGUAGE_RULE,
-  'Reply with the answer as plain text (no JSON). Quote LaTeX code exactly as it appears in the document.',
-  'Base the answer on the document; do not invent content it does not have.',
 );
 
 export const EDIT_RULES = lines(
@@ -126,95 +72,12 @@ export const EDIT_RULES = lines(
   '- Only the new or changed lines; never repeat unchanged surrounding lines and never rewrite the whole document.',
 );
 
-const EDIT_SYSTEM = lines(
-  'You are Hans, an assistant built into the Overleaf LaTeX editor. You propose exactly one change to the document: an insertion around a line, or a replacement or deletion of one line or a range of consecutive lines.',
-  LANGUAGE_RULE,
-  'Reply in exactly this format, nothing before or after it (no JSON, no markdown fences):',
-  EDIT_FORMAT,
-  'If the location or the wanted change is unclear, reply with a single line instead:',
-  fieldLine(F.Question, '<one short question>'),
-  EDIT_RULES,
-  'Example of an insertion:',
-  fieldLine(F.Operation, DocumentOperation.InsertAfter),
-  fieldLine(F.Line, '42'),
-  fieldLine(F.LineText, '\\end{table}'),
-  fieldLine(F.Reason, 'Dodaję tabelę z wynikami pomiarów.'),
-  fieldLine(F.Plan, 'Nowa tabela zaraz po istniejącej tabeli.'),
-  CONTENT_MARKER,
-  '\\begin{table}',
-  '\\centering',
-  '\\begin{tabular}{l|r}',
-  'Pomiar & Wynik \\\\\\hline',
-  'A & 1.5 \\\\',
-  'B & 2.0',
-  '\\end{tabular}',
-  '\\caption{\\label{tab:wyniki}Wyniki pomiarów.}',
-  '\\end{table}',
-  'Example of a replacement:',
-  fieldLine(F.Operation, DocumentOperation.Replace),
-  fieldLine(F.Line, '16'),
-  fieldLine(F.LineText, '\\title{Your Paper}'),
-  fieldLine(F.Reason, 'Zmieniam tytuł.'),
-  fieldLine(F.Plan, 'Podmiana linii z tytułem.'),
-  CONTENT_MARKER,
-  '\\title{Raport z laboratorium}',
-  'Example of a deletion of a whole subsection (heading, blank line and paragraph):',
-  fieldLine(F.Operation, DocumentOperation.Delete),
-  fieldLine(F.Line, '64'),
-  fieldLine(F.EndLine, '67'),
-  fieldLine(F.LineText, '\\subsection{Wyniki pomocnicze}'),
-  fieldLine(F.Reason, 'Usuwam podsekcję z wynikami pomocniczymi.'),
-  fieldLine(F.Plan, 'Usunięcie nagłówka i treści podsekcji.'),
-);
-
-const PLAN_RETRY = 'Reply again with one JSON object only, exactly matching the required shape.';
-const ANSWER_RETRY = 'Reply again with the answer as plain text.';
-const EDIT_RETRY = `Reply again in exactly the required format: the header lines (${EDIT_COMMAND_FIELDS.map(fieldName).join(', ')}) and ${CONTENT_MARKER}, or a single ${fieldName(F.Question)} line. No JSON.`;
-
 export function getPromptBudget(contextTokens: number): number {
   return (contextTokens - REPLY_RESERVE_TOKENS) * CHARS_PER_TOKEN - CORRECTION_RESERVE_CHARS;
 }
 
 export function estimatePromptTokens(request: GenerateRequest): number {
   return Math.ceil((request.system.length + request.prompt.length) / CHARS_PER_TOKEN);
-}
-
-export function createPlanExchange(
-  request: PlanningRequest,
-  budget: number,
-): ProtocolExchange<AssistantPlan> {
-  const message = userMessage(request.message);
-  const conversationBudget = budget - PLANNING_SYSTEM.length - message.length - LINE_BREAK.length;
-  if (conversationBudget < minBlockChars(CONVERSATION_LABEL)) throw createTooLargeError();
-  return {
-    request: {
-      system: PLANNING_SYSTEM,
-      prompt: lines(message, ...conversationBlock(request.conversation, conversationBudget)),
-    },
-    retryInstruction: PLAN_RETRY,
-    parse: parsePlanResponse,
-  };
-}
-
-export function createReplyExchange(
-  request: ReplyRequest,
-  budget: number,
-): ProtocolExchange<AssistantReply> {
-  const edit = request.plan.intent === 'edit';
-  const system = edit ? EDIT_SYSTEM : ANSWER_SYSTEM;
-  const prompt = buildReplyPrompt(request, edit, budget - system.length);
-  if (edit) {
-    return {
-      request: { system, prompt },
-      retryInstruction: EDIT_RETRY,
-      parse: (raw) => parseEditResponse(raw, request.evidence.document),
-    };
-  }
-  return {
-    request: { system, prompt },
-    retryInstruction: ANSWER_RETRY,
-    parse: (raw) => ({ kind: 'answer', text: parseAnswerResponse(raw) }),
-  };
 }
 
 export function createCorrectionRequest(
@@ -231,28 +94,6 @@ export function createCorrectionRequest(
       exchange.retryInstruction,
     ),
   };
-}
-
-function buildReplyPrompt(request: ReplyRequest, numbered: boolean, budget: number): string {
-  const { evidence, plan } = request;
-  const smallBlock = Math.floor(budget / SMALL_BLOCK_SHARE);
-  const before = [
-    userMessage(request.message),
-    ...optionalBlock(PLANNER_REASON_LABEL, plan.reason, smallBlock),
-    ...conversationBlock(request.conversation, smallBlock),
-  ];
-  const after = [
-    ...optionalBlock(
-      CARET_LABEL,
-      evidence.lineContext === undefined ? undefined : caretLines(evidence.lineContext),
-      smallBlock,
-    ),
-    ...optionalBlock(SELECTION_LABEL, evidence.selection, smallBlock),
-    ...optionalBlock(LOGS_LABEL, evidence.logs, smallBlock),
-  ];
-  const documentBudget = budget - lines(...before, ...after).length - LINE_BREAK.length;
-  if (documentBudget < MIN_DOCUMENT_CHARS) throw createTooLargeError();
-  return lines(...before, documentBlock(evidence.document, numbered, documentBudget), ...after);
 }
 
 export function userMessage(message: string): string {
@@ -297,22 +138,6 @@ function describeProposal(command: DocumentCommand): string {
   }
 }
 
-function caretLines(context: NonNullable<ReplyRequest['evidence']['lineContext']>): string {
-  return context.lines
-    .map((text, i) => `${String(context.firstLineNumber + i)}: ${text}`)
-    .join(LINE_BREAK);
-}
-
-function documentBlock(snapshot: DocumentSnapshot, numbered: boolean, maxChars: number): string {
-  if (!numbered) return block(DOCUMENT_LABEL, documentText(snapshot), maxChars);
-  const text = snapshot.lines.map((line, index) => `${String(index + 1)}: ${line}`);
-  return block(NUMBERED_DOCUMENT_LABEL, text.join(LINE_BREAK), maxChars);
-}
-
-function optionalBlock(label: string, text: string | undefined, maxChars: number): string[] {
-  return text === undefined ? [] : [block(label, text, maxChars)];
-}
-
 export function block(label: string, text: string, maxChars: number): string {
   const heading = blockHeading(label);
   return `${heading}${compact(text, maxChars - heading.length)}`;
@@ -326,7 +151,7 @@ export function minBlockChars(label: string): number {
   return blockHeading(label).length + MIN_COMPACT_CHARS;
 }
 
-export function compact(text: string, maxChars: number): string {
+function compact(text: string, maxChars: number): string {
   if (text.length <= maxChars) return text;
   if (maxChars < MIN_COMPACT_CHARS) {
     throw new InvariantViolation(`cannot compact text into ${String(maxChars)} characters`);

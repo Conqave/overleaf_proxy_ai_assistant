@@ -35,7 +35,7 @@ function compose(
   bridge: OverleafEditorBridge,
 ): void {
   const identity = getPageIdentity(window.document);
-  const editor = new OverleafEditorAdapter(bridge, window.document);
+  const editor = new OverleafEditorAdapter(bridge);
   const client = new OllamaClient(
     {
       endpoint: config.ollamaEndpoint,

@@ -1,17 +1,16 @@
 import { describe, expect, it } from 'vitest';
 import { createDocumentSnapshot } from '../../../src/domain/document';
 import { createDocumentCommand } from '../../../src/domain/document-command';
-import { AssistantRequestTooLargeError } from '../../../src/ports/errors';
+import { ProjectFileKind } from '../../../src/domain/project-file';
+import { createAgentExchange } from '../../../src/infrastructure/ollama/agent-protocol';
 import {
   createCorrectionRequest,
-  createPlanExchange,
-  createReplyExchange,
   getPromptBudget,
   MIN_CONTEXT_TOKENS,
 } from '../../../src/infrastructure/ollama/assistant-protocol';
-import type { ReplyRequest } from '../../../src/ports/assistant-port';
+import type { AgentStepRequest } from '../../../src/ports/agent-port';
+import { TestFixtureError } from '../../support/test-errors';
 
-const document = createDocumentSnapshot(['\\section{A}', 'Body.']);
 const budget = getPromptBudget(MIN_CONTEXT_TOKENS);
 const conversation = Array.from({ length: 15 }, (_, i) => ({
   id: String(i),
@@ -19,40 +18,44 @@ const conversation = Array.from({ length: 15 }, (_, i) => ({
   text: `message ${String(i)}`,
 }));
 
-const reply = (overrides: Partial<ReplyRequest> = {}): ReplyRequest => ({
+const request = (overrides: Partial<AgentStepRequest> = {}): AgentStepRequest => ({
   message: 'm',
-  plan: { intent: 'explain', needs: [] },
-  evidence: { document },
   conversation: [],
+  workspace: {
+    files: [{ id: '1', path: 'main.tex', kind: ProjectFileKind.Text }],
+    openFile: { path: 'main.tex', document: createDocumentSnapshot(['\\section{A}', 'Body.']) },
+    cursorLine: 1,
+    selection: '',
+  },
+  transcript: [],
   ...overrides,
 });
 
-describe('plan exchange', () => {
-  it('carries the schema, the message and the last 12 turns, and parses a JSON plan', () => {
-    const exchange = createPlanExchange({ message: 'Add a table', conversation }, budget);
-    expect(exchange.request.system).toContain('"intent":"summary|explain|edit"');
-    expect(exchange.request.prompt).toContain('User message:\nAdd a table');
-    expect(exchange.request.prompt).toContain('[user] message 14');
-    expect(exchange.request.prompt).toContain('[user] message 3');
-    expect(exchange.request.prompt).not.toContain('[user] message 2\n');
-    expect(exchange.parse('{"intent":"summary"}')).toMatchObject({ intent: 'summary' });
-  });
+const promptOf = (overrides: Partial<AgentStepRequest>): string =>
+  createAgentExchange(request(overrides), budget).request.prompt;
+
+const withSelection = (selection: string): Partial<AgentStepRequest> => ({
+  workspace: { ...request().workspace, selection },
 });
 
 describe('conversation history', () => {
+  it('carries the message and the last 12 turns', () => {
+    const prompt = promptOf({ message: 'Add a table', conversation });
+    expect(prompt).toContain('User message:\nAdd a table');
+    expect(prompt).toContain('[user] message 14');
+    expect(prompt).toContain('[user] message 3');
+    expect(prompt).not.toContain('[user] message 2\n');
+  });
+
   it('leaves out the greetings answered without the model', () => {
-    const exchange = createPlanExchange(
-      {
-        message: 'm',
-        conversation: [
-          { id: 'u', role: 'user', text: 'hi' },
-          { id: 'g', role: 'assistant', kind: 'greeting' },
-        ],
-      },
-      budget,
-    );
-    expect(exchange.request.prompt).toContain('Conversation so far:\n[user] hi');
-    expect(exchange.request.prompt).not.toContain('[assistant]');
+    const prompt = promptOf({
+      conversation: [
+        { id: 'u', role: 'user', text: 'hi' },
+        { id: 'g', role: 'assistant', kind: 'greeting' },
+      ],
+    });
+    expect(prompt).toContain('Conversation so far:\n[user] hi');
+    expect(prompt).not.toContain('[assistant]');
   });
 
   it('shows a proposal to the model as its operation, reason and content', () => {
@@ -69,144 +72,41 @@ describe('conversation history', () => {
       }),
       rationale: 'p',
     };
-    const exchange = createPlanExchange({ message: 'm', conversation: [proposal] }, budget);
-    expect(exchange.request.prompt).toContain(
+    expect(promptOf({ conversation: [proposal] })).toContain(
       '[assistant] Proposed replace at line 2: Clearer.\nNew body.',
     );
   });
 });
 
-describe('reply exchange', () => {
-  it('gives an answer the plain document and parses plain text', () => {
-    const exchange = createReplyExchange(reply(), budget);
-    expect(exchange.request.prompt).toContain('Document text:\n\\section{A}\nBody.');
-    expect(exchange.request.prompt).not.toContain('Numbered document lines');
-    expect(exchange.request.system).not.toContain('OPERATION:');
-    expect(exchange.parse(' Because. ')).toEqual({ kind: 'answer', text: 'Because.' });
-  });
-
-  it('gives an edit the numbered document and the gathered evidence', () => {
-    const exchange = createReplyExchange(
-      reply({
-        plan: { intent: 'edit', needs: [], reason: 'r' },
-        evidence: {
-          document,
-          lineContext: { firstLineNumber: 2, lines: ['Body.'] },
-          selection: 'Bo',
-          logs: 'warning',
-        },
-      }),
-      budget,
-    );
-    expect(exchange.request.system).toContain(
-      'OPERATION: insert_before|insert_after|replace|delete',
-    );
-    expect(exchange.request.prompt).toContain(
-      'Numbered document lines:\n1: \\section{A}\n2: Body.',
-    );
-    expect(exchange.request.prompt).not.toContain('Document text:');
-    expect(exchange.request.prompt).toContain('Lines around the caret:\n2: Body.');
-    expect(exchange.request.prompt).toContain('Selected text:\nBo');
-    expect(exchange.request.prompt).toContain('Compile logs:\nwarning');
-    expect(exchange.request.prompt).toContain('Planner reason:\nr');
-  });
-
-  it('parses an edit against the document the model was shown', () => {
-    const exchange = createReplyExchange(reply({ plan: { intent: 'edit', needs: [] } }), budget);
-    const edit = exchange.parse('OPERATION: delete\nLINE: 2\nLINE_TEXT: Body.\nREASON: r\nPLAN: p');
-    expect(edit).toMatchObject({ kind: 'edit', edit: { document } });
-  });
-
-  it('keeps the whole prompt within the budget, shortening the document first', () => {
-    const long = createDocumentSnapshot(Array.from({ length: 20_000 }, () => 'x'.repeat(40)));
-    const exchange = createReplyExchange(
-      reply({ evidence: { document: long, logs: 'l'.repeat(50_000) }, conversation }),
-      budget,
-    );
-    const size = exchange.request.system.length + exchange.request.prompt.length;
-    expect(size).toBeLessThanOrEqual(budget);
-    expect(exchange.request.prompt).toContain('AUTOCOMPACTED');
-  });
-});
-
-describe('prompt budget', () => {
-  it('fits a long planner reason and long caret lines into the budget', () => {
-    const exchange = createReplyExchange(
-      reply({
-        plan: { intent: 'edit', needs: [], reason: 'r'.repeat(50_000) },
-        evidence: {
-          document,
-          lineContext: { firstLineNumber: 1, lines: ['c'.repeat(50_000)] },
-        },
-      }),
-      budget,
-    );
-    expect(exchange.request.system.length + exchange.request.prompt.length).toBeLessThanOrEqual(
-      budget,
-    );
-  });
-
-  it('refuses rather than breaks when the conversation barely fits', () => {
-    const conversation = [{ id: '1', role: 'user' as const, text: 'x'.repeat(10_000) }];
-    const system = createPlanExchange({ message: 'm', conversation: [] }, budget).request.system;
-    for (let tight = system.length; tight < system.length + 400; tight += 1) {
-      const create = () => createPlanExchange({ message: 'm', conversation }, tight);
-      const outcome = (() => {
-        try {
-          return create().request.system.length + create().request.prompt.length <= tight;
-        } catch (error) {
-          return error instanceof AssistantRequestTooLargeError;
-        }
-      })();
-      expect(outcome).toBe(true);
-    }
-  });
-
-  it('refuses a message too long for the context window', () => {
-    const huge = { message: 'm'.repeat(budget) };
-    expect(() => createReplyExchange(reply(huge), budget)).toThrow(AssistantRequestTooLargeError);
-    expect(() => createPlanExchange({ ...huge, conversation: [] }, budget)).toThrow(
-      AssistantRequestTooLargeError,
-    );
-  });
-});
-
 describe('correction request', () => {
-  it('keeps the instructions, names the problem and asks for the format of its exchange', () => {
-    const plan = createPlanExchange({ message: 'm', conversation: [] }, budget);
-    const edit = createReplyExchange(reply({ plan: { intent: 'edit', needs: [] } }), budget);
-    const answer = createReplyExchange(reply(), budget);
-    const correction = createCorrectionRequest(edit, 'bad', 'the reply is JSON');
-    expect(correction.system).toBe(edit.request.system);
-    expect(correction.prompt.startsWith(edit.request.prompt)).toBe(true);
+  it('keeps the instructions, names the problem and caps the rejected reply', () => {
+    const exchange = createAgentExchange(request(), budget);
+    const correction = createCorrectionRequest(exchange, 'bad', 'the reply is JSON');
+    expect(correction.system).toBe(exchange.request.system);
+    expect(correction.prompt.startsWith(exchange.request.prompt)).toBe(true);
+    expect(correction.prompt).toContain('Your previous reply was:\nbad');
     expect(correction.prompt).toContain('It was rejected because: the reply is JSON.');
-    expect(correction.prompt).toContain('No JSON');
-    expect(createCorrectionRequest(plan, 'bad', 'x').prompt).toContain('one JSON object');
-    expect(createCorrectionRequest(answer, '', 'x').prompt).toContain('plain text');
-    const long = createCorrectionRequest(answer, 'z'.repeat(100_000), 'x');
-    expect(long.prompt.length - answer.request.prompt.length).toBeLessThan(4_096);
+    const long = createCorrectionRequest(exchange, 'z'.repeat(100_000), 'x');
+    expect(long.prompt.length - exchange.request.prompt.length).toBeLessThan(4_096);
   });
 });
 
 describe('compaction', () => {
   it('keeps the head and the tail of a long block and says how much it left out', () => {
     const selection = 'a'.repeat(50_000) + 'b'.repeat(50_000);
-    const exchange = createReplyExchange(reply({ evidence: { document, selection } }), budget);
     const compacted =
-      /Selected text:\n(a+)\n\n\[AUTOCOMPACTED: omitted (\d+) chars\]\n\n(b+)$/.exec(
-        exchange.request.prompt,
+      /Selected text:\n(a+)\n\n\[AUTOCOMPACTED: omitted (\d+) chars\]\n\n(b+)\n/.exec(
+        promptOf(withSelection(selection)),
       );
-    const [, head, omitted, tail] = compacted!;
-    expect(head!.length).toBe(tail!.length);
-    expect(head!.length + Number(omitted) + tail!.length).toBe(selection.length);
+    if (compacted === null) throw new TestFixtureError('the selection was not compacted');
+    const [, head = '', omitted, tail = ''] = compacted;
+    expect(head.length).toBe(tail.length);
+    expect(head.length + Number(omitted) + tail.length).toBe(selection.length);
   });
 
   it('leaves a block that fits untouched', () => {
-    const exchange = createReplyExchange(
-      reply({ evidence: { document, selection: 'short' } }),
-      budget,
-    );
-    expect(exchange.request.prompt).toContain('Selected text:\nshort');
-    expect(exchange.request.prompt).not.toContain('AUTOCOMPACTED');
+    const prompt = promptOf(withSelection('short'));
+    expect(prompt).toContain('Selected text:\nshort');
+    expect(prompt).not.toContain('AUTOCOMPACTED');
   });
 });

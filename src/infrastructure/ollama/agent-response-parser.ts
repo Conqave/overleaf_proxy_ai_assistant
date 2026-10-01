@@ -20,7 +20,6 @@ import { findTextFile } from '../../domain/project-file';
 import type { AgentStepRequest } from '../../ports/agent-port';
 import { AGENT_ACTIONS, AgentAction, AgentField, TEXT_MARKER } from './agent-reply-format';
 import {
-  getQuestion,
   getRequiredField,
   InvalidAssistantResponse,
   LINE_PATTERN,
@@ -29,13 +28,13 @@ import {
   rejectJson,
   type HeaderReply,
 } from './assistant-response-parser';
-import { createFieldPattern, EDIT_COMMAND_FIELDS, EditField, fieldLine } from './edit-reply-format';
+import { createFieldPattern, EDIT_FIELDS, fieldLine } from './edit-reply-format';
 
 const ACTION_LINE = createFieldPattern([AgentField.Action]);
 
 const TOOL_FIELDS: readonly string[] = [AgentField.Path, AgentField.Query];
 
-const AGENT_EDIT_FIELDS: readonly string[] = [AgentField.Path, ...EDIT_COMMAND_FIELDS];
+const AGENT_EDIT_FIELDS: readonly string[] = [AgentField.Path, ...EDIT_FIELDS];
 
 export function parseAgentDecision(raw: string, request: AgentStepRequest): AgentDecision {
   const text = raw.trim();
@@ -144,11 +143,13 @@ function parseAnswerText(rows: readonly string[]): string {
 }
 
 function parseQuestion(rows: readonly string[]): string {
-  const reply = parseHeaderReply(rows, [EditField.Question]);
-  if (reply.content !== undefined) {
-    throw new InvalidAssistantResponse(`a question has only the ${EditField.Question} line`);
+  const { fields, content } = parseHeaderReply(rows, [AgentField.Question]);
+  if (content !== undefined) {
+    throw new InvalidAssistantResponse(`a question has only the ${AgentField.Question} line`);
   }
-  return getQuestion(reply.fields);
+  const question = getRequiredField(fields, AgentField.Question);
+  if (question === '') throw new InvalidAssistantResponse(`${AgentField.Question} is empty`);
+  return question;
 }
 
 function parseEditReply(rows: readonly string[], request: AgentStepRequest): AgentReply {

@@ -5,7 +5,6 @@ export interface EditorPort {
   readDocument(): DocumentSnapshot;
   readSelection(): string;
   readCursorLine(): number;
-  readCompileLogs(): string;
   showPreview(edit: ResolvedEdit): void;
   clearPreview(): void;
   apply(edit: ResolvedEdit): void;

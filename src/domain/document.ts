@@ -6,10 +6,6 @@ export function createDocumentSnapshot(lines: readonly string[]): DocumentSnapsh
   return Object.freeze({ lines: Object.freeze([...lines]) });
 }
 
-export function documentText(snapshot: DocumentSnapshot): string {
-  return snapshot.lines.join('\n');
-}
-
 export function isSameDocument(first: DocumentSnapshot, second: DocumentSnapshot): boolean {
   return (
     first.lines.length === second.lines.length &&

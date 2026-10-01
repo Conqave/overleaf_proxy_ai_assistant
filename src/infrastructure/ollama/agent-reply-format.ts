@@ -5,6 +5,7 @@ export const AgentField = {
   Action: 'ACTION',
   Path: 'PATH',
   Query: 'QUERY',
+  Question: 'QUESTION',
 } as const;
 export type AgentField = (typeof AgentField)[keyof typeof AgentField];
 

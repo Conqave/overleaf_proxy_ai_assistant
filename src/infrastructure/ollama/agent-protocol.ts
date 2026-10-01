@@ -62,7 +62,7 @@ const AGENT_SYSTEM = lines(
   '<the answer>',
   `- ${A.Question}: only when you cannot act at all. Details the user leaves open, such as the exact wording or an example sentence, you write yourself and still reply with ${A.Edit}.`,
   actionLine(A.Question),
-  fieldLine(F.Question, '<one short question>'),
+  fieldLine(AgentField.Question, '<one short question>'),
   `- ${A.Edit}: exactly one change of one file (an insertion around a line, or a replacement or deletion of one line or a range of consecutive lines). Every request to add, change, remove, fix, rewrite or translate content of a file ends with an ${A.Edit} that the user reviews and applies, never with the new text in an ${A.Answer}; translating the selected text means replacing it in its file.`,
   actionLine(A.Edit),
   fieldLine(AgentField.Path, '<file path exactly as listed under Project files>'),
