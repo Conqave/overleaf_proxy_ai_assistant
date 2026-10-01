@@ -4,3 +4,8 @@ export interface CancellationSignal {
   addEventListener(type: 'abort', listener: () => void): void;
   removeEventListener(type: 'abort', listener: () => void): void;
 }
+
+export interface CancellationController {
+  readonly signal: CancellationSignal;
+  abort(reason: unknown): void;
+}

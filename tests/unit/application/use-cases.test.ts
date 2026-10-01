@@ -26,7 +26,8 @@ import { AGENT_POLICY } from '../../../src/domain/agent-policy';
 import { createDocumentSnapshot } from '../../../src/domain/document';
 import { createDocumentCommand } from '../../../src/domain/document-command';
 import { DocumentConflictError, InvariantViolation } from '../../../src/domain/errors';
-import { findTextFile } from '../../../src/domain/project-file';
+import { findTextFile, type TextFile } from '../../../src/domain/project-file';
+import type { CancellationSignal } from '../../../src/ports/cancellation';
 import { ResolvedEdit } from '../../../src/domain/resolved-edit';
 import {
   AssistantProtocolError,
@@ -44,6 +45,7 @@ import {
   FakeEditor,
   FakeProject,
   InMemoryConversationRepository,
+  rejectOnAbort,
   sequentialIds,
 } from '../../support/fakes';
 
@@ -119,7 +121,7 @@ beforeEach(() => {
   repository = new InMemoryConversationRepository();
   conversation = new ConversationLog(repository);
   pendingChanges = new PendingChanges();
-  lock = new OperationLock();
+  lock = new OperationLock(() => new AbortController());
   const newId = sequentialIds();
   handle = new HandleAssistantRequest({
     agent,
@@ -167,6 +169,7 @@ describe('HandleAssistantRequest', () => {
         selection: 'world',
       },
       transcript: [],
+      signal: expect.any(AbortSignal) as unknown,
     });
     expect(progress.map((p) => p.stage)).toEqual(['received', 'thinking']);
   });
@@ -449,6 +452,20 @@ describe('HandleAssistantRequest', () => {
 });
 
 describe('conversation reset during a request', () => {
+  it('cancels the running request and frees the assistant at once', async () => {
+    agent.decide = (request) => {
+      agent.requests.push(request);
+      return rejectOnAbort(request.signal);
+    };
+    const running = send('summarize');
+    new StartNewConversation({ conversation, pendingChanges, editor, lock }).execute();
+    await expect(running).rejects.toThrow(RequestSupersededError);
+    expect(lock.isBusy).toBe(false);
+    agent.will(answer('Fresh.'));
+    agent.decide = FakeAgent.prototype.decide.bind(agent);
+    await expect(send('summarize again')).resolves.toMatchObject({ message: { text: 'Fresh.' } });
+  });
+
   it('drops the late reply instead of adding it to the new conversation', async () => {
     let release: () => void = () => undefined;
     const gate = new Promise<void>((resolve) => {
@@ -459,7 +476,7 @@ describe('conversation reset during a request', () => {
       return agentStep(mainEdit());
     };
     const running = send('add');
-    new StartNewConversation({ conversation, pendingChanges, editor }).execute();
+    new StartNewConversation({ conversation, pendingChanges, editor, lock }).execute();
     release();
     await expect(running).rejects.toThrow(RequestSupersededError);
     expect(conversation.messages()).toHaveLength(0);
@@ -469,7 +486,7 @@ describe('conversation reset during a request', () => {
   it('drops the request when the conversation is reset during a tool call', async () => {
     agent.will(tool({ tool: 'compile' }));
     project.compile = () => {
-      new StartNewConversation({ conversation, pendingChanges, editor }).execute();
+      new StartNewConversation({ conversation, pendingChanges, editor, lock }).execute();
       return Promise.resolve([]);
     };
     await expect(send('does it compile?')).rejects.toThrow(RequestSupersededError);
@@ -492,6 +509,25 @@ describe('preview / apply / reject', () => {
       { stage: 'applied', change: pendingChanges.get(changeId).change },
       { stage: 'compiling' },
     ]);
+  });
+
+  it('cancels the review compile of an applied change for a new conversation', async () => {
+    const changeId = await proposeEdit();
+    project.compile = rejectOnAbort;
+    const applying = apply.execute(changeId, record);
+    new StartNewConversation({ conversation, pendingChanges, editor, lock }).execute();
+    await expect(applying).rejects.toThrow(RequestSupersededError);
+    expect(editor.lines).toEqual([...MAIN, 'Added.']);
+    expect(lock.isBusy).toBe(false);
+  });
+
+  it('cancels a file read of the agent for a new conversation', async () => {
+    agent.will(readBib());
+    project.readFile = (_file: TextFile, signal: CancellationSignal) => rejectOnAbort(signal);
+    const running = send('read the bibliography');
+    await Promise.resolve();
+    new StartNewConversation({ conversation, pendingChanges, editor, lock }).execute();
+    await expect(running).rejects.toThrow(RequestSupersededError);
   });
 
   it('refuses a request while an applied change is being reviewed', async () => {
@@ -588,10 +624,12 @@ describe('preview / apply / reject', () => {
 });
 
 describe('ReviewAppliedChange', () => {
-  const reviewApplied = () => lock.run(() => review.execute(record));
+  const reviewApplied = () => lock.run((signal) => review.execute(record, signal));
 
   it('fixes compile errors only inside a running operation', async () => {
-    await expect(handle.fixCompileErrors([], record)).rejects.toThrow(InvariantViolation);
+    await expect(handle.fixCompileErrors([], record, new AbortController().signal)).rejects.toThrow(
+      InvariantViolation,
+    );
   });
 
   it('reports a clean compilation without asking the agent', async () => {
@@ -632,7 +670,7 @@ describe('ReviewAppliedChange', () => {
 
   it('drops the review when the conversation was reset during compilation', async () => {
     project.compile = () => {
-      new StartNewConversation({ conversation, pendingChanges, editor }).execute();
+      new StartNewConversation({ conversation, pendingChanges, editor, lock }).execute();
       return Promise.resolve([{ level: 'error' as const, message: 'x' }]);
     };
     await expect(reviewApplied()).rejects.toThrow(RequestSupersededError);
@@ -645,7 +683,7 @@ describe('conversation', () => {
     repository.stored = [{ id: 'a', role: 'user', text: 'old' }];
     expect(conversation.restore()).toHaveLength(1);
     const changeId = await proposeEdit();
-    new StartNewConversation({ conversation, pendingChanges, editor }).execute();
+    new StartNewConversation({ conversation, pendingChanges, editor, lock }).execute();
     expect(conversation.messages()).toHaveLength(0);
     expect(repository.stored).toHaveLength(0);
     await expect(apply.execute(changeId, record)).rejects.toThrow(ChangeNoLongerPendingError);
@@ -669,7 +707,7 @@ describe('conversation', () => {
     await send('hello');
     expect(conversation.messages()).toHaveLength(2);
     expect(repository.stored).toBe(unreadable);
-    new StartNewConversation({ conversation, pendingChanges, editor }).execute();
+    new StartNewConversation({ conversation, pendingChanges, editor, lock }).execute();
     await send('hello');
     expect(repository.stored.map((m) => m.role)).toEqual(['user', 'assistant']);
   });

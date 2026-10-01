@@ -16,6 +16,7 @@ const conversation = Array.from({ length: 15 }, (_, i) => ({
 const request = (overrides: Partial<AgentStepRequest> = {}): AgentStepRequest => ({
   message: 'm',
   conversation: [],
+  signal: new AbortController().signal,
   workspace: {
     files: [{ id: '1', path: 'main.tex', kind: ProjectFileKind.Text }],
     openFile: { path: 'main.tex', document: createDocumentSnapshot(['\\section{A}', 'Body.']) },

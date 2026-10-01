@@ -1,6 +1,7 @@
 import { AgentTool } from '../domain/agent-action';
 import type { ToolResult } from '../domain/agent-transcript';
 import { searchProject } from '../domain/project-search';
+import type { CancellationSignal } from '../ports/cancellation';
 import type { ProjectPort } from '../ports/project-port';
 import type { AgentProgress } from './agent-progress';
 import type { ProjectToolRun } from './agent-decision';
@@ -11,6 +12,7 @@ export class ProjectTools {
   async run(
     run: ProjectToolRun,
     onProgress: (progress: AgentProgress) => void,
+    signal: CancellationSignal,
   ): Promise<ToolResult> {
     switch (run.tool) {
       case AgentTool.ReadFile:
@@ -18,21 +20,21 @@ export class ProjectTools {
         return {
           tool: run.tool,
           path: run.file.path,
-          document: await this.project.readFile(run.file),
+          document: await this.project.readFile(run.file, signal),
         };
       case AgentTool.Search: {
         onProgress({ stage: 'searching', query: run.query });
         const searched = await Promise.all(
           run.files.map(async (file) => ({
             path: file.path,
-            document: await this.project.readFile(file),
+            document: await this.project.readFile(file, signal),
           })),
         );
         return { tool: run.tool, ...searchProject(searched, run.query) };
       }
       case AgentTool.Compile:
         onProgress({ stage: 'compiling' });
-        return { tool: run.tool, diagnostics: await this.project.compile() };
+        return { tool: run.tool, diagnostics: await this.project.compile(signal) };
     }
   }
 }

@@ -48,6 +48,7 @@ const turns: readonly AgentTurn[] = [
 const request = (overrides: Partial<AgentStepRequest> = {}): AgentStepRequest => ({
   message: 'Add a citation',
   conversation: [],
+  signal: new AbortController().signal,
   workspace: {
     files: [
       { id: '1', path: 'main.tex', kind: ProjectFileKind.Text },

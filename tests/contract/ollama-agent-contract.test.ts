@@ -372,6 +372,7 @@ async function runAgent(agent: OllamaAgent, c: Case): Promise<AgentRun> {
       conversation: [],
       workspace,
       transcript: [...transcript],
+      signal: new AbortController().signal,
     });
     usages.push(contextUsage);
     let accepted: AcceptedDecision;

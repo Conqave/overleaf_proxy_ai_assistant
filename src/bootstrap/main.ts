@@ -29,6 +29,7 @@ import { AssistantView } from '../presentation/assistant-view';
 import { ConfigurationError, loadConfig, type AssistantConfig } from './config';
 
 const FILE_OPEN_TIMEOUT_MS = 20_000;
+const FILE_READ_TIMEOUT_MS = 20_000;
 const COMPILE_TIMEOUT_MS = 240_000;
 
 function compose(
@@ -53,13 +54,17 @@ function compose(
     bridge,
     fetch: window.fetch.bind(window),
     projectId: identity.projectId,
-    timeouts: { fileOpenMs: FILE_OPEN_TIMEOUT_MS, compileMs: COMPILE_TIMEOUT_MS },
+    timeouts: {
+      fileOpenMs: FILE_OPEN_TIMEOUT_MS,
+      fileReadMs: FILE_READ_TIMEOUT_MS,
+      compileMs: COMPILE_TIMEOUT_MS,
+    },
   });
   const conversation = new ConversationLog(
     new LocalStorageConversationRepository(window, identity),
   );
   const pendingChanges = new PendingChanges();
-  const lock = new OperationLock();
+  const lock = new OperationLock(() => new AbortController());
 
   const handleRequest = new HandleAssistantRequest({
     agent,
@@ -77,7 +82,7 @@ function compose(
     applyChange: new ApplyDocumentChange({ editor, project, pendingChanges, lock, review }),
     lock,
     rejectChange: new RejectDocumentChange({ editor, pendingChanges, conversation }),
-    startNewConversation: new StartNewConversation({ conversation, pendingChanges, editor }),
+    startNewConversation: new StartNewConversation({ conversation, pendingChanges, editor, lock }),
     conversation,
   });
 

@@ -268,6 +268,7 @@ describe('OllamaAgent', () => {
   const step: AgentStepRequest = {
     message: 'Which title does the cited work have?',
     conversation: [],
+    signal: new AbortController().signal,
     workspace: {
       files: [
         { id: '1', path: 'main.tex', kind: ProjectFileKind.Text },

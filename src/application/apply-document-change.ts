@@ -1,3 +1,4 @@
+import type { CancellationSignal } from '../ports/cancellation';
 import type { EditorPort } from '../ports/editor-port';
 import type { ProjectPort } from '../ports/project-port';
 import type { AgentProgress } from './agent-progress';
@@ -18,15 +19,16 @@ export class ApplyDocumentChange {
   ) {}
 
   execute(changeId: string, onProgress: (progress: AgentProgress) => void): Promise<ReviewOutcome> {
-    return this.deps.lock.run(async () => {
-      await this.apply(changeId, onProgress);
-      return await this.deps.review.execute(onProgress);
+    return this.deps.lock.run(async (signal) => {
+      await this.apply(changeId, onProgress, signal);
+      return await this.deps.review.execute(onProgress, signal);
     });
   }
 
   private async apply(
     changeId: string,
     onProgress: (progress: AgentProgress) => void,
+    signal: CancellationSignal,
   ): Promise<void> {
     const { editor, project } = this.deps;
     const change = this.deps.pendingChanges.get(changeId);
@@ -34,7 +36,7 @@ export class ApplyDocumentChange {
     change.approve();
     try {
       editor.clearPreview();
-      await showProjectFile(project, file, onProgress);
+      await showProjectFile(project, file, onProgress, signal);
       edit.assertCurrent(editor.readDocument());
       editor.apply(edit);
     } catch (error) {

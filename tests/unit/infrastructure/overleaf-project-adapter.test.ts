@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { ProjectFileNotFoundError } from '../../../src/domain/errors';
+import { NamedError, ProjectFileNotFoundError } from '../../../src/domain/errors';
 import { findTextFile, type TextFile } from '../../../src/domain/project-file';
 import { OverleafEditorBridge } from '../../../src/infrastructure/overleaf/overleaf-editor-bridge';
 import {
@@ -13,19 +13,24 @@ import {
   FileOpenTimeoutError,
   NoOpenTextFileError,
   ProjectFileReadError,
+  ProjectFileReadTimeoutError,
   ProjectTreeOutdatedError,
   ProjectUnavailableError,
 } from '../../../src/ports/errors';
 import { FakeOverleafIde } from '../../support/fake-overleaf';
+import { rejectOnAbort } from '../../support/fakes';
 import { TestFixtureError } from '../../support/test-errors';
 
 const TIMEOUT_MS = 50;
+
+class RequestCancelledForTest extends NamedError {}
 
 let bridge: OverleafEditorBridge;
 let ide: FakeOverleafIde;
 let adapter: OverleafProjectAdapter;
 let requests: string[];
-let answer: () => Promise<Response>;
+let answer: (signal: AbortSignal) => Promise<Response>;
+let cancel: AbortController;
 
 const file = (path: string): TextFile => findTextFile(adapter.listFiles(), path);
 
@@ -36,18 +41,21 @@ beforeEach(() => {
   const uninstall = bridge.install(window);
   ide = new FakeOverleafIde(window);
   requests = [];
+  cancel = new AbortController();
   answer = () => Promise.resolve(new Response('@book{knuth84,\r\n}'));
   adapter = new OverleafProjectAdapter({
     window,
     store: OverleafStore.fromWindow(window),
     bridge,
-    fetch: (input) => {
+    fetch: (input, init) => {
       if (typeof input !== 'string') throw new TestFixtureError('the adapter fetches by URL text');
+      const signal = init?.signal;
+      if (!(signal instanceof AbortSignal)) throw new TestFixtureError('downloads take a signal');
       requests.push(input);
-      return answer();
+      return answer(signal);
     },
     projectId: 'project-1',
-    timeouts: { fileOpenMs: TIMEOUT_MS, compileMs: TIMEOUT_MS },
+    timeouts: { fileOpenMs: TIMEOUT_MS, fileReadMs: TIMEOUT_MS, compileMs: TIMEOUT_MS },
   });
   return () => {
     uninstall();
@@ -81,7 +89,7 @@ describe('OverleafProjectAdapter files', () => {
 
   it('reads the open file from the editor, unsaved edits included', async () => {
     ide.editor.dispatch({ changes: { from: 0, insert: '% draft\n' } });
-    const snapshot = await adapter.readFile(file('main.tex'));
+    const snapshot = await adapter.readFile(file('main.tex'), cancel.signal);
     expect(snapshot.lines[0]).toBe('% draft');
     expect(requests).toEqual([]);
   });
@@ -89,30 +97,53 @@ describe('OverleafProjectAdapter files', () => {
   it('reads a file the user is switching to only once its editor shows it', async () => {
     ide.click('doc-refs');
     expect(ide.store.get(StoreKey.OpenDocId)).toBe('doc-refs');
-    const snapshot = await adapter.readFile(file('refs.bib'));
+    const snapshot = await adapter.readFile(file('refs.bib'), cancel.signal);
     expect(snapshot.lines.join('\n')).toBe(ide.textOf('doc-refs'));
     expect(requests).toEqual([]);
   });
 
   it('downloads any other file from Overleaf', async () => {
-    const snapshot = await adapter.readFile(file('refs.bib'));
+    const snapshot = await adapter.readFile(file('refs.bib'), cancel.signal);
     expect(snapshot.lines).toEqual(['@book{knuth84,', '}']);
     expect(requests).toEqual(['/Project/project-1/doc/doc-refs/download']);
   });
 
   it('classifies a deleted file, a refused download and an unreachable Overleaf', async () => {
     answer = () => Promise.resolve(new Response('', { status: 404 }));
-    await expect(adapter.readFile(file('refs.bib'))).rejects.toThrow(ProjectFileNotFoundError);
+    await expect(adapter.readFile(file('refs.bib'), cancel.signal)).rejects.toThrow(
+      ProjectFileNotFoundError,
+    );
     answer = () => Promise.resolve(new Response('', { status: 500 }));
-    await expect(adapter.readFile(file('refs.bib'))).rejects.toThrow(ProjectFileReadError);
+    await expect(adapter.readFile(file('refs.bib'), cancel.signal)).rejects.toThrow(
+      ProjectFileReadError,
+    );
     answer = () => Promise.reject(new TypeError('Failed to fetch'));
-    await expect(adapter.readFile(file('refs.bib'))).rejects.toThrow(ProjectUnavailableError);
+    await expect(adapter.readFile(file('refs.bib'), cancel.signal)).rejects.toThrow(
+      ProjectUnavailableError,
+    );
+  });
+});
+
+describe('OverleafProjectAdapter download limits', () => {
+  it('gives up on a download that does not finish in time', async () => {
+    answer = rejectOnAbort;
+    await expect(adapter.readFile(file('refs.bib'), cancel.signal)).rejects.toThrow(
+      ProjectFileReadTimeoutError,
+    );
+  });
+
+  it('stops a download when the request is cancelled', async () => {
+    answer = rejectOnAbort;
+    const reading = adapter.readFile(file('refs.bib'), cancel.signal);
+    const reason = new RequestCancelledForTest('new chat');
+    cancel.abort(reason);
+    await expect(reading).rejects.toBe(reason);
   });
 });
 
 describe('OverleafProjectAdapter.openFile', () => {
   it('expands the folders, opens the file and resolves once the editor shows it', async () => {
-    await adapter.openFile(file('chapters/intro/intro.tex'));
+    await adapter.openFile(file('chapters/intro/intro.tex'), cancel.signal);
     expect(ide.isExpanded('folder-chapters')).toBe(true);
     expect(ide.isExpanded('folder-intro')).toBe(true);
     expect(adapter.openFilePath()).toBe('chapters/intro/intro.tex');
@@ -122,31 +153,37 @@ describe('OverleafProjectAdapter.openFile', () => {
   it('brings the last document back when a binary file hides it', async () => {
     const view = ide.editor;
     ide.click('file-frog');
-    await adapter.openFile(file('main.tex'));
+    await adapter.openFile(file('main.tex'), cancel.signal);
     expect(adapter.openFilePath()).toBe('main.tex');
     expect(ide.editor).toBe(view);
   });
 
   it('does nothing when the file is already open', async () => {
     const view = ide.editor;
-    await adapter.openFile(file('main.tex'));
+    await adapter.openFile(file('main.tex'), cancel.signal);
     expect(ide.editor).toBe(view);
   });
 
   it('times out when Overleaf does not open the file and stops watching', async () => {
     ide.opensDocs = false;
-    await expect(adapter.openFile(file('refs.bib'))).rejects.toThrow(FileOpenTimeoutError);
+    await expect(adapter.openFile(file('refs.bib'), cancel.signal)).rejects.toThrow(
+      FileOpenTimeoutError,
+    );
     expect(ide.store.watcherCount).toBe(0);
   });
 
   it('reports a file deleted since the page loaded', async () => {
     ide.remove('doc-refs');
-    await expect(adapter.openFile(file('refs.bib'))).rejects.toThrow(ProjectFileNotFoundError);
+    await expect(adapter.openFile(file('refs.bib'), cancel.signal)).rejects.toThrow(
+      ProjectFileNotFoundError,
+    );
   });
 
   it('rejects a page without a file tree', async () => {
     ide.removeFileTree();
-    await expect(adapter.openFile(file('refs.bib'))).rejects.toThrow(OverleafFileTreeContractError);
+    await expect(adapter.openFile(file('refs.bib'), cancel.signal)).rejects.toThrow(
+      OverleafFileTreeContractError,
+    );
   });
 });
 
@@ -160,31 +197,40 @@ describe('OverleafProjectAdapter.compile', () => {
       typesetting: [],
       all: [],
     };
-    await expect(adapter.compile()).resolves.toEqual([
+    await expect(adapter.compile(cancel.signal)).resolves.toEqual([
       { level: 'error', message: 'Undefined control sequence.', path: 'main.tex', lineNumber: 4 },
     ]);
     expect(ide.store.watcherCount).toBe(0);
   });
 
   it('reports a clean compile that repeats the previous log', async () => {
-    await adapter.compile();
-    await expect(adapter.compile()).resolves.toEqual([]);
+    await adapter.compile(cancel.signal);
+    await expect(adapter.compile(cancel.signal)).resolves.toEqual([]);
   });
 
   it('waits for a compile already running and then recompiles', async () => {
     window.dispatchEvent(new CustomEvent('pdf:recompile'));
-    await adapter.compile();
+    await adapter.compile(cancel.signal);
     expect(ide.compileCount).toBe(2);
   });
 
   it('rejects a toolbar without the Recompile button', async () => {
     ide.removeToolbar();
-    await expect(adapter.compile()).rejects.toThrow(OverleafToolbarContractError);
+    await expect(adapter.compile(cancel.signal)).rejects.toThrow(OverleafToolbarContractError);
+  });
+
+  it('stops waiting for the compile when the request is cancelled', async () => {
+    ide.compiles = false;
+    const compiling = adapter.compile(cancel.signal);
+    const reason = new RequestCancelledForTest('new chat');
+    cancel.abort(reason);
+    await expect(compiling).rejects.toBe(reason);
+    expect(ide.store.watcherCount).toBe(0);
   });
 
   it('times out when no new log arrives and stops watching', async () => {
     ide.compiles = false;
-    await expect(adapter.compile()).rejects.toThrow(CompileTimeoutError);
+    await expect(adapter.compile(cancel.signal)).rejects.toThrow(CompileTimeoutError);
     expect(ide.store.watcherCount).toBe(0);
   });
 });

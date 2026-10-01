@@ -1,34 +1,44 @@
 import { InvariantViolation } from '../domain/errors';
+import type { CancellationController, CancellationSignal } from '../ports/cancellation';
 import { RequestInProgressError } from './errors';
 
 export class OperationLock {
-  private busy = false;
+  private current: CancellationController | null = null;
   private readonly listeners: ((busy: boolean) => void)[] = [];
 
+  constructor(private readonly createController: () => CancellationController) {}
+
   get isBusy(): boolean {
-    return this.busy;
+    return this.current !== null;
   }
 
   onChange(listener: (busy: boolean) => void): void {
     this.listeners.push(listener);
   }
 
-  async run<T>(operation: () => Promise<T>): Promise<T> {
-    if (this.busy) throw new RequestInProgressError();
-    this.setBusy(true);
+  async run<T>(operation: (signal: CancellationSignal) => Promise<T>): Promise<T> {
+    if (this.current !== null) throw new RequestInProgressError();
+    const controller = this.createController();
+    this.setCurrent(controller);
     try {
-      return await operation();
+      return await operation(controller.signal);
     } finally {
-      this.setBusy(false);
+      this.setCurrent(null);
     }
   }
 
-  assertHeld(): void {
-    if (!this.busy) throw new InvariantViolation('this step runs only inside an operation');
+  cancel(reason: Error): void {
+    this.current?.abort(reason);
   }
 
-  private setBusy(busy: boolean): void {
-    this.busy = busy;
-    for (const listener of this.listeners) listener(busy);
+  assertHeld(): void {
+    if (this.current === null) {
+      throw new InvariantViolation('this step runs only inside an operation');
+    }
+  }
+
+  private setCurrent(controller: CancellationController | null): void {
+    this.current = controller;
+    for (const listener of this.listeners) listener(controller !== null);
   }
 }

@@ -13,6 +13,7 @@ import {
   renderFinalContinuation,
   renderHarmonyPrompt,
 } from './harmony-format';
+import { withDeadline } from '../deadline';
 import { CONTEXT_TOKENS, createTooLargeError, MAX_COMPLETION_TOKENS } from './context-budget';
 
 export interface OllamaClientConfig {
@@ -77,21 +78,11 @@ export class OllamaClient {
     });
   }
 
-  async withDeadline<T>(
+  withDeadline<T>(
     cancels: readonly CancellationSignal[],
     run: (signal: AbortSignal) => Promise<T>,
   ): Promise<T> {
-    const deadline = new AbortController();
-    const timer = setTimeout(() => {
-      deadline.abort(this.createTimeoutError());
-    }, this.config.timeoutMs);
-    const forwards = cancels.map((cancel) => forwardCancellation(cancel, deadline));
-    try {
-      return await run(deadline.signal);
-    } finally {
-      clearTimeout(timer);
-      for (const stop of forwards) stop();
-    }
+    return withDeadline(this.config.timeoutMs, () => this.createTimeoutError(), cancels, run);
   }
 
   private getOptions(): { num_ctx: number; num_predict: number; temperature: number } {
@@ -156,17 +147,6 @@ function parseJson(body: string): unknown {
       cause: error,
     });
   }
-}
-
-function forwardCancellation(cancel: CancellationSignal, deadline: AbortController): () => void {
-  const forward = (): void => {
-    deadline.abort(cancel.reason);
-  };
-  if (cancel.aborted) forward();
-  cancel.addEventListener('abort', forward);
-  return () => {
-    cancel.removeEventListener('abort', forward);
-  };
 }
 
 function finish(output: ModelOutput, text: string): Completion {

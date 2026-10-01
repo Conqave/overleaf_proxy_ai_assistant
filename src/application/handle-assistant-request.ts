@@ -10,6 +10,7 @@ import type {
   UserMessage,
 } from '../domain/conversation';
 import type { AgentPort, AgentWorkspace, ContextUsage } from '../ports/agent-port';
+import type { CancellationSignal } from '../ports/cancellation';
 import type { EditorPort } from '../ports/editor-port';
 import type { ProjectPort } from '../ports/project-port';
 import { acceptDecision, isAgentMistake, type AcceptedDecision } from './agent-decision';
@@ -23,6 +24,12 @@ import { ProjectTools } from './project-tools';
 import { showProjectFile } from './show-project-file';
 
 export type { ContextUsage } from '../ports/agent-port';
+
+interface RequestRun {
+  readonly epoch: number;
+  readonly signal: CancellationSignal;
+  readonly onProgress: (progress: AgentProgress) => void;
+}
 
 export const COMPILE_FIX_REQUEST =
   'Compiling the project after the applied change reports errors; fix the first error.';
@@ -66,17 +73,18 @@ export class HandleAssistantRequest {
   ): Promise<AssistantRequestResult> {
     const request = text.trim();
     if (!request) throw new EmptyRequestError();
-    return await this.deps.lock.run(async () => {
+    return await this.deps.lock.run(async (signal) => {
       const message: UserMessage = { id: this.deps.newId(), role: 'user', text: request };
       const { history, epoch } = this.receive(message, onProgress);
       if (isGreetingOnly(request)) return { kind: 'greeting', message: this.greet() };
-      return await this.runAgent(request, history, [], epoch, onProgress);
+      return await this.runAgent(request, history, [], { epoch, signal, onProgress });
     });
   }
 
   async fixCompileErrors(
     diagnostics: readonly CompileDiagnostic[],
     onProgress: (progress: AgentProgress) => void,
+    signal: CancellationSignal,
   ): Promise<AgentResult> {
     this.deps.lock.assertHeld();
     const message: SystemRequestMessage = {
@@ -90,7 +98,11 @@ export class HandleAssistantRequest {
       call: { tool: AgentTool.Compile },
       result: { tool: AgentTool.Compile, diagnostics },
     };
-    return await this.runAgent(COMPILE_FIX_REQUEST, history, [compiled], epoch, onProgress);
+    return await this.runAgent(COMPILE_FIX_REQUEST, history, [compiled], {
+      epoch,
+      signal,
+      onProgress,
+    });
   }
 
   private receive(
@@ -110,10 +122,10 @@ export class HandleAssistantRequest {
     request: string,
     history: readonly ConversationMessage[],
     initialTranscript: readonly AgentTurn[],
-    epoch: number,
-    onProgress: (progress: AgentProgress) => void,
+    run: RequestRun,
   ): Promise<AgentResult> {
     const { agent, conversation } = this.deps;
+    const { epoch, signal, onProgress } = run;
     const workspace = this.readWorkspace();
     const transcript: AgentTurn[] = [...initialTranscript];
     for (let step = 1; ; step += 1) {
@@ -123,6 +135,7 @@ export class HandleAssistantRequest {
         conversation: history,
         workspace,
         transcript: [...transcript],
+        signal,
       });
       conversation.ensureCurrent(epoch);
       let accepted: AcceptedDecision;
@@ -135,9 +148,9 @@ export class HandleAssistantRequest {
         continue;
       }
       if (accepted.kind !== 'tool') {
-        return await this.answer(accepted, contextUsage, epoch, onProgress);
+        return await this.answer(accepted, contextUsage, run);
       }
-      const result = await this.tools.run(accepted.run, onProgress);
+      const result = await this.tools.run(accepted.run, onProgress, signal);
       conversation.ensureCurrent(epoch);
       transcript.push({ kind: 'tool', call: accepted.call, result });
     }
@@ -156,8 +169,7 @@ export class HandleAssistantRequest {
   private async answer(
     reply: Exclude<AcceptedDecision, { readonly kind: 'tool' }>,
     contextUsage: ContextUsage,
-    epoch: number,
-    onProgress: (progress: AgentProgress) => void,
+    { epoch, signal, onProgress }: RequestRun,
   ): Promise<AgentResult> {
     switch (reply.kind) {
       case 'answer':
@@ -165,7 +177,7 @@ export class HandleAssistantRequest {
       case 'question':
         return { kind: 'reply', message: this.reply('clarification', reply.text), contextUsage };
       case 'edit': {
-        await showProjectFile(this.deps.project, reply.change.file, onProgress);
+        await showProjectFile(this.deps.project, reply.change.file, onProgress, signal);
         this.deps.conversation.ensureCurrent(epoch);
         const message = this.propose(reply.change);
         return { kind: 'proposal', message, changeId: message.id, contextUsage };

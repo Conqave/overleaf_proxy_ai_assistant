@@ -16,7 +16,7 @@ export interface AgentStepRequest {
   readonly conversation: readonly ConversationMessage[];
   readonly workspace: AgentWorkspace;
   readonly transcript: readonly AgentTurn[];
-  readonly signal?: CancellationSignal;
+  readonly signal: CancellationSignal;
 }
 
 export interface ContextUsage {

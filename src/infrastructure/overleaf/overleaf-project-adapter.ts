@@ -7,10 +7,13 @@ import {
   FileOpenTimeoutError,
   NoOpenTextFileError,
   ProjectFileReadError,
+  ProjectFileReadTimeoutError,
   ProjectTreeOutdatedError,
   ProjectUnavailableError,
 } from '../../ports/errors';
+import type { CancellationSignal } from '../../ports/cancellation';
 import type { ProjectPort } from '../../ports/project-port';
+import { throwAbortReason, withDeadline } from '../deadline';
 import { readCompileDiagnostics } from './compile-log';
 import type { OpenEditor, OverleafEditorBridge } from './overleaf-editor-bridge';
 import { OverleafStoreContractError, StoreKey, type OverleafStore } from './overleaf-store';
@@ -26,6 +29,7 @@ const EXPAND_ICON_SELECTOR = '.file-tree-expand-icon';
 
 export interface OverleafProjectTimeouts {
   readonly fileOpenMs: number;
+  readonly fileReadMs: number;
   readonly compileMs: number;
 }
 
@@ -71,28 +75,30 @@ export class OverleafProjectAdapter implements ProjectPort {
     return file.path;
   }
 
-  async readFile(file: TextFile): Promise<DocumentSnapshot> {
+  async readFile(file: TextFile, cancel: CancellationSignal): Promise<DocumentSnapshot> {
     if (file.id === this.openDocId()) {
-      const { view } = await this.shownEditor(
-        file,
-        AbortSignal.timeout(this.deps.timeouts.fileOpenMs),
+      const { view } = await this.withFileOpenDeadline(file, cancel, (signal) =>
+        this.shownEditor(file, signal),
       );
       return createDocumentSnapshot(view.state.doc.toJSON());
     }
-    const response = await this.download(file);
-    if (response.status === HTTP_NOT_FOUND) {
-      throw new ProjectFileNotFoundError(`${file.path} is no longer in the project.`);
-    }
-    if (!response.ok) {
-      throw new ProjectFileReadError(
-        `${file.path} could not be read: Overleaf answered HTTP ${String(response.status)}.`,
-      );
-    }
-    return createDocumentSnapshot((await this.readText(response, file)).split(/\r?\n/));
+    const text = await withDeadline(
+      this.deps.timeouts.fileReadMs,
+      () =>
+        new ProjectFileReadTimeoutError(
+          `${file.path} could not be read within ${String(this.deps.timeouts.fileReadMs)} ms.`,
+        ),
+      [cancel],
+      (signal) => this.download(file, signal),
+    );
+    return createDocumentSnapshot(text.split(/\r?\n/));
   }
 
-  async openFile(file: TextFile): Promise<void> {
-    const signal = AbortSignal.timeout(this.deps.timeouts.fileOpenMs);
+  openFile(file: TextFile, cancel: CancellationSignal): Promise<void> {
+    return this.withFileOpenDeadline(file, cancel, (signal) => this.open(file, signal));
+  }
+
+  private async open(file: TextFile, signal: AbortSignal): Promise<void> {
     if (file.id === this.openDocId() && !this.isBinaryFileShown()) {
       await this.shownEditor(file, signal);
       return;
@@ -112,14 +118,25 @@ export class OverleafProjectAdapter implements ProjectPort {
         !this.isBinaryFileShown(),
       signal,
     );
-    if (!opened) throw this.openTimeout(file);
+    if (!opened) throwAbortReason(signal);
     await this.shownEditor(file, signal);
   }
 
-  async compile(): Promise<readonly CompileDiagnostic[]> {
+  compile(cancel: CancellationSignal): Promise<readonly CompileDiagnostic[]> {
+    return withDeadline(
+      this.deps.timeouts.compileMs,
+      () =>
+        new CompileTimeoutError(
+          `The project did not compile within ${String(this.deps.timeouts.compileMs)} ms.`,
+        ),
+      [cancel],
+      (signal) => this.recompile(signal),
+    );
+  }
+
+  private async recompile(signal: AbortSignal): Promise<readonly CompileDiagnostic[]> {
     const { store, window } = this.deps;
-    const signal = AbortSignal.timeout(this.deps.timeouts.compileMs);
-    if (!(await this.whenCompilerIdle(signal))) throw this.compileTimeout();
+    if (!(await this.whenCompilerIdle(signal))) throwAbortReason(signal);
     const previous = store.get(StoreKey.LogEntries);
     window.dispatchEvent(new window.CustomEvent(RECOMPILE_EVENT));
     const compiled = await store.waitUntil(
@@ -130,7 +147,7 @@ export class OverleafProjectAdapter implements ProjectPort {
       },
       signal,
     );
-    if (!compiled) throw this.compileTimeout();
+    if (!compiled) throwAbortReason(signal);
     return readCompileDiagnostics(store.get(StoreKey.LogEntries));
   }
 
@@ -161,22 +178,26 @@ export class OverleafProjectAdapter implements ProjectPort {
     return button;
   }
 
-  private compileTimeout(): CompileTimeoutError {
-    return new CompileTimeoutError(
-      `The project did not compile within ${String(this.deps.timeouts.compileMs)} ms.`,
+  private withFileOpenDeadline<T>(
+    file: TextFile,
+    cancel: CancellationSignal,
+    run: (signal: AbortSignal) => Promise<T>,
+  ): Promise<T> {
+    return withDeadline(
+      this.deps.timeouts.fileOpenMs,
+      () =>
+        new FileOpenTimeoutError(
+          `${file.path} did not open within ${String(this.deps.timeouts.fileOpenMs)} ms.`,
+        ),
+      [cancel],
+      run,
     );
   }
 
   private async shownEditor(file: TextFile, signal: AbortSignal): Promise<OpenEditor> {
     const editor = await this.deps.bridge.whenShowing(file.id, signal);
-    if (editor === null) throw this.openTimeout(file);
+    if (editor === null) throwAbortReason(signal);
     return editor;
-  }
-
-  private openTimeout(file: TextFile): FileOpenTimeoutError {
-    return new FileOpenTimeoutError(
-      `${file.path} did not open within ${String(this.deps.timeouts.fileOpenMs)} ms.`,
-    );
   }
 
   private isBinaryFileShown(): boolean {
@@ -192,13 +213,28 @@ export class OverleafProjectAdapter implements ProjectPort {
     return this.deps.store.getString(StoreKey.OpenDocId);
   }
 
-  private async download(file: TextFile): Promise<Response> {
+  private async download(file: TextFile, signal: AbortSignal): Promise<string> {
+    const response = await this.requestDownload(file, signal);
+    if (response.status === HTTP_NOT_FOUND) {
+      throw new ProjectFileNotFoundError(`${file.path} is no longer in the project.`);
+    }
+    if (!response.ok) {
+      throw new ProjectFileReadError(
+        `${file.path} could not be read: Overleaf answered HTTP ${String(response.status)}.`,
+      );
+    }
+    return await this.readText(response, file, signal);
+  }
+
+  private async requestDownload(file: TextFile, signal: AbortSignal): Promise<Response> {
     const { projectId } = this.deps;
     try {
       return await this.deps.fetch(`/Project/${projectId}/doc/${file.id}/download`, {
         cache: 'no-store',
+        signal,
       });
     } catch (error) {
+      signal.throwIfAborted();
       if (!(error instanceof TypeError)) throw error;
       throw new ProjectUnavailableError(`Overleaf could not be reached to read ${file.path}.`, {
         cause: error,
@@ -206,10 +242,11 @@ export class OverleafProjectAdapter implements ProjectPort {
     }
   }
 
-  private async readText(response: Response, file: TextFile): Promise<string> {
+  private async readText(response: Response, file: TextFile, signal: AbortSignal): Promise<string> {
     try {
       return await response.text();
     } catch (error) {
+      signal.throwIfAborted();
       if (!(error instanceof TypeError)) throw error;
       throw new ProjectUnavailableError(`The download of ${file.path} was interrupted.`, {
         cause: error,

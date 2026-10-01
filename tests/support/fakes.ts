@@ -11,6 +11,7 @@ import {
 } from '../../src/domain/project-file';
 import type { ResolvedEdit } from '../../src/domain/resolved-edit';
 import type { AgentPort, AgentStep, AgentStepRequest } from '../../src/ports/agent-port';
+import type { CancellationSignal } from '../../src/ports/cancellation';
 import type { ConversationRepository } from '../../src/ports/conversation-repository';
 import type { EditorPort } from '../../src/ports/editor-port';
 import type { ProjectPort } from '../../src/ports/project-port';
@@ -102,6 +103,7 @@ export class FakeProject implements ProjectPort {
   readonly files: readonly ProjectFile[];
   readonly opened: string[] = [];
   readonly reads: string[] = [];
+  readonly signals: CancellationSignal[] = [];
   compileCalls = 0;
   failure: Partial<Record<'listFiles' | 'readFile' | 'openFile', Error>> = {};
   onOpen: (path: string) => void = () => undefined;
@@ -139,21 +141,24 @@ export class FakeProject implements ProjectPort {
   openFilePath(): string {
     return this.openPath;
   }
-  readFile(file: TextFile): Promise<DocumentSnapshot> {
+  readFile(file: TextFile, signal: CancellationSignal): Promise<DocumentSnapshot> {
     this.reads.push(file.path);
+    this.signals.push(signal);
     if (this.failure.readFile) return Promise.reject(this.failure.readFile);
     const lines = file.path === this.openPath ? this.editor.lines : this.document(file.path);
     return Promise.resolve(createDocumentSnapshot(lines));
   }
-  openFile(file: TextFile): Promise<void> {
+  openFile(file: TextFile, signal: CancellationSignal): Promise<void> {
     this.opened.push(file.path);
+    this.signals.push(signal);
     if (this.failure.openFile) return Promise.reject(this.failure.openFile);
     this.switchTo(file.path);
     this.onOpen(file.path);
     return Promise.resolve();
   }
-  compile(): Promise<readonly CompileDiagnostic[]> {
+  compile(signal: CancellationSignal): Promise<readonly CompileDiagnostic[]> {
     this.compileCalls += 1;
+    this.signals.push(signal);
     return next(this.compiles, 'compile');
   }
   private document(path: string): string[] {
@@ -192,4 +197,17 @@ export class InMemoryConversationRepository implements ConversationRepository {
 export function sequentialIds(): () => string {
   let next = 0;
   return () => `id-${String((next += 1))}`;
+}
+
+export function rejectOnAbort(signal: CancellationSignal): Promise<never> {
+  return new Promise((_, reject) => {
+    const abort = (): void => {
+      const reason: unknown = signal.reason;
+      reject(
+        reason instanceof Error ? reason : new TestFixtureError('the abort reason is no error'),
+      );
+    };
+    if (signal.aborted) abort();
+    signal.addEventListener('abort', abort);
+  });
 }

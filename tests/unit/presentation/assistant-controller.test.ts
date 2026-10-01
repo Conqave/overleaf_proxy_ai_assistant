@@ -47,7 +47,7 @@ async function proposeBibEdit() {
   );
   const conversation = new ConversationLog(new InMemoryConversationRepository());
   const pendingChanges = new PendingChanges();
-  const lock = new OperationLock();
+  const lock = new OperationLock(() => new AbortController());
   const handleRequest = new HandleAssistantRequest({
     agent,
     project,
@@ -63,7 +63,7 @@ async function proposeBibEdit() {
     lock,
     applyChange: new ApplyDocumentChange({ editor, project, pendingChanges, lock, review }),
     rejectChange: new RejectDocumentChange({ editor, pendingChanges, conversation }),
-    startNewConversation: new StartNewConversation({ conversation, pendingChanges, editor }),
+    startNewConversation: new StartNewConversation({ conversation, pendingChanges, editor, lock }),
     conversation,
   });
   await controller.attach(new AssistantView(window.document, controller));

@@ -22,6 +22,8 @@ export class ProjectUnavailableError extends OperationalError {}
 
 export class ProjectFileReadError extends OperationalError {}
 
+export class ProjectFileReadTimeoutError extends OperationalError {}
+
 export class FileOpenTimeoutError extends OperationalError {}
 
 export class CompileTimeoutError extends OperationalError {}
