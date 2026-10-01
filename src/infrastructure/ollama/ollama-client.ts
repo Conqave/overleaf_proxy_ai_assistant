@@ -116,6 +116,11 @@ export class OllamaClient {
       return await response.text();
     } catch (error) {
       signal.throwIfAborted();
+      if (error instanceof TypeError) {
+        throw new AssistantUnreachableError('The reply from Ollama was interrupted.', {
+          cause: error,
+        });
+      }
       throw error;
     }
   }

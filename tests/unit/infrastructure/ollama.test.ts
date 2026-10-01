@@ -176,6 +176,18 @@ describe('OllamaClient', () => {
     await expect(client.loadModel()).rejects.toThrow(AssistantUnreachableError);
   });
 
+  it('reports a reply stream that breaks off as an unreachable Ollama', async () => {
+    const broken = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.error(new TypeError('network error'));
+      },
+    });
+    const client = new OllamaClient(config, () => Promise.resolve(new Response(broken)));
+    await expect(generate(client)).rejects.toThrow(
+      new AssistantUnreachableError('The reply from Ollama was interrupted.'),
+    );
+  });
+
   it.each([
     ['no token count', '{"response": "r"}', 'Ollama returned no "prompt_eval_count" field.'],
     [
