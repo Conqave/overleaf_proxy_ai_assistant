@@ -23,10 +23,10 @@ import {
   parseEditResponse,
   parsePlanResponse,
 } from './assistant-response-parser';
-import type { GenerateRequest } from './ollama-client';
+import { MAX_COMPLETION_TOKENS, type GenerateRequest } from './ollama-client';
 
 export const MIN_CONTEXT_TOKENS = 16_384;
-const REPLY_RESERVE_TOKENS = 8_192;
+const REPLY_RESERVE_TOKENS = 2 * MAX_COMPLETION_TOKENS;
 const CHARS_PER_TOKEN = 3;
 const CONVERSATION_WINDOW = 12;
 export const SMALL_BLOCK_SHARE = 8;

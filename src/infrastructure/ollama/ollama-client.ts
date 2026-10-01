@@ -24,6 +24,8 @@ export interface GenerateRequest {
 
 const TEMPERATURE = 0.2;
 
+export const MAX_COMPLETION_TOKENS = 4_096;
+
 export class OllamaClient {
   constructor(
     private readonly config: OllamaClientConfig,
@@ -78,8 +80,12 @@ export class OllamaClient {
     }
   }
 
-  private getOptions(): { num_ctx: number; temperature: number } {
-    return { num_ctx: this.config.contextTokens, temperature: TEMPERATURE };
+  private getOptions(): { num_ctx: number; num_predict: number; temperature: number } {
+    return {
+      num_ctx: this.config.contextTokens,
+      num_predict: MAX_COMPLETION_TOKENS,
+      temperature: TEMPERATURE,
+    };
   }
 
   private async post(body: Record<string, unknown>, signal: AbortSignal): Promise<Response> {

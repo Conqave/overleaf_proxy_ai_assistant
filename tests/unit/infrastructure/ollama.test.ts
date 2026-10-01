@@ -48,7 +48,7 @@ describe('OllamaClient', () => {
       raw: true,
       system: 'S',
       prompt: 'P',
-      options: { num_ctx: MIN_CONTEXT_TOKENS, temperature: 0.2 },
+      options: { num_ctx: MIN_CONTEXT_TOKENS, num_predict: 4_096, temperature: 0.2 },
     });
   });
 
