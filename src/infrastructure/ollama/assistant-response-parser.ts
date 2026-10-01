@@ -20,7 +20,7 @@ import {
   CONTENT_MARKER,
   EDIT_FIELDS,
   EditField,
-  FIELD_LINE,
+  createFieldPattern,
   fieldLine,
 } from './edit-reply-format';
 
@@ -54,18 +54,52 @@ export function parseAnswerResponse(raw: string): string {
   return text;
 }
 
+export interface HeaderReply {
+  readonly fields: ReadonlyMap<string, string>;
+  readonly content?: string;
+}
+
+export interface ParsedEdit {
+  readonly edit: ResolvedEdit;
+  readonly rationale?: string;
+}
+
 export function parseEditResponse(raw: string, shown: DocumentSnapshot): AssistantReply {
   const text = raw.trim();
   if (text === '') throw new InvalidAssistantResponse('the reply is empty');
-  const { fields, content } = parseEditReply(text);
-  if (fields.has(EditField.Question)) {
-    if (fields.size > 1 || content !== undefined) {
+  rejectJson(
+    text,
+    `${fieldLine(EditField.Operation, '<operation>')}, ${fieldLine(EditField.Line, '<number>')}`,
+  );
+  const reply = parseHeaderReply(text.split(LINE_PATTERN), EDIT_FIELDS);
+  if (reply.fields.has(EditField.Question)) {
+    if (reply.fields.size > 1 || reply.content !== undefined) {
       throw new InvalidAssistantResponse(`a ${EditField.Question} reply must contain nothing else`);
     }
-    const question = getRequiredField(fields, EditField.Question);
-    if (question === '') throw new InvalidAssistantResponse(`${EditField.Question} is empty`);
-    return { kind: 'question', text: question };
+    return { kind: 'question', text: getQuestion(reply.fields) };
   }
+  const { edit, rationale } = parseEdit(reply, shown);
+  return { kind: 'edit', edit, ...(rationale === undefined ? {} : { rationale }) };
+}
+
+export const LINE_PATTERN = /\r?\n/;
+
+export function rejectJson(text: string, example: string): void {
+  if (text.startsWith('{')) {
+    throw new InvalidAssistantResponse(
+      `the reply is JSON; write the plain header lines instead (${example}), without braces or quotes`,
+    );
+  }
+}
+
+export function getQuestion(fields: ReadonlyMap<string, string>): string {
+  const question = getRequiredField(fields, EditField.Question);
+  if (question === '') throw new InvalidAssistantResponse(`${EditField.Question} is empty`);
+  return question;
+}
+
+export function parseEdit(reply: HeaderReply, shown: DocumentSnapshot): ParsedEdit {
+  const { fields, content } = reply;
   const lineNumber = getLineNumber(fields, EditField.Line);
   const command = parseCommand({
     operation: getRequiredField(fields, EditField.Operation),
@@ -78,7 +112,6 @@ export function parseEditResponse(raw: string, shown: DocumentSnapshot): Assista
   });
   const rationale = getOptionalField(fields, EditField.Plan);
   return {
-    kind: 'edit',
     edit: resolveShown(shown, command),
     ...(rationale === undefined ? {} : { rationale }),
   };
@@ -93,15 +126,14 @@ function parseCommand(input: DocumentCommandInput): DocumentCommand {
   }
 }
 
-function parseEditReply(text: string): { fields: Map<EditField, string>; content?: string } {
-  if (text.startsWith('{')) {
-    throw new InvalidAssistantResponse(
-      `the reply is JSON; write the plain header lines instead (${fieldLine(EditField.Operation, '<operation>')}, ${fieldLine(EditField.Line, '<number>')}), without braces or quotes`,
-    );
-  }
-  const rows = text.split(/\r?\n/);
+export function parseHeaderReply(rows: readonly string[], names: readonly string[]): HeaderReply {
+  const pattern = createFieldPattern(names);
   const contentStart = rows.findIndex((row) => row.trimEnd() === CONTENT_MARKER);
-  const fields = parseFields(contentStart === -1 ? rows : rows.slice(0, contentStart));
+  const fields = parseFields(
+    contentStart === -1 ? rows : rows.slice(0, contentStart),
+    pattern,
+    names,
+  );
   if (contentStart === -1) return { fields };
   const contentRows = rows.slice(contentStart + 1);
   while (contentRows.at(-1)?.trim() === '') contentRows.pop();
@@ -112,20 +144,23 @@ function parseEditReply(text: string): { fields: Map<EditField, string>; content
   return { fields, content: contentRows.join('\n') };
 }
 
-function parseFields(headerRows: readonly string[]): Map<EditField, string> {
-  const fields = new Map<EditField, string>();
+function parseFields(
+  headerRows: readonly string[],
+  pattern: RegExp,
+  names: readonly string[],
+): Map<string, string> {
+  const fields = new Map<string, string>();
   for (const row of headerRows) {
     if (row.trim() === '') continue;
-    const match = FIELD_LINE.exec(row);
+    const match = pattern.exec(row);
     if (!match) {
       throw new InvalidAssistantResponse(
-        `unexpected line ${JSON.stringify(row)}; every line before ${CONTENT_MARKER} must be one of ${EDIT_FIELDS.join(', ')} followed by ": "`,
+        `unexpected line ${JSON.stringify(row)}; every line before ${CONTENT_MARKER} must be one of ${names.join(', ')} followed by ": "`,
       );
     }
-    const name = EDIT_FIELDS.find((field) => field === match[1]);
-    const value = match[2];
+    const [, name, value] = match;
     if (name === undefined || value === undefined) {
-      throw new InvariantViolation('FIELD_LINE always captures an edit field and its value');
+      throw new InvariantViolation('the field pattern always captures a field and its value');
     }
     if (fields.has(name)) throw new InvalidAssistantResponse(`${name} appears twice`);
     fields.set(name, name === EditField.LineText ? value : value.trim());
@@ -133,19 +168,19 @@ function parseFields(headerRows: readonly string[]): Map<EditField, string> {
   return fields;
 }
 
-function getOptionalField(fields: Map<EditField, string>, name: EditField): string | undefined {
+function getOptionalField(fields: ReadonlyMap<string, string>, name: string): string | undefined {
   const value = fields.get(name);
   if (value === '') return undefined;
   return value;
 }
 
-function getRequiredField(fields: Map<EditField, string>, name: EditField): string {
+export function getRequiredField(fields: ReadonlyMap<string, string>, name: string): string {
   const value = fields.get(name);
   if (value === undefined) throw new InvalidAssistantResponse(`${name} is missing`);
   return value;
 }
 
-function getLineNumber(fields: Map<EditField, string>, name: EditField): number {
+function getLineNumber(fields: ReadonlyMap<string, string>, name: string): number {
   const value = getRequiredField(fields, name);
   if (!/^\d+$/.test(value))
     throw new InvalidAssistantResponse(`${name} must be a number, got "${value}"`);

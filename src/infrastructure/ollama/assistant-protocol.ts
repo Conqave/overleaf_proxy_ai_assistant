@@ -13,7 +13,7 @@ import { AssistantRequestTooLargeError } from '../../ports/errors';
 import {
   CONTENT,
   CONTENT_MARKER,
-  EDIT_FIELDS,
+  EDIT_COMMAND_FIELDS,
   EditField,
   fieldLine,
   fieldName,
@@ -164,11 +164,7 @@ const EDIT_SYSTEM = lines(
 
 const PLAN_RETRY = 'Reply again with one JSON object only, exactly matching the required shape.';
 const ANSWER_RETRY = 'Reply again with the answer as plain text.';
-const EDIT_RETRY = `Reply again in exactly the required format: the header lines (${EDIT_FIELDS.filter(
-  (field) => field !== F.Question,
-)
-  .map(fieldName)
-  .join(', ')}) and ${CONTENT_MARKER}, or a single ${fieldName(F.Question)} line. No JSON.`;
+const EDIT_RETRY = `Reply again in exactly the required format: the header lines (${EDIT_COMMAND_FIELDS.map(fieldName).join(', ')}) and ${CONTENT_MARKER}, or a single ${fieldName(F.Question)} line. No JSON.`;
 
 export function getPromptBudget(contextTokens: number): number {
   return (contextTokens - REPLY_RESERVE_TOKENS) * CHARS_PER_TOKEN - CORRECTION_RESERVE_CHARS;

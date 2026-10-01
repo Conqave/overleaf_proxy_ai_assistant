@@ -11,18 +11,24 @@ export type EditField = (typeof EditField)[keyof typeof EditField];
 
 export const EDIT_FIELDS: readonly EditField[] = Object.values(EditField);
 
+export const EDIT_COMMAND_FIELDS: readonly EditField[] = EDIT_FIELDS.filter(
+  (field) => field !== EditField.Question,
+);
+
 const FIELD_MARK = ':';
 
 export const CONTENT = 'CONTENT';
 
 export const CONTENT_MARKER = `${CONTENT}${FIELD_MARK}`;
 
-export const FIELD_LINE = new RegExp(`^(${EDIT_FIELDS.join('|')})${FIELD_MARK}(?: |$)(.*)$`);
+export function createFieldPattern(names: readonly string[]): RegExp {
+  return new RegExp(`^(${names.join('|')})${FIELD_MARK}(?: |$)(.*)$`);
+}
 
-export function fieldName(field: EditField): string {
+export function fieldName(field: string): string {
   return `${field}${FIELD_MARK}`;
 }
 
-export function fieldLine(field: EditField, value: string): string {
+export function fieldLine(field: string, value: string): string {
   return `${fieldName(field)} ${value}`;
 }
