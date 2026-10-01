@@ -4,7 +4,7 @@ import { COMPILE_FIX_REQUEST } from '../../src/application/handle-assistant-requ
 import { AGENT_POLICY } from '../../src/domain/agent-policy';
 import { type Browser, openBrowser } from '../support/browser';
 import {
-  FAKE_REQUEST_TIMEOUT_MS,
+  FAKE_AGENT_STEP_TIMEOUT_MS,
   FakeOllama,
   type OllamaPrompt,
   type OllamaReply,
@@ -504,10 +504,10 @@ describe('assistant agent', () => {
       () => {
         expect(ollama.prompts).toHaveLength(1);
       },
-      FAKE_REQUEST_TIMEOUT_MS,
+      FAKE_AGENT_STEP_TIMEOUT_MS,
     );
     expect(texts('.ola-error')).toEqual([
-      expect.stringContaining('Ollama did not finish within 10 seconds'),
+      expect.stringContaining('Ollama did not finish this step within 10 seconds'),
     ]);
     await send('hi');
     expect(messages().at(-1)).toContain('Hi, I am here');

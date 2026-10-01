@@ -44,7 +44,7 @@ export type OllamaReply =
   | { hang: true };
 
 const FAKE_ANALYSIS = 'The request is clear; I answer in the requested format.';
-export const FAKE_REQUEST_TIMEOUT_MS = 10_000;
+export const FAKE_AGENT_STEP_TIMEOUT_MS = 10_000;
 const PROMPT_TOKENS_PER_CALL = 1_250;
 const INSTRUCTIONS_HEADING = '# Instructions\n\n';
 const ASSISTANT_START = '<|start|>assistant';
@@ -150,7 +150,7 @@ export class FakeOllama {
   config: Record<string, unknown> | null = {
     ollamaEndpoint: '/ollama/main/api/generate',
     model: 'test-model',
-    requestTimeoutMs: FAKE_REQUEST_TIMEOUT_MS,
+    agentStepTimeoutMs: FAKE_AGENT_STEP_TIMEOUT_MS,
   };
 
   reply(...replies: OllamaReply[]): this {

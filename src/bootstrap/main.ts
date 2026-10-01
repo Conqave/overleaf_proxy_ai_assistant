@@ -41,7 +41,7 @@ function compose(
     {
       endpoint: config.ollamaEndpoint,
       model: config.model,
-      timeoutMs: config.requestTimeoutMs,
+      stepTimeoutMs: config.agentStepTimeoutMs,
     },
     window.fetch.bind(window),
   );

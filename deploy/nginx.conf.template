@@ -37,7 +37,7 @@ http {
         location = /overleaf-ai-assistant/config.json {
             default_type application/json;
             add_header Cache-Control "no-store" always;
-            return 200 '{"ollamaEndpoint":"${ASSISTANT_OLLAMA_PATH}","model":"${OLLAMA_MODEL}","requestTimeoutMs":${OLLAMA_REQUEST_TIMEOUT_MS}}';
+            return 200 '{"ollamaEndpoint":"${ASSISTANT_OLLAMA_PATH}","model":"${OLLAMA_MODEL}","agentStepTimeoutMs":${ASSISTANT_STEP_TIMEOUT_MS}}';
         }
 
         location = /healthz {

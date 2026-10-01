@@ -25,11 +25,11 @@ assistant_require_upstream OLLAMA_UPSTREAM
 echo "$OLLAMA_MODEL" | grep -Eq '^[A-Za-z0-9._:/-]+$' \
     || assistant_config_fail "OLLAMA_MODEL contains unsupported characters: '$OLLAMA_MODEL'"
 
-assistant_positive_int OLLAMA_REQUEST_TIMEOUT_MS "milliseconds the assistant waits for Ollama"
+assistant_positive_int ASSISTANT_STEP_TIMEOUT_MS "milliseconds one assistant step may wait for Ollama"
 
-OLLAMA_PROXY_TIMEOUT_S=$((OLLAMA_REQUEST_TIMEOUT_MS / 1000 + 30))
+OLLAMA_PROXY_TIMEOUT_S=$((ASSISTANT_STEP_TIMEOUT_MS / 1000 + 30))
 ASSISTANT_OLLAMA_PATH=/ollama/main/api/generate
 
-export OVERLEAF_UPSTREAM OLLAMA_UPSTREAM OLLAMA_MODEL OLLAMA_REQUEST_TIMEOUT_MS \
+export OVERLEAF_UPSTREAM OLLAMA_UPSTREAM OLLAMA_MODEL ASSISTANT_STEP_TIMEOUT_MS \
     OLLAMA_PROXY_TIMEOUT_S ASSISTANT_OLLAMA_PATH
 unset assistant_value

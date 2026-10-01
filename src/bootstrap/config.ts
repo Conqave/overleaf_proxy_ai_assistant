@@ -3,11 +3,11 @@ import { NamedError } from '../domain/errors';
 export interface AssistantConfig {
   readonly ollamaEndpoint: string;
   readonly model: string;
-  readonly requestTimeoutMs: number;
+  readonly agentStepTimeoutMs: number;
 }
 
 const CONFIG_URL = '/overleaf-ai-assistant/config.json';
-const CONFIG_KEYS = ['ollamaEndpoint', 'model', 'requestTimeoutMs'];
+const CONFIG_KEYS = ['ollamaEndpoint', 'model', 'agentStepTimeoutMs'];
 
 export class ConfigurationError extends NamedError {
   constructor(message: string, options?: { cause?: unknown }) {
@@ -30,7 +30,7 @@ export function parseConfig(data: unknown): AssistantConfig {
   return Object.freeze({
     ollamaEndpoint,
     model: getText(fields, 'model'),
-    requestTimeoutMs: getPositiveInteger(fields, 'requestTimeoutMs'),
+    agentStepTimeoutMs: getPositiveInteger(fields, 'agentStepTimeoutMs'),
   });
 }
 

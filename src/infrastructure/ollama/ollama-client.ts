@@ -24,7 +24,7 @@ import {
 export interface OllamaClientConfig {
   readonly endpoint: string;
   readonly model: string;
-  readonly timeoutMs: number;
+  readonly stepTimeoutMs: number;
 }
 
 export interface GenerateRequest {
@@ -105,7 +105,7 @@ export class OllamaClient {
     cancels: readonly CancellationSignal[],
     run: (signal: AbortSignal) => Promise<T>,
   ): Promise<T> {
-    return withDeadline(this.config.timeoutMs, () => this.createTimeoutError(), cancels, run);
+    return withDeadline(this.config.stepTimeoutMs, () => this.createTimeoutError(), cancels, run);
   }
 
   private getOptions(): { num_ctx: number; num_predict: number; temperature: number } {
@@ -149,7 +149,7 @@ export class OllamaClient {
 
   private createTimeoutError(): AssistantTimeoutError {
     return new AssistantTimeoutError(
-      `Ollama did not finish within ${formatDuration(this.config.timeoutMs)}.`,
+      `Ollama did not finish this step within ${formatDuration(this.config.stepTimeoutMs)}.`,
     );
   }
 }

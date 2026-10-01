@@ -27,7 +27,7 @@ import { textMatching } from '../support/guards';
 import { TestFixtureError } from '../support/test-errors';
 
 const CASE_TIMEOUT_MS = 600_000;
-const REQUEST_TIMEOUT_MS = 300_000;
+const STEP_TIMEOUT_MS = 300_000;
 
 const MAIN = 'main.tex';
 const BIB = 'sample.bib';
@@ -390,7 +390,7 @@ function createContractAgent(): OllamaAgent {
     {
       endpoint: requireEnv('OLLAMA_CONTRACT_URL'),
       model: requireEnv('OLLAMA_CONTRACT_MODEL'),
-      timeoutMs: REQUEST_TIMEOUT_MS,
+      stepTimeoutMs: STEP_TIMEOUT_MS,
     },
     (input, init) => fetch(input, init),
   );

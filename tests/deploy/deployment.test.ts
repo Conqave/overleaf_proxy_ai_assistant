@@ -42,7 +42,7 @@ const VALID_ENV = {
   OVERLEAF_UPSTREAM: '127.0.0.1:8081',
   OLLAMA_UPSTREAM: '127.0.0.1:11434',
   OLLAMA_MODEL: 'gpt-oss:20b',
-  OLLAMA_REQUEST_TIMEOUT_MS: '900000',
+  ASSISTANT_STEP_TIMEOUT_MS: '900000',
 };
 
 function validate(env: Record<string, string>) {
@@ -102,10 +102,10 @@ describe('deployment configuration', () => {
     ['model with quotes', { ...VALID_ENV, OLLAMA_MODEL: 'a"b' }, 'unsupported characters'],
     [
       'missing request timeout',
-      { ...VALID_ENV, OLLAMA_REQUEST_TIMEOUT_MS: '' },
-      'OLLAMA_REQUEST_TIMEOUT_MS is required',
+      { ...VALID_ENV, ASSISTANT_STEP_TIMEOUT_MS: '' },
+      'ASSISTANT_STEP_TIMEOUT_MS is required',
     ],
-    ['non-numeric timeout', { ...VALID_ENV, OLLAMA_REQUEST_TIMEOUT_MS: '15m' }, 'positive integer'],
+    ['non-numeric timeout', { ...VALID_ENV, ASSISTANT_STEP_TIMEOUT_MS: '15m' }, 'positive integer'],
   ])('fails start-up on %s', (_name, env, message) => {
     const { status, stderr } = validate(env);
     expect(status).not.toBe(0);
@@ -117,7 +117,7 @@ describe('deployment configuration', () => {
     expect(parseConfig(JSON.parse(groupOf(config, 1, 'rendered config.json')))).toEqual({
       ollamaEndpoint: '/ollama/main/api/generate',
       model: 'gpt-oss:20b',
-      requestTimeoutMs: 900000,
+      agentStepTimeoutMs: 900000,
     });
   });
 

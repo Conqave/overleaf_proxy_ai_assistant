@@ -26,7 +26,7 @@ import type { AgentStepRequest } from '../../../src/ports/agent-port';
 const config = {
   endpoint: '/ollama/main/api/generate',
   model: 'm',
-  timeoutMs: 10_000,
+  stepTimeoutMs: 10_000,
 };
 const make = (ollama: FakeOllama) => ({ client: new OllamaClient(config, ollama.fetch) });
 const generate = (client: OllamaClient): Promise<Completion> =>
@@ -274,9 +274,9 @@ describe('OllamaClient', () => {
     vi.useFakeTimers();
     try {
       const assertion = expect(generate(make(ollama).client)).rejects.toThrow(
-        new AssistantTimeoutError('Ollama did not finish within 10 seconds.'),
+        new AssistantTimeoutError('Ollama did not finish this step within 10 seconds.'),
       );
-      await vi.advanceTimersByTimeAsync(config.timeoutMs);
+      await vi.advanceTimersByTimeAsync(config.stepTimeoutMs);
       await assertion;
     } finally {
       vi.useRealTimers();
@@ -298,7 +298,7 @@ describe('OllamaClient', () => {
       });
     vi.useFakeTimers();
     try {
-      const client = new OllamaClient({ ...config, timeoutMs }, hanging);
+      const client = new OllamaClient({ ...config, stepTimeoutMs: timeoutMs }, hanging);
       const assertion = expect(generate(client)).rejects.toThrow(`within ${duration}.`);
       await vi.advanceTimersByTimeAsync(timeoutMs);
       await assertion;
@@ -392,7 +392,7 @@ describe('OllamaAgent', () => {
     try {
       const decision = new OllamaAgent(new OllamaClient(config, slow)).decide(step);
       const assertion = expect(decision).rejects.toThrow(
-        new AssistantTimeoutError('Ollama did not finish within 10 seconds.'),
+        new AssistantTimeoutError('Ollama did not finish this step within 10 seconds.'),
       );
       await vi.advanceTimersByTimeAsync(12_000);
       await assertion;
