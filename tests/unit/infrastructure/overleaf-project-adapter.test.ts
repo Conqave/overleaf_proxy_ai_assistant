@@ -287,6 +287,14 @@ describe('OverleafProjectAdapter.compile', () => {
     await expect(adapter.compile(cancel.signal)).rejects.toThrow(CompileWithoutResultError);
   });
 
+  it('takes a log that Overleaf publishes together with the end of the compile', async () => {
+    ide.compileOutcome = 'pdf-with-idle';
+    ide.logEntries = { ...EMPTY_LOG_ENTRIES, errors: [{ message: 'Undefined control sequence.' }] };
+    await expect(adapter.compile(cancel.signal)).resolves.toEqual([
+      { level: 'error', message: 'Undefined control sequence.' },
+    ]);
+  });
+
   it('ignores the log of an earlier compile that arrives while it compiles', async () => {
     const late = {
       ...EMPTY_LOG_ENTRIES,

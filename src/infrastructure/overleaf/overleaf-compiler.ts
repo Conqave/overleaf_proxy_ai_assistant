@@ -22,6 +22,11 @@ export interface OverleafCompileTimeouts {
   readonly compileLogMs: number;
 }
 
+interface CompileOutput {
+  readonly log: unknown;
+  readonly pdf: unknown;
+}
+
 export class OverleafToolbarContractError extends NamedError {
   constructor(problem: string) {
     super(`Overleaf's PDF toolbar does not match the expected contract: ${problem}.`);
@@ -66,37 +71,41 @@ export class OverleafCompiler {
   private async recompile(signal: AbortSignal): Promise<readonly CompileDiagnostic[]> {
     const button = this.recompileButton();
     if (!(await this.whenButton(button, isIdle, signal))) throwAbortReason(signal);
-    const previousPdf = this.store.get(StoreKey.PdfUrl);
+    const before = this.readOutput();
     const finished = this.whenButton(button, hasFinished, signal);
     this.window.dispatchEvent(new this.window.CustomEvent(RECOMPILE_EVENT));
     if (!(await finished)) throwAbortReason(signal);
-    const diagnostics = readCompileDiagnostics(await this.nextLog(signal));
-    if (diagnostics.length === 0 && this.store.get(StoreKey.PdfUrl) === previousPdf) {
-      throw this.withoutResult();
-    }
-    return diagnostics;
+    return readCompileDiagnostics(await this.nextLog(button, before, signal));
   }
 
-  private nextLog(cancel: AbortSignal): Promise<unknown> {
+  private nextLog(
+    button: HTMLElement,
+    before: CompileOutput,
+    cancel: AbortSignal,
+  ): Promise<unknown> {
     const { store } = this;
-    const stale = store.get(StoreKey.LogEntries);
+    const isNew = (): boolean => {
+      const { log, pdf } = this.readOutput();
+      return isIdle([], button) && pdf !== before.pdf && log !== null && log !== before.log;
+    };
     return withDeadline(
       this.timeouts.compileLogMs,
       () => this.withoutResult(),
       [cancel],
       async (signal) => {
         const published = await store.waitUntil(
-          [StoreKey.LogEntries],
-          () => {
-            const current = store.get(StoreKey.LogEntries);
-            return current !== null && current !== stale;
-          },
+          [StoreKey.LogEntries, StoreKey.PdfUrl],
+          isNew,
           signal,
         );
         if (!published) throwAbortReason(signal);
         return store.get(StoreKey.LogEntries);
       },
     );
+  }
+
+  private readOutput(): CompileOutput {
+    return { log: this.store.get(StoreKey.LogEntries), pdf: this.store.get(StoreKey.PdfUrl) };
   }
 
   private whenButton(

@@ -102,7 +102,7 @@ export class FakeOverleafIde {
   editor: EditorView;
   opensDocs = true;
   compiles = true;
-  compileOutcome: 'pdf' | 'http-error' | 'no-output' = 'pdf';
+  compileOutcome: 'pdf' | 'pdf-with-idle' | 'http-error' | 'no-output' = 'pdf';
   logEntries: unknown = EMPTY_LOG_ENTRIES;
   compileLog: () => unknown = () => this.logEntries;
   compileCount = 0;
@@ -192,6 +192,11 @@ export class FakeOverleafIde {
     button.dataset.olLoading = 'true';
     setTimeout(() => {
       button.dataset.olLoading = 'false';
+      if (this.compileOutcome === 'pdf-with-idle') {
+        this.store.set('pdf.url', `build-${String(this.compileCount)}`);
+        this.store.set('pdf.logEntries', structuredClone(this.compileLog()));
+        return;
+      }
       setTimeout(() => {
         this.publishCompileResult();
       });
@@ -201,6 +206,7 @@ export class FakeOverleafIde {
   private publishCompileResult(): void {
     switch (this.compileOutcome) {
       case 'pdf':
+      case 'pdf-with-idle':
         this.store.set('pdf.url', `build-${String(this.compileCount)}`);
         this.store.set('pdf.logEntries', null);
         setTimeout(() => {
