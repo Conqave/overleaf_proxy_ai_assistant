@@ -1,3 +1,4 @@
+import { InvalidProjectPathError, InvalidProjectTreeError } from '../../domain/errors';
 import {
   createProjectFiles,
   PATH_SEPARATOR,
@@ -33,7 +34,20 @@ export function readProjectTree(project: unknown): ProjectTree {
   const files: ProjectFile[] = [];
   const folderIds = new Map<string, readonly string[]>();
   collectFolder(readFolder(rootFolder[0]), [], [], files, folderIds);
-  return { files: createProjectFiles(files), folderIds };
+  return { files: validateFiles(files), folderIds };
+}
+
+function validateFiles(files: readonly ProjectFile[]): readonly ProjectFile[] {
+  try {
+    return createProjectFiles(files);
+  } catch (error) {
+    if (!(error instanceof InvalidProjectPathError || error instanceof InvalidProjectTreeError)) {
+      throw error;
+    }
+    throw new OverleafStoreContractError(`the project tree is invalid: ${error.message}`, {
+      cause: error,
+    });
+  }
 }
 
 function collectFolder(

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { InvalidProjectTreeError } from '../../../src/domain/errors';
+import { InvalidProjectPathError, InvalidProjectTreeError } from '../../../src/domain/errors';
 import { OverleafStoreContractError } from '../../../src/infrastructure/overleaf/overleaf-store';
 import { readProjectTree } from '../../../src/infrastructure/overleaf/project-tree';
 import { FIXTURE_ROOT_FOLDER } from '../../support/fake-overleaf';
@@ -34,9 +34,18 @@ describe('readProjectTree', () => {
     expect(() => readProjectTree(project)).toThrow(OverleafStoreContractError);
   });
 
-  it('rejects a tree with two files at one path', () => {
-    const twice = { _id: 'doc-other', name: 'main.tex' };
-    const root = { ...FIXTURE_ROOT_FOLDER, docs: [...FIXTURE_ROOT_FOLDER.docs, twice] };
-    expect(() => readProjectTree({ rootFolder: [root] })).toThrow(InvalidProjectTreeError);
+  it.each([
+    ['two files at one path', { _id: 'doc-other', name: 'main.tex' }, InvalidProjectTreeError],
+    ['a file with a blank name', { _id: 'doc-blank', name: ' ' }, InvalidProjectPathError],
+  ])('rejects a tree with %s as a broken store contract', (_, doc, domainError) => {
+    const root = { ...FIXTURE_ROOT_FOLDER, docs: [...FIXTURE_ROOT_FOLDER.docs, doc] };
+    let cause: unknown;
+    try {
+      readProjectTree({ rootFolder: [root] });
+    } catch (error) {
+      if (!(error instanceof OverleafStoreContractError)) throw error;
+      cause = error.cause;
+    }
+    expect(cause).toBeInstanceOf(domainError);
   });
 });
