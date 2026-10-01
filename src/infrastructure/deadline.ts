@@ -20,6 +20,19 @@ export async function withDeadline<T>(
   }
 }
 
+export async function pause(ms: number, signal: AbortSignal): Promise<void> {
+  await new Promise<void>((resolve) => {
+    const done = (): void => {
+      clearTimeout(timer);
+      signal.removeEventListener('abort', done);
+      resolve();
+    };
+    const timer = setTimeout(done, ms);
+    signal.addEventListener('abort', done);
+  });
+  signal.throwIfAborted();
+}
+
 export function throwAbortReason(signal: AbortSignal): never {
   signal.throwIfAborted();
   throw new InvariantViolation('a wait ended although its signal was not aborted');

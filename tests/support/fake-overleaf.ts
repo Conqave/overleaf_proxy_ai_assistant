@@ -78,8 +78,27 @@ export const FIXTURE_TEXTS: ReadonlyMap<string, string> = new Map([
 
 export const EMPTY_LOG_ENTRIES = { errors: [], warnings: [], typesetting: [], all: [] };
 
+export class FakeSharedDocument {
+  bufferedOps = false;
+  savesEdits = true;
+  flushes = 0;
+
+  flush(): void {
+    this.flushes += 1;
+    if (!this.savesEdits) return;
+    setTimeout(() => {
+      this.bufferedOps = false;
+    });
+  }
+
+  hasBufferedOps(): boolean {
+    return this.bufferedOps;
+  }
+}
+
 export class FakeOverleafIde {
   readonly store: FakeOverleafStore;
+  readonly sharedDocument = new FakeSharedDocument();
   editor: EditorView;
   opensDocs = true;
   compiles = true;
@@ -107,6 +126,7 @@ export class FakeOverleafIde {
       openFile: null,
       'pdf.logEntries': EMPTY_LOG_ENTRIES,
       'pdf.url': 'build-0',
+      'editor.sharejs_doc': this.sharedDocument,
     });
     Object.assign(window, { overleaf: { unstable: { store: this.store } } });
     window.addEventListener('pdf:recompile', this.recompile);

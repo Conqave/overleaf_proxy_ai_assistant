@@ -7,8 +7,14 @@ export const StoreKey = {
   OpenFile: 'openFile',
   LogEntries: 'pdf.logEntries',
   PdfUrl: 'pdf.url',
+  SharedDocument: 'editor.sharejs_doc',
 } as const;
 export type StoreKey = (typeof StoreKey)[keyof typeof StoreKey];
+
+export interface SharedDocument {
+  flush(): void;
+  hasBufferedOps(): boolean;
+}
 
 interface RawStore {
   get(key: string): unknown;
@@ -48,6 +54,17 @@ export class OverleafStore {
   getBoolean(key: StoreKey): boolean {
     const value = this.get(key);
     if (typeof value !== 'boolean') throw new OverleafStoreContractError(`${key} is not a boolean`);
+    return value;
+  }
+
+  getSharedDocument(): SharedDocument | null {
+    const value = this.get(StoreKey.SharedDocument);
+    if (value === null) return null;
+    if (!isSharedDocument(value)) {
+      throw new OverleafStoreContractError(
+        `${StoreKey.SharedDocument} is neither null nor a document with flush and hasBufferedOps`,
+      );
+    }
     return value;
   }
 
@@ -113,4 +130,15 @@ function isRawStore(value: unknown): value is RawStore {
 
 function isUnsubscribe(value: unknown): value is () => void {
   return typeof value === 'function';
+}
+
+function isSharedDocument(value: unknown): value is SharedDocument {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    'flush' in value &&
+    typeof value.flush === 'function' &&
+    'hasBufferedOps' in value &&
+    typeof value.hasBufferedOps === 'function'
+  );
 }

@@ -1,8 +1,12 @@
 import type { CompileDiagnostic } from '../../domain/agent-transcript';
 import { NamedError } from '../../domain/errors';
 import type { CancellationSignal } from '../../ports/cancellation';
-import { CompileTimeoutError, CompileWithoutResultError } from '../../ports/errors';
-import { throwAbortReason, withDeadline } from '../deadline';
+import {
+  CompileTimeoutError,
+  CompileWithoutResultError,
+  EditsNotSavedError,
+} from '../../ports/errors';
+import { pause, throwAbortReason, withDeadline } from '../deadline';
 import { formatDuration } from '../duration';
 import { readCompileDiagnostics } from './compile-log';
 import { StoreKey, type OverleafStore } from './overleaf-store';
@@ -10,8 +14,10 @@ import { StoreKey, type OverleafStore } from './overleaf-store';
 const RECOMPILE_EVENT = 'pdf:recompile';
 const RECOMPILE_BUTTON_SELECTOR = '.toolbar-pdf-left .split-menu-button[data-ol-loading]';
 const LOADING_ATTRIBUTE = 'data-ol-loading';
+const SAVE_POLL_MS = 25;
 
 export interface OverleafCompileTimeouts {
+  readonly saveMs: number;
   readonly compileMs: number;
   readonly compileLogMs: number;
 }
@@ -29,8 +35,17 @@ export class OverleafCompiler {
     private readonly timeouts: OverleafCompileTimeouts,
   ) {}
 
-  compile(cancel: CancellationSignal): Promise<readonly CompileDiagnostic[]> {
-    return withDeadline(
+  async compile(cancel: CancellationSignal): Promise<readonly CompileDiagnostic[]> {
+    await withDeadline(
+      this.timeouts.saveMs,
+      () =>
+        new EditsNotSavedError(
+          `Overleaf did not save the latest edits within ${formatDuration(this.timeouts.saveMs)}; check the connection and try again.`,
+        ),
+      [cancel],
+      (signal) => this.whenEditsSaved(signal),
+    );
+    return await withDeadline(
       this.timeouts.compileMs,
       () =>
         new CompileTimeoutError(
@@ -39,6 +54,13 @@ export class OverleafCompiler {
       [cancel],
       (signal) => this.recompile(signal),
     );
+  }
+
+  private async whenEditsSaved(signal: AbortSignal): Promise<void> {
+    const document = this.store.getSharedDocument();
+    if (document === null) return;
+    document.flush();
+    while (document.hasBufferedOps()) await pause(SAVE_POLL_MS, signal);
   }
 
   private async recompile(signal: AbortSignal): Promise<readonly CompileDiagnostic[]> {

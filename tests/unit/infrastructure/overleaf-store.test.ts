@@ -31,6 +31,18 @@ describe('OverleafStore', () => {
     expect(() => store.getBoolean(StoreKey.Opening)).toThrow(OverleafStoreContractError);
   });
 
+  it('gives the shared document of the open file and rejects anything else', () => {
+    const document = { flush: () => undefined, hasBufferedOps: () => false };
+    install(new FakeOverleafStore({ 'editor.sharejs_doc': document }));
+    expect(OverleafStore.fromWindow(window).getSharedDocument()).toBe(document);
+    install(new FakeOverleafStore({ 'editor.sharejs_doc': null }));
+    expect(OverleafStore.fromWindow(window).getSharedDocument()).toBeNull();
+    install(new FakeOverleafStore({ 'editor.sharejs_doc': { flush: () => undefined } }));
+    expect(() => OverleafStore.fromWindow(window).getSharedDocument()).toThrow(
+      OverleafStoreContractError,
+    );
+  });
+
   it('waits until a watched value satisfies the condition, then stops watching', async () => {
     const fake = new FakeOverleafStore({ 'editor.opening': true });
     install(fake);

@@ -32,6 +32,7 @@ export interface OverleafProjectTimeouts extends OverleafCompileTimeouts {
 export const OVERLEAF_PROJECT_TIMEOUTS: OverleafProjectTimeouts = {
   fileOpenMs: 20_000,
   fileReadMs: 20_000,
+  saveMs: 20_000,
   compileMs: 240_000,
   compileLogMs: 15_000,
 };

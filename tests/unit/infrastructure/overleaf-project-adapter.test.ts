@@ -11,6 +11,7 @@ import { OverleafStore, StoreKey } from '../../../src/infrastructure/overleaf/ov
 import {
   CompileTimeoutError,
   CompileWithoutResultError,
+  EditsNotSavedError,
   FileOpenTimeoutError,
   NoOpenTextFileError,
   ProjectFileReadError,
@@ -60,6 +61,7 @@ beforeEach(() => {
     timeouts: {
       fileOpenMs: TIMEOUT_MS,
       fileReadMs: TIMEOUT_MS,
+      saveMs: TIMEOUT_MS,
       compileMs: COMPILE_TIMEOUT_MS,
       compileLogMs: TIMEOUT_MS,
     },
@@ -236,6 +238,34 @@ describe('OverleafProjectAdapter.compile', () => {
     cancel.abort(reason);
     await expect(compiling).rejects.toBe(reason);
     expect(ide.store.watcherCount).toBe(0);
+  });
+
+  it('sends the pending edits of the open document and compiles once Overleaf has them', async () => {
+    ide.sharedDocument.bufferedOps = true;
+    const compiledWithBufferedOps: boolean[] = [];
+    const recordState = (): void => {
+      compiledWithBufferedOps.push(ide.sharedDocument.bufferedOps);
+    };
+    window.addEventListener('pdf:recompile', recordState);
+    try {
+      await adapter.compile(cancel.signal);
+    } finally {
+      window.removeEventListener('pdf:recompile', recordState);
+    }
+    expect(ide.sharedDocument.flushes).toBe(1);
+    expect(compiledWithBufferedOps).toEqual([false]);
+  });
+
+  it('refuses to compile while Overleaf has not saved the latest edits', async () => {
+    ide.sharedDocument.bufferedOps = true;
+    ide.sharedDocument.savesEdits = false;
+    await expect(adapter.compile(cancel.signal)).rejects.toThrow(EditsNotSavedError);
+    expect(ide.compileCount).toBe(0);
+  });
+
+  it('compiles without an open shared document', async () => {
+    ide.store.set('editor.sharejs_doc', null);
+    await expect(adapter.compile(cancel.signal)).resolves.toEqual([]);
   });
 
   it('times out when Overleaf never runs the compile and stops watching', async () => {
