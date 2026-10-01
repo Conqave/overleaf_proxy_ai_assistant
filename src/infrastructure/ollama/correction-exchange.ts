@@ -2,7 +2,8 @@ import type { ContextUsage } from '../../ports/agent-port';
 import { AssistantProtocolError } from '../../ports/errors';
 import { InvalidAssistantResponse } from './edit-reply-parser';
 import { compact, estimatePromptTokens, LINE_BREAK, lines } from './prompt-blocks';
-import type { GenerateRequest, OllamaClient } from './ollama-client';
+import { HarmonyFormatError } from './harmony-format';
+import type { Completion, GenerateRequest, OllamaClient } from './ollama-client';
 
 const REJECTED_REPLY_CHARS = 3_000;
 
@@ -17,26 +18,56 @@ export interface ExchangeOutcome<T> {
   readonly contextUsage: ContextUsage;
 }
 
+type Attempt<T> =
+  | { readonly kind: 'accepted'; readonly outcome: ExchangeOutcome<T> }
+  | { readonly kind: 'rejected'; readonly reply: string; readonly error: RejectedReplyError };
+
+type RejectedReplyError = InvalidAssistantResponse | HarmonyFormatError;
+
 export async function runExchange<T>(
   client: OllamaClient,
   exchange: ProtocolExchange<T>,
 ): Promise<ExchangeOutcome<T>> {
-  const first = await client.generate(exchange.request);
+  const first = await attempt(client, exchange.request, exchange.parse);
+  if (first.kind === 'accepted') return first.outcome;
+  const correction = createCorrectionRequest(exchange, first.reply, first.error.problem);
+  const second = await attempt(client, correction, exchange.parse);
+  if (second.kind === 'accepted') return second.outcome;
+  throw new AssistantProtocolError(
+    `The assistant replied in an unexpected format (${second.error.problem}). Please try again.`,
+    { cause: second.error },
+  );
+}
+
+async function attempt<T>(
+  client: OllamaClient,
+  request: GenerateRequest,
+  parse: (raw: string) => T,
+): Promise<Attempt<T>> {
+  const completion = await generate(client, request);
+  if (completion instanceof HarmonyFormatError) {
+    return { kind: 'rejected', reply: completion.completion, error: completion };
+  }
   try {
-    return outcome(client, exchange.request, exchange.parse(first.text), first.promptTokens);
+    return {
+      kind: 'accepted',
+      outcome: outcome(client, request, parse(completion.text), completion.promptTokens),
+    };
   } catch (error) {
     if (!(error instanceof InvalidAssistantResponse)) throw error;
-    const correction = createCorrectionRequest(exchange, first.text, error.problem);
-    const second = await client.generate(correction);
-    try {
-      return outcome(client, correction, exchange.parse(second.text), second.promptTokens);
-    } catch (retryError) {
-      if (!(retryError instanceof InvalidAssistantResponse)) throw retryError;
-      throw new AssistantProtocolError(
-        `The assistant replied in an unexpected format (${retryError.problem}). Please try again.`,
-        { cause: retryError },
-      );
-    }
+    return { kind: 'rejected', reply: completion.text, error };
+  }
+}
+
+async function generate(
+  client: OllamaClient,
+  request: GenerateRequest,
+): Promise<Completion | HarmonyFormatError> {
+  try {
+    return await client.generate(request);
+  } catch (error) {
+    if (!(error instanceof HarmonyFormatError)) throw error;
+    return error;
   }
 }
 

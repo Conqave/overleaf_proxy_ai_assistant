@@ -5,6 +5,7 @@ import {
   AssistantUnreachableError,
 } from '../../ports/errors';
 import {
+  parseFinalContinuation,
   parseHarmonyCompletion,
   renderFinalContinuation,
   renderHarmonyPrompt,
@@ -46,7 +47,8 @@ export class OllamaClient {
     const first = await this.complete(prompt);
     const harmony = parseHarmonyCompletion(first.text);
     if (harmony.kind === 'final') return { text: harmony.text, promptTokens: first.promptTokens };
-    return await this.complete(renderFinalContinuation(prompt, harmony.analysis));
+    const second = await this.complete(renderFinalContinuation(prompt, harmony.analysis));
+    return { text: parseFinalContinuation(second.text), promptTokens: second.promptTokens };
   }
 
   private complete(prompt: string): Promise<Completion> {

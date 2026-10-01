@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { HarmonyFormatError } from '../../../src/infrastructure/ollama/harmony-format';
 import { OllamaAgent } from '../../../src/infrastructure/ollama/ollama-agent';
 import { OllamaClient } from '../../../src/infrastructure/ollama/ollama-client';
 import {
@@ -83,14 +84,32 @@ describe('OllamaClient', () => {
     );
   });
 
-  it('asks for the final message without an analysis when the model skipped it', async () => {
-    const ollama = new FakeOllama().reply(
-      { completion: '<|channel|>commentary to=functions.read<|message|>{}' },
-      { completion: 'ACTION: compile' },
+  it('rejects a completion with neither an analysis nor a final message', async () => {
+    const ollama = new FakeOllama().reply({
+      completion: '<|channel|>commentary to=functions.read<|message|>{}',
+    });
+    await expect(make(ollama).client.generate({ system: 'S', prompt: 'P' })).rejects.toThrow(
+      new HarmonyFormatError(
+        'the reply has no final message; write it as plain text',
+        '<|channel|>commentary to=functions.read<|message|>{}',
+      ),
     );
-    await make(ollama).client.generate({ system: 'S', prompt: 'P' });
-    expect(ollama.promptCalls[1]!.harmonyPrompt).toContain(
-      '<|start|>assistant<|channel|>analysis<|message|><|end|><|start|>assistant<|channel|>final<|message|>',
+    expect(ollama.promptCalls).toHaveLength(1);
+  });
+
+  it.each([
+    ['first', [{ response: 'ACTION: compile<|call|>' }]],
+    [
+      'continued',
+      [
+        { completion: '<|channel|>analysis<|message|>Think.<|end|>' },
+        { completion: 'ACTION: compile<|end|><|start|>assistant' },
+      ],
+    ],
+  ])('rejects control tokens in the %s final message', async (_name, replies) => {
+    const ollama = new FakeOllama().reply(...replies);
+    await expect(make(ollama).client.generate({ system: 'S', prompt: 'P' })).rejects.toThrow(
+      HarmonyFormatError,
     );
   });
 
@@ -256,6 +275,18 @@ describe('OllamaAgent', () => {
     expect(contextUsage.promptTokens).toBe(ollama.promptCalls[1]!.harmonyPrompt.length);
     expect(ollama.promptCalls[1]!.body.prompt).toContain('missing.tex');
     expect(ollama.promptCalls[1]!.body.prompt).toContain('Reply again with exactly one action');
+  });
+
+  it('sends a completion outside the harmony channels back to the model once', async () => {
+    const ollama = new FakeOllama().reply(
+      { completion: '<|channel|>commentary to=functions.read<|message|>{}' },
+      { response: 'ACTION: compile' },
+    );
+    const { decision } = await agent(ollama).decide(step);
+    expect(decision).toEqual({ kind: 'tool', call: { tool: 'compile' } });
+    expect(ollama.promptCalls[1]!.body.prompt).toContain(
+      'It was rejected because: the reply has no final message; write it as plain text.',
+    );
   });
 
   it('fails with a protocol error after a second invalid reply', async () => {
