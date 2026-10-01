@@ -566,7 +566,7 @@ describe('preview / apply / reject', () => {
     project.failure.openFile = new FileOpenTimeoutError('slow');
     await expect(apply.execute(changeId, record)).rejects.toThrow(FileOpenTimeoutError);
     expect(editor.applied).toHaveLength(0);
-    await expect(apply.execute(changeId, record)).rejects.toThrow('it was failed');
+    await expect(apply.execute(changeId, record)).rejects.toThrow(ChangeNoLongerPendingError);
   });
 
   it('rejects a change and removes its proposal from the conversation', async () => {
@@ -588,10 +588,20 @@ describe('preview / apply / reject', () => {
   it('refuses apply after reject and reject after apply', async () => {
     const first = await proposeEdit();
     reject.execute(first);
-    await expect(apply.execute(first, record)).rejects.toThrow('it was rejected');
+    await expect(apply.execute(first, record)).rejects.toThrow(ChangeNoLongerPendingError);
     const second = await proposeEdit();
     await apply.execute(second, record);
     expect(() => reject.execute(second)).toThrow(ChangeNoLongerPendingError);
+  });
+
+  it('forgets closed changes once the next request starts', async () => {
+    const applied = await proposeEdit();
+    await apply.execute(applied, record);
+    const rejected = await proposeEdit();
+    reject.execute(rejected);
+    await send('hi');
+    expect(() => pendingChanges.get(applied)).toThrow(ChangeNoLongerPendingError);
+    expect(() => pendingChanges.get(rejected)).toThrow(ChangeNoLongerPendingError);
   });
 
   it('treats approving a change that was never previewed as a defect', () => {
@@ -620,14 +630,14 @@ describe('preview / apply / reject', () => {
     const changeId = await proposeEdit();
     editor.lines.pop();
     await expect(apply.execute(changeId, record)).rejects.toThrow(DocumentConflictError);
-    await expect(apply.execute(changeId, record)).rejects.toThrow('it was failed');
+    await expect(apply.execute(changeId, record)).rejects.toThrow(ChangeNoLongerPendingError);
   });
 
   it('fails when the editor vanished before apply', async () => {
     const changeId = await proposeEdit();
     editor.available = false;
     await expect(apply.execute(changeId, record)).rejects.toThrow(EditorUnavailableError);
-    await expect(apply.execute(changeId, record)).rejects.toThrow('it was failed');
+    await expect(apply.execute(changeId, record)).rejects.toThrow(ChangeNoLongerPendingError);
   });
 });
 

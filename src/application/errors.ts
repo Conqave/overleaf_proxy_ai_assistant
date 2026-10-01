@@ -1,7 +1,6 @@
 import { OperationalError } from '../domain/errors';
 import { AGENT_POLICY } from '../domain/agent-policy';
 import type { PersistenceError } from '../ports/errors';
-import type { PendingChangeStatus } from './pending-change';
 
 export class EmptyRequestError extends OperationalError {
   constructor() {
@@ -22,8 +21,8 @@ export class RequestSupersededError extends OperationalError {
 }
 
 export class ChangeNoLongerPendingError extends OperationalError {
-  constructor(status: PendingChangeStatus) {
-    super(`This suggestion can no longer be used (it was ${status}).`);
+  constructor() {
+    super('This suggestion can no longer be used; ask again for a new one.');
   }
 }
 

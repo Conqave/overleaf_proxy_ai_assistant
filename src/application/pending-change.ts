@@ -13,24 +13,11 @@ interface Transition {
 
 const OPEN: readonly PendingChangeStatus[] = ['validated', 'previewed'];
 
-const CLOSED_BY_USER_OR_REQUEST: readonly PendingChangeStatus[] = [
-  'applied',
-  'failed',
-  'rejected',
-  'discarded',
-];
+const CLOSED: readonly PendingChangeStatus[] = ['applied', 'failed', 'rejected', 'discarded'];
 
 const PREVIEW: Transition = { from: ['validated'], closed: [], to: 'previewed' };
-const APPROVE: Transition = {
-  from: ['previewed'],
-  closed: CLOSED_BY_USER_OR_REQUEST,
-  to: 'approved',
-};
-const REJECT: Transition = {
-  from: ['previewed'],
-  closed: CLOSED_BY_USER_OR_REQUEST,
-  to: 'rejected',
-};
+const APPROVE: Transition = { from: ['previewed'], closed: CLOSED, to: 'approved' };
+const REJECT: Transition = { from: ['previewed'], closed: CLOSED, to: 'rejected' };
 const MARK_APPLIED: Transition = { from: ['approved'], closed: [], to: 'applied' };
 const MARK_FAILED: Transition = { from: ['approved'], closed: [], to: 'failed' };
 const DISCARD: Transition = { from: OPEN, closed: [], to: 'discarded' };
@@ -45,6 +32,10 @@ export class PendingDocumentChange {
 
   get isOpen(): boolean {
     return OPEN.includes(this.status);
+  }
+
+  get isClosed(): boolean {
+    return CLOSED.includes(this.status);
   }
 
   markPreviewed(): void {
@@ -76,7 +67,7 @@ export class PendingDocumentChange {
       this.status = to;
       return;
     }
-    if (closed.includes(this.status)) throw new ChangeNoLongerPendingError(this.status);
+    if (closed.includes(this.status)) throw new ChangeNoLongerPendingError();
     throw new InvariantViolation(
       `pending change ${this.id}: cannot go from ${this.status} to ${to}`,
     );
@@ -95,13 +86,16 @@ export class PendingChanges {
 
   get(id: string): PendingDocumentChange {
     const change = this.changes.get(id);
-    if (!change) throw new InvariantViolation(`unknown pending change ${id}`);
+    if (!change) throw new ChangeNoLongerPendingError();
     return change;
   }
 
   discardAll(): PendingDocumentChange[] {
     const open = [...this.changes.values()].filter((change) => change.isOpen);
     for (const change of open) change.discard();
+    for (const [id, change] of this.changes) {
+      if (change.isClosed) this.changes.delete(id);
+    }
     return open;
   }
 }
