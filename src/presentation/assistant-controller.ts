@@ -17,7 +17,6 @@ import {
   errorNotice,
   INTERNAL_ERROR,
   progressStatus,
-  REJECTED,
 } from './message-format';
 
 export interface UseCases {
@@ -89,9 +88,7 @@ export class AssistantController implements ViewEvents {
     const view = this.requireView();
     view.closeChangeActions(changeId);
     return this.guard(() => {
-      const { removedMessageId } = this.useCases.rejectChange.execute(changeId);
-      view.removeMessage(removedMessageId);
-      view.showNotice(REJECTED, 'info');
+      view.updateMessage(this.useCases.rejectChange.execute(changeId));
     });
   }
 
@@ -131,6 +128,7 @@ export class AssistantController implements ViewEvents {
         view.appendMessage(progress.message);
         break;
       case 'applied':
+        view.updateMessage(progress.message);
         view.showNotice(appliedNotice(progress.change), 'info');
         break;
       case 'thinking':

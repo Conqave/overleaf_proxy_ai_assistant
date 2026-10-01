@@ -1,3 +1,4 @@
+import { ProposalStatus, type ProposalMessage } from '../domain/conversation';
 import type { EditorPort } from '../ports/editor-port';
 import type { ConversationLog } from './conversation-log';
 import type { PendingChanges } from './pending-change';
@@ -11,11 +12,10 @@ export class RejectDocumentChange {
     },
   ) {}
 
-  execute(changeId: string): { removedMessageId: string } {
+  execute(changeId: string): ProposalMessage {
     const change = this.deps.pendingChanges.get(changeId);
     change.reject();
     this.deps.editor.clearPreview();
-    this.deps.conversation.remove(change.id);
-    return { removedMessageId: change.id };
+    return this.deps.conversation.decideProposal(change.id, ProposalStatus.Rejected);
   }
 }

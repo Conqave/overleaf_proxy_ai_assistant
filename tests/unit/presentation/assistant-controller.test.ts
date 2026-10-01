@@ -66,7 +66,14 @@ async function openAssistant() {
     {
       handleRequest,
       lock,
-      applyChange: new ApplyDocumentChange({ editor, project, pendingChanges, lock, review }),
+      applyChange: new ApplyDocumentChange({
+        editor,
+        project,
+        pendingChanges,
+        conversation,
+        lock,
+        review,
+      }),
       rejectChange: new RejectDocumentChange({ editor, pendingChanges, conversation }),
       startNewConversation: new StartNewConversation({
         conversation,
@@ -131,6 +138,27 @@ describe('AssistantController apply', () => {
       'Done. Inserted after the selected anchor in refs.bib.',
       'Compiled without errors.',
     ]);
+  });
+
+  it('keeps the applied proposal as a card marked applied', async () => {
+    const { controller, project, changeId, texts } = await proposeBibEdit();
+    project.willCompile([]);
+    await controller.apply(changeId);
+    expect(texts('.ola-ai.is-applied .ola-result-status')).toEqual(['Applied']);
+    expect(texts('.ola-ai.is-applied .ola-result-meta')).toEqual(['refs.bib, anchor line 2: }']);
+    expect(texts('.ola-apply')).toEqual([]);
+  });
+});
+
+describe('AssistantController reject', () => {
+  it('keeps the rejected proposal as a card marked rejected instead of a notice', async () => {
+    const { controller, changeId, texts } = await proposeBibEdit();
+    await controller.reject(changeId);
+    expect(texts('.ola-ai.is-rejected .ola-result-status')).toEqual(['Rejected']);
+    expect(texts('.ola-ai.is-rejected .ola-result-meta')).toEqual(['refs.bib, anchor line 2: }']);
+    expect(texts('.ola-ai.is-rejected .ola-result-body')).toEqual(['@book{knuth84}']);
+    expect(texts('.ola-apply')).toEqual([]);
+    expect(texts('.ola-system')).toEqual([]);
   });
 
   it('shows the fix proposed after a failed compilation', async () => {

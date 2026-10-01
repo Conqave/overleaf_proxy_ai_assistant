@@ -1,5 +1,6 @@
 import {
   AssistantMessageKind,
+  isProposalStatus,
   isReplyKind,
   type ConversationMessage,
 } from '../../domain/conversation';
@@ -88,7 +89,9 @@ function parseMessage(value: unknown): ConversationMessage {
   if (kind === AssistantMessageKind.Proposal) {
     const path = parsePath(fields.get('path'));
     const command = parseCommand(fields.get('command'));
-    return { id, role, kind, path, command };
+    const status = fields.get('status');
+    if (!isProposalStatus(status)) throw new UnknownStoredFormatError('unknown proposal status');
+    return { id, role, kind, path, command, status };
   }
   if (kind === AssistantMessageKind.Greeting) return { id, role, kind };
   if (!isReplyKind(kind)) throw new UnknownStoredFormatError('unknown message kind');

@@ -77,7 +77,14 @@ function compose(
   const controller = new AssistantController(
     {
       handleRequest,
-      applyChange: new ApplyDocumentChange({ editor, project, pendingChanges, lock, review }),
+      applyChange: new ApplyDocumentChange({
+        editor,
+        project,
+        pendingChanges,
+        conversation,
+        lock,
+        review,
+      }),
       lock,
       rejectChange: new RejectDocumentChange({ editor, pendingChanges, conversation }),
       startNewConversation: new StartNewConversation({

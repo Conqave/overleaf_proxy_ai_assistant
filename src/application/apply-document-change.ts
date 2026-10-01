@@ -1,7 +1,9 @@
+import { ProposalStatus } from '../domain/conversation';
 import type { CancellationSignal } from '../ports/cancellation';
 import type { EditorPort } from '../ports/editor-port';
 import type { ProjectPort } from '../ports/project-port';
 import type { AgentProgress } from './agent-progress';
+import type { ConversationLog } from './conversation-log';
 import type { OperationLock } from './operation-lock';
 import type { PendingChanges } from './pending-change';
 import type { ReviewAppliedChange, ReviewOutcome } from './review-applied-change';
@@ -13,6 +15,7 @@ export class ApplyDocumentChange {
       editor: EditorPort;
       project: ProjectPort;
       pendingChanges: PendingChanges;
+      conversation: ConversationLog;
       lock: OperationLock;
       review: ReviewAppliedChange;
     },
@@ -30,7 +33,8 @@ export class ApplyDocumentChange {
     onProgress: (progress: AgentProgress) => void,
     signal: CancellationSignal,
   ): Promise<void> {
-    const { editor, project } = this.deps;
+    const { editor, project, conversation } = this.deps;
+    const epoch = conversation.epoch;
     const change = this.deps.pendingChanges.get(changeId);
     const { file, edit } = change.change;
     change.approve();
@@ -44,6 +48,8 @@ export class ApplyDocumentChange {
       throw error;
     }
     change.markApplied();
-    onProgress({ stage: 'applied', change: change.change });
+    conversation.ensureCurrent(epoch);
+    const message = conversation.decideProposal(change.id, ProposalStatus.Applied);
+    onProgress({ stage: 'applied', change: change.change, message });
   }
 }

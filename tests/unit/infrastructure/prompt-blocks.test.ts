@@ -61,23 +61,31 @@ describe('conversation history', () => {
     expect(prompt).toContain('Conversation so far:\n[system] Compiling reports errors.');
   });
 
-  it('shows a proposal to the model as its operation, reason and content', () => {
-    const proposal = {
-      id: 'p',
-      role: 'assistant' as const,
-      kind: 'proposal' as const,
-      path: 'main.tex',
-      command: createDocumentCommand({
-        operation: 'replace',
-        target: { lineNumber: 2, lineText: 'Body.' },
-        content: 'New body.',
-        reason: 'Clearer.',
-      }),
-    };
-    expect(promptOf({ conversation: [proposal] })).toContain(
-      '[assistant] Proposed replace at line 2: Clearer.\nNew body.',
-    );
-  });
+  it.each([
+    ['proposed', '[proposal left undecided]'],
+    ['applied', '[proposal applied]'],
+    ['rejected', '[proposal rejected]'],
+  ] as const)(
+    'shows a %s proposal to the model with its outcome, place and content',
+    (status, outcome) => {
+      const proposal = {
+        id: 'p',
+        role: 'assistant' as const,
+        kind: 'proposal' as const,
+        path: 'main.tex',
+        command: createDocumentCommand({
+          operation: 'replace',
+          target: { lineNumber: 2, lineText: 'Body.' },
+          content: 'New body.',
+          reason: 'Clearer.',
+        }),
+        status,
+      };
+      expect(promptOf({ conversation: [proposal] })).toContain(
+        `[assistant] ${outcome} main.tex line 2: replace (Clearer.)\nNew body.`,
+      );
+    },
+  );
 });
 
 describe('compaction', () => {

@@ -1,13 +1,14 @@
 import { AgentTool, type ProjectEdit } from '../domain/agent-action';
 import { hasMistakesLeft } from '../domain/agent-policy';
 import type { AgentTurn, CompileDiagnostic } from '../domain/agent-transcript';
-import type {
-  ConversationMessage,
-  GreetingMessage,
-  ProposalMessage,
-  ReplyMessage,
-  SystemRequestMessage,
-  UserMessage,
+import {
+  ProposalStatus,
+  type ConversationMessage,
+  type GreetingMessage,
+  type ProposalMessage,
+  type ReplyMessage,
+  type SystemRequestMessage,
+  type UserMessage,
 } from '../domain/conversation';
 import type { AgentPort, AgentWorkspace, ContextUsage } from '../ports/agent-port';
 import type { CancellationSignal } from '../ports/cancellation';
@@ -199,6 +200,7 @@ export class HandleAssistantRequest {
       kind: 'proposal',
       path: edit.file.path,
       command: edit.edit.command,
+      status: ProposalStatus.Proposed,
     };
     this.deps.conversation.append(message);
     return message;

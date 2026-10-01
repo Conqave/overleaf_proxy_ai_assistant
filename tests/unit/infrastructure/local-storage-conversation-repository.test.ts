@@ -21,6 +21,7 @@ const messages: ConversationMessage[] = [
       content: '\\begin{table}\n\\end{table}',
       reason: 'Adds a table.',
     }),
+    status: 'rejected',
   },
   {
     id: '3',
@@ -32,6 +33,7 @@ const messages: ConversationMessage[] = [
       target: { lineNumber: 2, lineText: 'Old.' },
       lineCount: 2,
     }),
+    status: 'applied',
   },
   { id: '4', role: 'system', text: 'Compiling reports errors; fix the first error.' },
 ];
@@ -116,6 +118,31 @@ describe('LocalStorageConversationRepository', () => {
           kind: 'proposal',
           path: 'main.tex',
           command: { operation: 'delete', target: { lineNumber: 0, lineText: '' }, lineCount: 1 },
+        },
+      ]),
+    ],
+    [
+      'proposal without its decision status',
+      JSON.stringify([
+        {
+          id: '1',
+          role: 'assistant',
+          kind: 'proposal',
+          path: 'main.tex',
+          command: { operation: 'delete', target: { lineNumber: 1, lineText: 'x' }, lineCount: 1 },
+        },
+      ]),
+    ],
+    [
+      'proposal with an unknown decision status',
+      JSON.stringify([
+        {
+          id: '1',
+          role: 'assistant',
+          kind: 'proposal',
+          path: 'main.tex',
+          command: { operation: 'delete', target: { lineNumber: 1, lineText: 'x' }, lineCount: 1 },
+          status: 'maybe',
         },
       ]),
     ],

@@ -217,6 +217,29 @@
   font: inherit;
   font-size: 13px;
 }
+#ola-root .ola-result-status {
+  display: inline-block;
+  margin-bottom: 6px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+}
+#ola-root .ola-ai.is-applied .ola-result-status {
+  background: rgba(74, 222, 128, 0.18);
+  color: #86efac;
+}
+#ola-root .ola-ai.is-rejected .ola-result-status {
+  background: rgba(248, 113, 113, 0.18);
+  color: #fca5a5;
+}
+#ola-root .ola-ai.is-applied .ola-result-body,
+#ola-root .ola-ai.is-rejected .ola-result-body {
+  opacity: 0.6;
+}
+#ola-root .ola-ai.is-rejected .ola-result-body {
+  text-decoration: line-through;
+}
 #ola-root .ola-result-meta {
   margin-top: 8px;
   color: rgba(255, 255, 255, 0.68);

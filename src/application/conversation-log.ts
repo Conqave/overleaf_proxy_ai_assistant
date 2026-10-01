@@ -1,4 +1,11 @@
-import type { ConversationMessage } from '../domain/conversation';
+import {
+  AssistantMessageKind,
+  decideProposal,
+  type ConversationMessage,
+  type ProposalDecision,
+  type ProposalMessage,
+} from '../domain/conversation';
+import { InvariantViolation } from '../domain/errors';
 import { PersistenceError } from '../ports/errors';
 import type { ConversationRepository } from '../ports/conversation-repository';
 import { RequestSupersededError, UnreadableConversationError } from './errors';
@@ -43,9 +50,15 @@ export class ConversationLog {
     this.persist();
   }
 
-  remove(id: string): void {
-    this.items = this.items.filter((message) => message.id !== id);
+  decideProposal(id: string, decision: ProposalDecision): ProposalMessage {
+    const proposal = this.items.find((message) => message.id === id);
+    if (proposal?.role !== 'assistant' || proposal.kind !== AssistantMessageKind.Proposal) {
+      throw new InvariantViolation(`the conversation has no proposal ${id}`);
+    }
+    const decided = decideProposal(proposal, decision);
+    this.items = this.items.map((message) => (message.id === id ? decided : message));
     this.persist();
+    return decided;
   }
 
   clear(): void {

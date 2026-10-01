@@ -19,6 +19,7 @@ const proposal = (input: DocumentCommandInput): AssistantMessage => ({
   kind: 'proposal',
   path: 'chapters/a.tex',
   command: createDocumentCommand(input),
+  status: 'proposed',
 });
 const target = { lineNumber: 3, lineText: '\\section{A}' };
 const DOC = createDocumentSnapshot(['a', 'b', '\\section{A}', 'c', 'd', 'e']);

@@ -1,12 +1,20 @@
 import {
   AssistantMessageKind,
+  ProposalStatus,
   type AssistantMessage,
   type ConversationMessage,
   type ProposalMessage,
 } from '../domain/conversation';
 import { DocumentOperation } from '../domain/document-command';
 import css from './assistant.css?raw';
-import { GREETING, messageMeta, messageTitle, VIEW_TEXT } from './message-format';
+import { InvariantViolation } from '../domain/errors';
+import {
+  GREETING,
+  messageMeta,
+  messageTitle,
+  proposalStatusText,
+  VIEW_TEXT,
+} from './message-format';
 
 export interface ViewEvents {
   send(text: string): Promise<void>;
@@ -104,9 +112,14 @@ export class AssistantView {
     this.append(node);
   }
 
-  removeMessage(messageId: string): void {
-    this.messageNodes.get(messageId)?.remove();
-    this.messageNodes.delete(messageId);
+  updateMessage(message: ConversationMessage): void {
+    const shown = this.messageNodes.get(message.id);
+    if (shown === undefined)
+      throw new InvariantViolation(`the chat shows no message ${message.id}`);
+    this.closeChangeActions(message.id);
+    const node = this.renderMessage(message);
+    shown.replaceWith(node);
+    this.messageNodes.set(message.id, node);
   }
 
   closeChangeActions(changeId: string): void {
@@ -167,6 +180,7 @@ export class AssistantView {
         break;
       case AssistantMessageKind.Proposal:
         node.append(...this.renderProposal(message));
+        node.classList.toggle(`is-${message.status}`, message.status !== ProposalStatus.Proposed);
         break;
       case AssistantMessageKind.Explanation:
       case AssistantMessageKind.Clarification:
@@ -195,6 +209,8 @@ export class AssistantView {
   private renderProposal(message: ProposalMessage): HTMLElement[] {
     const { command } = message;
     const parts: HTMLElement[] = [];
+    const status = proposalStatusText(message.status);
+    if (status !== undefined) parts.push(this.el('div', 'ola-result-status', status));
     if (command.reason !== undefined) {
       parts.push(this.el('div', 'ola-result-reason', command.reason));
     }

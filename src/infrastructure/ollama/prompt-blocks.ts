@@ -1,7 +1,9 @@
 import {
   AssistantMessageKind,
+  ProposalStatus,
   type ConversationMessage,
   type GreetingMessage,
+  type ProposalMessage,
 } from '../../domain/conversation';
 import { DocumentOperation, type DocumentCommand } from '../../domain/document-command';
 import { InvariantViolation } from '../../domain/errors';
@@ -45,12 +47,18 @@ function transcriptText(message: Exclude<ConversationMessage, GreetingMessage>):
   if (message.role !== 'assistant' || message.kind !== AssistantMessageKind.Proposal) {
     return message.text.trim();
   }
-  return describeProposal(message.command);
+  return describeProposal(message);
 }
 
-function describeProposal(command: DocumentCommand): string {
-  const proposed = `Proposed ${command.operation} at line ${String(command.target.lineNumber)}`;
-  const summary = command.reason === undefined ? proposed : `${proposed}: ${command.reason}`;
+const PROPOSAL_OUTCOME: Record<ProposalStatus, string> = {
+  [ProposalStatus.Proposed]: '[proposal left undecided]',
+  [ProposalStatus.Applied]: '[proposal applied]',
+  [ProposalStatus.Rejected]: '[proposal rejected]',
+};
+
+function describeProposal({ status, path, command }: ProposalMessage): string {
+  const proposed = `${PROPOSAL_OUTCOME[status]} ${path} ${describeLines(command)}: ${command.operation}`;
+  const summary = command.reason === undefined ? proposed : `${proposed} (${command.reason})`;
   switch (command.operation) {
     case DocumentOperation.InsertBefore:
     case DocumentOperation.InsertAfter:
@@ -58,6 +66,19 @@ function describeProposal(command: DocumentCommand): string {
       return `${summary}\n${command.content}`;
     case DocumentOperation.Delete:
       return summary;
+  }
+}
+
+function describeLines(command: DocumentCommand): string {
+  const first = command.target.lineNumber;
+  switch (command.operation) {
+    case DocumentOperation.InsertBefore:
+    case DocumentOperation.InsertAfter:
+      return `line ${String(first)}`;
+    case DocumentOperation.Replace:
+    case DocumentOperation.Delete:
+      if (command.lineCount === 1) return `line ${String(first)}`;
+      return `lines ${String(first)}-${String(first + command.lineCount - 1)}`;
   }
 }
 

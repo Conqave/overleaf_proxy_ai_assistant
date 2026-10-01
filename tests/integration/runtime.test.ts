@@ -391,7 +391,7 @@ describe('assistant agent', () => {
   });
 
   it('applies the edit of another file and compiles the project', async () => {
-    const { send, click, messages, ide, editorText, preview } = await start({
+    const { send, click, texts, messages, ide, editorText, preview } = await start({
       replies: [reply('ACTION: read_file', 'PATH: refs.bib'), smithEntryEdit],
     });
     await send('Add the smith20 entry to the bibliography.');
@@ -406,20 +406,29 @@ describe('assistant agent', () => {
     expect(editorText()).toBe(`${REFS_TEXT}\n${SMITH_ENTRY}`);
     expect(preview()).toEqual([]);
     expect(ide.compileCount).toBe(1);
+    expect(texts('.ola-ai.is-applied .ola-result-status')).toEqual(['Applied']);
   });
 
-  it('rejects the edit of another file and leaves it unchanged', async () => {
-    const { send, click, texts, messages, ide, editorText, preview } = await start({
+  it('rejects the edit of another file, leaves it unchanged and keeps the decision', async () => {
+    const { browser, send, click, texts, ide, editorText, preview } = await start({
       replies: [reply('ACTION: read_file', 'PATH: refs.bib'), smithEntryEdit],
     });
     await send('Add the smith20 entry to the bibliography.');
     await click('.ola-reject', () => {
-      expect(texts('.ola-system')).toEqual(['Change rejected.']);
+      expect(texts('.ola-ai.is-rejected .ola-result-status')).toEqual(['Rejected']);
     });
+    expect(texts('.ola-system')).toEqual([]);
+    expect(texts('.ola-apply')).toEqual([]);
     expect(editorText()).toBe(REFS_TEXT);
     expect(preview()).toEqual([]);
-    expect(messages()).not.toContainEqual(expect.stringContaining('Proposed insertion'));
     expect(ide.compileCount).toBe(0);
+    const stored = browser.window.localStorage.getItem(HISTORY_KEY);
+    if (stored === null) throw new TestFixtureError('the conversation was not saved');
+    const reloaded = await start({ storage: { [HISTORY_KEY]: stored } });
+    expect(reloaded.texts('.ola-ai.is-rejected .ola-result-status')).toEqual(['Rejected']);
+    expect(reloaded.texts('.ola-ai.is-rejected .ola-result-meta')).toEqual([
+      'refs.bib, anchor line 3: }',
+    ]);
   });
 
   it('asks for a fix when the applied change breaks the build and applies it', async () => {

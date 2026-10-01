@@ -135,7 +135,7 @@ beforeEach(() => {
     newId,
   });
   review = new ReviewAppliedChange({ project, conversation, handleRequest: handle });
-  apply = new ApplyDocumentChange({ editor, project, pendingChanges, lock, review });
+  apply = new ApplyDocumentChange({ editor, project, pendingChanges, conversation, lock, review });
   reject = new RejectDocumentChange({ editor, pendingChanges, conversation });
   progress = [];
 });
@@ -212,6 +212,7 @@ describe('HandleAssistantRequest', () => {
       kind: 'proposal',
       path: 'main.tex',
       command: change.change.edit.command,
+      status: 'proposed',
     });
     expect(editor.preview).toBe(change.change.edit);
     expect(project.opened).toEqual([]);
@@ -510,8 +511,11 @@ describe('preview / apply / reject', () => {
     await expect(apply.execute(changeId, record)).resolves.toEqual({ kind: 'compiled' });
     expect(editor.lines).toEqual([...MAIN, 'Added.']);
     expect(editor.preview).toBeNull();
+    const applied = conversation.messages().at(-1);
+    expect(applied).toMatchObject({ id: changeId, kind: 'proposal', status: 'applied' });
+    expect(repository.stored.at(-1)).toEqual(applied);
     expect(progress).toEqual([
-      { stage: 'applied', change: pendingChanges.get(changeId).change },
+      { stage: 'applied', change: pendingChanges.get(changeId).change, message: applied },
       { stage: 'compiling' },
     ]);
   });
@@ -569,11 +573,12 @@ describe('preview / apply / reject', () => {
     await expect(apply.execute(changeId, record)).rejects.toThrow(ChangeNoLongerPendingError);
   });
 
-  it('rejects a change and removes its proposal from the conversation', async () => {
+  it('rejects a change and keeps its proposal in the conversation as rejected', async () => {
     const changeId = await proposeEdit();
-    const { removedMessageId } = reject.execute(changeId);
-    expect(conversation.messages().some((m) => m.id === removedMessageId)).toBe(false);
-    expect(repository.stored.some((m) => m.id === removedMessageId)).toBe(false);
+    const rejected = reject.execute(changeId);
+    expect(rejected).toMatchObject({ id: changeId, kind: 'proposal', status: 'rejected' });
+    expect(conversation.messages().at(-1)).toEqual(rejected);
+    expect(repository.stored.at(-1)).toEqual(rejected);
     expect(editor.preview).toBeNull();
     expect(editor.lines).toEqual(MAIN);
   });

@@ -1,7 +1,7 @@
 import type { AgentProgress } from '../application/agent-progress';
 import type { ContextUsage } from '../application/handle-assistant-request';
 import type { ProjectEdit } from '../domain/agent-action';
-import type { AssistantMessage } from '../domain/conversation';
+import { ProposalStatus, type AssistantMessage } from '../domain/conversation';
 import { DocumentOperation } from '../domain/document-command';
 
 const KIND_TITLE: Record<Exclude<AssistantMessage['kind'], 'proposal'>, string> = {
@@ -37,13 +37,22 @@ export const VIEW_TEXT = {
 } as const;
 
 export const GREETING = 'Tell me what to change, explain, or fix in this Overleaf document.';
-export const REJECTED = 'Change rejected.';
 export const COMPILED = 'Compiled without errors.';
 export const INTERNAL_ERROR = 'Unexpected internal error. Details are in the browser console.';
 
 export function messageTitle(message: AssistantMessage): string {
   if (message.kind !== 'proposal') return KIND_TITLE[message.kind];
   return PROPOSAL_TITLE[message.command.operation];
+}
+
+const PROPOSAL_STATUS_TEXT: Record<ProposalStatus, string | undefined> = {
+  [ProposalStatus.Proposed]: undefined,
+  [ProposalStatus.Applied]: 'Applied',
+  [ProposalStatus.Rejected]: 'Rejected',
+};
+
+export function proposalStatusText(status: ProposalStatus): string | undefined {
+  return PROPOSAL_STATUS_TEXT[status];
 }
 
 export function messageMeta(message: AssistantMessage): string | undefined {
