@@ -1,7 +1,7 @@
 import type { ConversationMessage } from '../domain/conversation';
 import { PersistenceError } from '../ports/errors';
 import type { ConversationRepository } from '../ports/conversation-repository';
-import { UnreadableConversationError } from './errors';
+import { RequestSupersededError, UnreadableConversationError } from './errors';
 
 const MAX_STORED_MESSAGES = 80;
 
@@ -28,6 +28,10 @@ export class ConversationLog {
 
   get epoch(): number {
     return this.currentEpoch;
+  }
+
+  ensureCurrent(epoch: number): void {
+    if (this.currentEpoch !== epoch) throw new RequestSupersededError();
   }
 
   messages(): readonly ConversationMessage[] {

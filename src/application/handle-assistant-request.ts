@@ -1,10 +1,12 @@
-import type { ProjectEdit } from '../domain/agent-action';
+import { AgentTool, type ProjectEdit } from '../domain/agent-action';
 import { hasMistakesLeft } from '../domain/agent-policy';
-import type { AgentTurn } from '../domain/agent-transcript';
+import type { AgentTurn, CompileDiagnostic } from '../domain/agent-transcript';
 import type {
+  ConversationMessage,
   GreetingMessage,
   ProposalMessage,
   ReplyMessage,
+  SystemRequestMessage,
   UserMessage,
 } from '../domain/conversation';
 import type { AgentPort, AgentWorkspace, ContextUsage } from '../ports/agent-port';
@@ -13,18 +15,16 @@ import type { ProjectPort } from '../ports/project-port';
 import { acceptDecision, isAgentMistake, type AcceptedDecision } from './agent-decision';
 import type { AgentProgress } from './agent-progress';
 import type { ConversationLog } from './conversation-log';
-import {
-  AgentMistakeLimitError,
-  EmptyRequestError,
-  RequestInProgressError,
-  RequestSupersededError,
-} from './errors';
+import { AgentMistakeLimitError, EmptyRequestError, RequestInProgressError } from './errors';
 import { isGreetingOnly } from './greeting-policy';
 import { PendingDocumentChange, type PendingChanges } from './pending-change';
 import { ProjectTools } from './project-tools';
 import { showProjectFile } from './show-project-file';
 
 export type { ContextUsage } from '../ports/agent-port';
+
+export const COMPILE_FIX_REQUEST =
+  'Compiling the project after the applied change reports errors; fix the first error.';
 
 export type AssistantRequestResult =
   { readonly kind: 'greeting'; readonly message: GreetingMessage } | AgentResult;
@@ -62,37 +62,68 @@ export class HandleAssistantRequest {
   async execute(
     text: string,
     onProgress: (progress: AgentProgress) => void,
-    initialTranscript: readonly AgentTurn[] = [],
   ): Promise<AssistantRequestResult> {
+    const request = text.trim();
+    if (!request) throw new EmptyRequestError();
+    return await this.exclusively(async () => {
+      const message: UserMessage = { id: this.deps.newId(), role: 'user', text: request };
+      const { history, epoch } = this.receive(message, onProgress);
+      if (isGreetingOnly(request)) return { kind: 'greeting', message: this.greet() };
+      return await this.runAgent(request, history, [], epoch, onProgress);
+    });
+  }
+
+  async fixCompileErrors(
+    diagnostics: readonly CompileDiagnostic[],
+    onProgress: (progress: AgentProgress) => void,
+  ): Promise<AgentResult> {
+    return await this.exclusively(async () => {
+      const message: SystemRequestMessage = {
+        id: this.deps.newId(),
+        role: 'system',
+        text: COMPILE_FIX_REQUEST,
+      };
+      const { history, epoch } = this.receive(message, onProgress);
+      const compiled: AgentTurn = {
+        kind: 'tool',
+        call: { tool: AgentTool.Compile },
+        result: { tool: AgentTool.Compile, diagnostics },
+      };
+      return await this.runAgent(COMPILE_FIX_REQUEST, history, [compiled], epoch, onProgress);
+    });
+  }
+
+  private async exclusively<T>(operation: () => Promise<T>): Promise<T> {
     if (this.running) throw new RequestInProgressError();
     this.running = true;
     try {
-      return await this.run(text, onProgress, initialTranscript);
+      return await operation();
     } finally {
       this.running = false;
     }
   }
 
-  private async run(
-    text: string,
+  private receive(
+    message: UserMessage | SystemRequestMessage,
     onProgress: (progress: AgentProgress) => void,
-    initialTranscript: readonly AgentTurn[],
-  ): Promise<AssistantRequestResult> {
-    const { agent, editor, conversation, pendingChanges } = this.deps;
-    const request = text.trim();
-    if (!request) throw new EmptyRequestError();
-
+  ): { history: readonly ConversationMessage[]; epoch: number } {
+    const { editor, conversation, pendingChanges } = this.deps;
     if (pendingChanges.discardAll().length) editor.clearPreview();
     const history = conversation.messages();
     const epoch = conversation.epoch;
-    const userMessage: UserMessage = { id: this.deps.newId(), role: 'user', text: request };
-    conversation.append(userMessage);
-    onProgress({ stage: 'received', message: userMessage });
+    conversation.append(message);
+    onProgress({ stage: 'received', message });
+    return { history, epoch };
+  }
 
-    if (isGreetingOnly(request)) {
-      return { kind: 'greeting', message: this.greet() };
-    }
-
+  private async runAgent(
+    request: string,
+    history: readonly ConversationMessage[],
+    initialTranscript: readonly AgentTurn[],
+    epoch: number,
+    onProgress: (progress: AgentProgress) => void,
+  ): Promise<AgentResult> {
+    const { agent, conversation } = this.deps;
     const workspace = this.readWorkspace();
     const transcript: AgentTurn[] = [...initialTranscript];
     for (let step = 1; ; step += 1) {
@@ -103,7 +134,7 @@ export class HandleAssistantRequest {
         workspace,
         transcript: [...transcript],
       });
-      this.ensureCurrent(epoch);
+      conversation.ensureCurrent(epoch);
       let accepted: AcceptedDecision;
       try {
         accepted = acceptDecision(decision, workspace, transcript);
@@ -117,7 +148,7 @@ export class HandleAssistantRequest {
         return await this.answer(accepted, contextUsage, epoch, onProgress);
       }
       const result = await this.tools.run(accepted.run, onProgress);
-      this.ensureCurrent(epoch);
+      conversation.ensureCurrent(epoch);
       transcript.push({ kind: 'tool', call: accepted.call, result });
     }
   }
@@ -145,15 +176,11 @@ export class HandleAssistantRequest {
         return { kind: 'reply', message: this.reply('clarification', reply.text), contextUsage };
       case 'edit': {
         await showProjectFile(this.deps.project, reply.change.file, onProgress);
-        this.ensureCurrent(epoch);
+        this.deps.conversation.ensureCurrent(epoch);
         const message = this.propose(reply.change);
         return { kind: 'proposal', message, changeId: message.id, contextUsage };
       }
     }
-  }
-
-  private ensureCurrent(epoch: number): void {
-    if (this.deps.conversation.epoch !== epoch) throw new RequestSupersededError();
   }
 
   private propose(edit: ProjectEdit): ProposalMessage {

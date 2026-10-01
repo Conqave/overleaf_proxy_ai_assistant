@@ -33,6 +33,7 @@ const messages: ConversationMessage[] = [
       lineCount: 2,
     }),
   },
+  { id: '4', role: 'system', text: 'Compiling reports errors; fix the first error.' },
 ];
 
 let storage: Storage;

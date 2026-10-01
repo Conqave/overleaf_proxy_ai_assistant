@@ -14,6 +14,12 @@ export interface UserMessage {
   readonly text: string;
 }
 
+export interface SystemRequestMessage {
+  readonly id: string;
+  readonly role: 'system';
+  readonly text: string;
+}
+
 export type ReplyKind = Exclude<
   AssistantMessageKind,
   typeof AssistantMessageKind.Greeting | typeof AssistantMessageKind.Proposal
@@ -50,4 +56,4 @@ export interface ProposalMessage {
 
 export type AssistantMessage = GreetingMessage | ReplyMessage | ProposalMessage;
 
-export type ConversationMessage = UserMessage | AssistantMessage;
+export type ConversationMessage = UserMessage | SystemRequestMessage | AssistantMessage;

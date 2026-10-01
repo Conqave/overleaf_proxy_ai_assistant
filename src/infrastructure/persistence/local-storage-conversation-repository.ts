@@ -82,7 +82,7 @@ function parseMessage(value: unknown): ConversationMessage {
   const fields = getFields(value);
   const id = getString(fields, 'id');
   const role = fields.get('role');
-  if (role === 'user') return { id, role, text: getString(fields, 'text') };
+  if (role === 'user' || role === 'system') return { id, role, text: getString(fields, 'text') };
   if (role !== 'assistant') throw new UnknownStoredFormatError('unknown role');
   const kind = fields.get('kind');
   if (kind === AssistantMessageKind.Proposal) {

@@ -53,6 +53,13 @@ describe('conversation history', () => {
     expect(prompt).not.toContain('[assistant]');
   });
 
+  it('shows a request the assistant made on its own as a system line', () => {
+    const prompt = promptOf({
+      conversation: [{ id: 's', role: 'system', text: 'Compiling reports errors.' }],
+    });
+    expect(prompt).toContain('Conversation so far:\n[system] Compiling reports errors.');
+  });
+
   it('shows a proposal to the model as its operation, reason and content', () => {
     const proposal = {
       id: 'p',

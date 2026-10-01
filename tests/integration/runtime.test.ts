@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { COMPILE_FIX_REQUEST } from '../../src/application/handle-assistant-request';
 import { type Browser, openBrowser } from '../support/browser';
 import { FakeOllama, type OllamaCall, type OllamaReply } from '../support/fake-ollama';
 import { EMPTY_LOG_ENTRIES, FIXTURE_DOC_ID, type FakeOverleafIde } from '../support/fake-overleaf';
@@ -370,10 +371,10 @@ describe('assistant agent', () => {
     await click('.ola-apply', () => {
       expect(texts('.ola-result-body').at(-1)).toBe(fixed);
     });
+    expect(texts('.ola-system')).toContain(COMPILE_FIX_REQUEST);
+    expect(texts('.ola-user')).toEqual(['Make the word experiment bold.']);
     const fixPrompt = promptCall(ollama, 1).body.prompt;
-    expect(fixPrompt).toContain(
-      'User message:\nCompilation after the change reports errors; propose a fix.',
-    );
+    expect(fixPrompt).toContain(`User message:\n${COMPILE_FIX_REQUEST}`);
     expect(fixPrompt).toContain(
       'Result 1 (compile):\nerror main.tex:4: Undefined control sequence.',
     );

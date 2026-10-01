@@ -98,10 +98,7 @@ export class AssistantView {
 
   appendMessage(message: ConversationMessage, changeId?: string): void {
     this.chat.querySelector('.ola-welcome')?.remove();
-    const node =
-      message.role === 'user'
-        ? this.el('div', 'ola-msg ola-user', message.text)
-        : this.renderAssistant(message, changeId);
+    const node = this.renderMessage(message, changeId);
     this.messageNodes.set(message.id, node);
     this.append(node);
   }
@@ -145,6 +142,17 @@ export class AssistantView {
 
   private submit(): void {
     void this.events.send(this.input.value);
+  }
+
+  private renderMessage(message: ConversationMessage, changeId?: string): HTMLElement {
+    switch (message.role) {
+      case 'user':
+        return this.el('div', 'ola-msg ola-user', message.text);
+      case 'system':
+        return this.el('div', 'ola-msg ola-system', message.text);
+      case 'assistant':
+        return this.renderAssistant(message, changeId);
+    }
   }
 
   private renderAssistant(message: AssistantMessage, changeId?: string): HTMLElement {

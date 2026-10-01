@@ -38,11 +38,11 @@ export function conversationBlock(
 function isTranscribed(
   message: ConversationMessage,
 ): message is Exclude<ConversationMessage, GreetingMessage> {
-  return message.role === 'user' || message.kind !== AssistantMessageKind.Greeting;
+  return message.role !== 'assistant' || message.kind !== AssistantMessageKind.Greeting;
 }
 
 function transcriptText(message: Exclude<ConversationMessage, GreetingMessage>): string {
-  if (message.role === 'user' || message.kind !== AssistantMessageKind.Proposal) {
+  if (message.role !== 'assistant' || message.kind !== AssistantMessageKind.Proposal) {
     return message.text.trim();
   }
   return describeProposal(message.command);

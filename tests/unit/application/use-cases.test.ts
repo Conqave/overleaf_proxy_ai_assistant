@@ -12,6 +12,7 @@ import {
   UnreadableConversationError,
 } from '../../../src/application/errors';
 import {
+  COMPILE_FIX_REQUEST,
   HandleAssistantRequest,
   type AssistantRequestResult,
 } from '../../../src/application/handle-assistant-request';
@@ -565,9 +566,21 @@ describe('preview / apply / reject', () => {
 describe('ReviewAppliedChange', () => {
   it('reports a clean compilation without asking the agent', async () => {
     project.willCompile([{ level: 'warning', message: 'Overfull \\hbox.' }]);
-    await expect(review.execute('fix the build', record)).resolves.toEqual({ kind: 'compiled' });
+    await expect(review.execute(record)).resolves.toEqual({ kind: 'compiled' });
     expect(agent.requests).toHaveLength(0);
     expect(progress).toEqual([{ stage: 'compiling' }]);
+  });
+
+  it('records the fix request as a system request, not as a user message', async () => {
+    project.willCompile([{ level: 'error' as const, message: 'x' }]);
+    agent.will(answer('Fixed nothing.'));
+    await review.execute(record);
+    expect(conversation.messages()[0]).toEqual({
+      id: expect.any(String) as unknown,
+      role: 'system',
+      text: COMPILE_FIX_REQUEST,
+    });
+    expect(progress[1]).toMatchObject({ stage: 'received', message: { role: 'system' } });
   });
 
   it('asks the agent for a fix with the compile result already in the transcript', async () => {
@@ -576,10 +589,10 @@ describe('ReviewAppliedChange', () => {
     ];
     project.willCompile(diagnostics);
     agent.will(mainEdit());
-    const outcome = await review.execute('fix the build', record);
+    const outcome = await review.execute(record);
     expect(outcome).toMatchObject({ kind: 'fix', result: { message: { kind: 'proposal' } } });
     expect(agent.requests[0]).toMatchObject({
-      message: 'fix the build',
+      message: COMPILE_FIX_REQUEST,
       transcript: [
         { kind: 'tool', call: { tool: 'compile' }, result: { tool: 'compile', diagnostics } },
       ],
@@ -592,7 +605,7 @@ describe('ReviewAppliedChange', () => {
       new StartNewConversation({ conversation, pendingChanges, editor }).execute();
       return Promise.resolve([{ level: 'error' as const, message: 'x' }]);
     };
-    await expect(review.execute('fix the build', record)).rejects.toThrow(RequestSupersededError);
+    await expect(review.execute(record)).rejects.toThrow(RequestSupersededError);
     expect(agent.requests).toHaveLength(0);
   });
 });
