@@ -76,7 +76,7 @@ export const EDIT_FORMAT = lines(
   `${fieldLine(F.Reason, '<short user-facing reason>')} (optional)`,
   `${fieldLine(F.Plan, '<one short sentence about the placement>')} (optional)`,
   CONTENT_MARKER,
-  '<the new LaTeX lines, exactly as they go into the document>',
+  `<the new LaTeX lines, exactly as they go into the document; nothing else follows ${CONTENT_MARKER}>`,
 );
 
 const PLANNING_SYSTEM = lines(

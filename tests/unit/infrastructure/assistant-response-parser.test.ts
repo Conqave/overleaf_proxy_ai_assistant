@@ -158,6 +158,12 @@ describe('parseEditResponse', () => {
     );
   });
 
+  it('rejects a header line written after the content', () => {
+    expect(() => parse(edit({ PLAN: null }, '\\begin{table}\nPLAN: After the heading.'))).toThrow(
+      '"PLAN: After the heading." comes after CONTENT:',
+    );
+  });
+
   it('returns a question as a question', () => {
     expect(parse('QUESTION: Which table?')).toEqual({ kind: 'question', text: 'Which table?' });
   });

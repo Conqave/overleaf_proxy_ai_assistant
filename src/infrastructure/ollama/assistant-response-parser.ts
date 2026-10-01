@@ -142,6 +142,12 @@ export function parseHeaderReply(rows: readonly string[], names: readonly string
   if (contentRows.some((row) => row.trimStart().startsWith('```'))) {
     throw new InvalidAssistantResponse(`${CONTENT} must be raw LaTeX without markdown fences`);
   }
+  const misplaced = contentRows.find((row) => pattern.test(row));
+  if (misplaced !== undefined) {
+    throw new InvalidAssistantResponse(
+      `${JSON.stringify(misplaced)} comes after ${CONTENT_MARKER}; every header line goes before ${CONTENT_MARKER} and only the new LaTeX follows it`,
+    );
+  }
   if (contentRows.length === 0) return { fields };
   return { fields, content: contentRows.join('\n') };
 }
