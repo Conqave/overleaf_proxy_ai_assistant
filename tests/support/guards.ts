@@ -28,3 +28,7 @@ export function anInstanceOf(type: abstract new (...args: never[]) => unknown): 
 export function textContaining(text: string): unknown {
   return expect.stringContaining(text);
 }
+
+export function textMatching(pattern: RegExp): unknown {
+  return expect.stringMatching(pattern);
+}

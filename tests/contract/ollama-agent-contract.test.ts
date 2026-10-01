@@ -1,22 +1,31 @@
 import { readFileSync } from 'node:fs';
 import { beforeAll, describe, expect, it } from 'vitest';
+import type { AgentProgress } from '../../src/application/agent-progress';
+import { ConversationLog } from '../../src/application/conversation-log';
 import {
-  acceptDecision,
-  isAgentMistake,
-  type AcceptedDecision,
-} from '../../src/application/agent-decision';
+  HandleAssistantRequest,
+  type AssistantRequestResult,
+} from '../../src/application/handle-assistant-request';
+import { OperationLock } from '../../src/application/operation-lock';
+import { PendingChanges } from '../../src/application/pending-change';
 import { AgentTool, type ToolCall } from '../../src/domain/agent-action';
-import { hasMistakesLeft } from '../../src/domain/agent-policy';
-import type { AgentTurn, CompileDiagnostic, ToolResult } from '../../src/domain/agent-transcript';
+import { AGENT_POLICY } from '../../src/domain/agent-policy';
+import type { AgentTurn, CompileDiagnostic } from '../../src/domain/agent-transcript';
 import { createDocumentSnapshot, type DocumentSnapshot } from '../../src/domain/document';
-import { ProjectFileKind, type ProjectFile } from '../../src/domain/project-file';
+import type { DocumentOperation } from '../../src/domain/document-command';
 import { searchProject } from '../../src/domain/project-search';
 import { OllamaAgent } from '../../src/infrastructure/ollama/ollama-agent';
 import { OllamaClient } from '../../src/infrastructure/ollama/ollama-client';
-import type { AgentWorkspace, ContextUsage } from '../../src/ports/agent-port';
+import type { AgentPort, ContextUsage } from '../../src/ports/agent-port';
+import {
+  FakeEditor,
+  FakeProject,
+  InMemoryConversationRepository,
+  sequentialIds,
+} from '../support/fakes';
+import { textMatching } from '../support/guards';
 import { TestFixtureError } from '../support/test-errors';
 
-const OLLAMA_URL = process.env.OLLAMA_CONTRACT_URL;
 const CASE_TIMEOUT_MS = 600_000;
 const REQUEST_TIMEOUT_MS = 300_000;
 
@@ -48,12 +57,7 @@ const TEXTS: ReadonlyMap<string, DocumentSnapshot> = new Map([
   [RESULTS, readFixture(`project/${RESULTS}`)],
 ]);
 
-const FILES: readonly ProjectFile[] = [
-  { id: 'main', path: MAIN, kind: ProjectFileKind.Text },
-  { id: 'bib', path: BIB, kind: ProjectFileKind.Text },
-  { id: 'results', path: RESULTS, kind: ProjectFileKind.Text },
-  { id: 'frog', path: 'frog.jpg', kind: ProjectFileKind.Binary },
-];
+const BINARY_PATHS = ['frog.jpg'];
 
 function getText(texts: ReadonlyMap<string, DocumentSnapshot>, path: string): DocumentSnapshot {
   const document = texts.get(path);
@@ -96,25 +100,23 @@ const BROKEN_DIAGNOSTICS: readonly CompileDiagnostic[] = [
   },
   {
     level: 'error',
-    message: 'LaTeX Error: \\begin{table} on input line 6 ended by \\end{tabular}.',
+    message: `LaTeX Error: \\begin{table} on input line ${String(lineOf(RESULTS, '\\begin{table}'))} ended by \\end{tabular}.`,
     path: RESULTS,
-    lineNumber: BROKEN_LINE + 4,
+    lineNumber: lineOf(RESULTS, '\\end{tabular}'),
   },
 ];
 
 function requireEnv(name: string): string {
   const value = process.env[name];
   if (value === undefined || value === '') {
-    throw new TestFixtureError(`${name} must be set together with OLLAMA_CONTRACT_URL`);
+    throw new TestFixtureError(`${name} must be set to run the contract with the live model`);
   }
   return value;
 }
 
-type Operation = 'insert_before' | 'insert_after' | 'replace' | 'delete';
-
 interface ExpectedEdit {
   readonly path: string;
-  readonly operation: Operation;
+  readonly operation: DocumentOperation;
   readonly line: number;
   readonly lastLines?: readonly number[];
   readonly content?: RegExp;
@@ -126,7 +128,6 @@ interface Case {
   readonly texts: ReadonlyMap<string, DocumentSnapshot>;
   readonly diagnostics: readonly CompileDiagnostic[];
   readonly selection: string;
-  readonly transcript: readonly AgentTurn[];
   readonly tools?: readonly (readonly ToolCall['tool'][])[];
   readonly answer?: RegExp;
   readonly edit?: ExpectedEdit;
@@ -149,7 +150,6 @@ const UNTOUCHED_PROJECT = {
   texts: TEXTS,
   diagnostics: [],
   selection: '',
-  transcript: [],
 } as const satisfies Partial<Case>;
 
 const CASES: readonly Case[] = [
@@ -256,6 +256,7 @@ const CASES: readonly Case[] = [
       path: MAIN,
       operation: 'replace',
       line: lineOf(MAIN, 'Your introduction goes here'),
+      content: /^(?![^]*Your introduction goes here)[^]*[ąćęłńóśźż]/i,
     },
   },
   {
@@ -269,7 +270,7 @@ const CASES: readonly Case[] = [
     ...UNTOUCHED_PROJECT,
     name: 'reads the bibliography before adding an entry to it',
     request: 'dodaj do sample.bib wpis książki Donald Knuth, The TeXbook, 1984, z kluczem knuth84',
-    tools: [[AgentTool.ReadFile]],
+    tools: [[AgentTool.ReadFile], [AgentTool.Search, AgentTool.ReadFile]],
     edit: {
       path: BIB,
       operation: 'insert_after',
@@ -281,7 +282,7 @@ const CASES: readonly Case[] = [
     ...UNTOUCHED_PROJECT,
     name: 'edits a file that is not open',
     request: 'w pliku chapters/results.tex zmień tytuł sekcji na Wyniki pomiarów',
-    tools: [[AgentTool.ReadFile]],
+    tools: [[AgentTool.ReadFile], [AgentTool.Search, AgentTool.ReadFile]],
     edit: {
       path: RESULTS,
       operation: 'replace',
@@ -311,23 +312,15 @@ const CASES: readonly Case[] = [
       path: RESULTS,
       operation: 'replace',
       line: BROKEN_LINE,
-      content: /^\\begin\{tabular\}\{l\|r\}$/,
+      content: /^\\begin\{tabular\}\{l\|r\}(?![^]*\\begn)/,
     },
   },
   {
     ...UNTOUCHED_PROJECT,
     name: 'says that a file named by the user does not exist',
     request: 'co jest w pliku appendix.tex?',
-    tools: [[]],
-    answer: /appendix\.tex/,
-  },
-  {
-    ...UNTOUCHED_PROJECT,
-    name: 'replies once the tools are used up',
-    request: 'jaki tytuł ma praca cytowana w dokumencie jako greenwade93?',
-    transcript: CLOSED_TRANSCRIPT,
-    tools: [[]],
-    answer: /Comprehensive|CTAN/i,
+    tools: [[], [AgentTool.Search]],
+    answer: /appendix\.tex[^]*\b(nie|brak)\b|\b(nie|brak)\b[^]*appendix\.tex/i,
   },
 ];
 
@@ -337,59 +330,52 @@ function textFiles(
   return [...texts].map(([path, document]) => ({ path, document }));
 }
 
-function runTool(c: Case, call: ToolCall): ToolResult {
-  const { texts } = c;
-  switch (call.tool) {
-    case AgentTool.ReadFile:
-      return { tool: call.tool, path: call.path, document: getText(texts, call.path) };
-    case AgentTool.Search:
-      return { tool: call.tool, ...searchProject(textFiles(texts), call.query) };
-    case AgentTool.Compile:
-      return { tool: call.tool, diagnostics: c.diagnostics };
-  }
-}
+const TOOL_OF_PROGRESS: Partial<Record<AgentProgress['stage'], ToolCall['tool']>> = {
+  reading: AgentTool.ReadFile,
+  searching: AgentTool.Search,
+  compiling: AgentTool.Compile,
+};
 
-interface AgentRun {
-  readonly reply: Exclude<AcceptedDecision, { readonly kind: 'tool' }>;
+interface ApplicationRun {
+  readonly result: AssistantRequestResult;
   readonly tools: readonly ToolCall['tool'][];
   readonly usages: readonly ContextUsage[];
+  readonly project: FakeProject;
 }
 
-async function runAgent(agent: OllamaAgent, c: Case): Promise<AgentRun> {
-  const { texts } = c;
-  const workspace: AgentWorkspace = {
-    files: FILES,
-    openFile: { path: MAIN, document: getText(texts, MAIN) },
-    cursorLine: 1,
-    selection: c.selection,
-  };
-  const transcript: AgentTurn[] = [...c.transcript];
-  const tools: ToolCall['tool'][] = [];
+function createProject(editor: FakeEditor, texts: ReadonlyMap<string, DocumentSnapshot>) {
+  const documents = Object.fromEntries([...texts].map(([path, { lines }]) => [path, lines]));
+  return new FakeProject(editor, documents, MAIN, BINARY_PATHS);
+}
+
+async function runApplication(agent: AgentPort, c: Case): Promise<ApplicationRun> {
+  const editor = new FakeEditor([]);
+  editor.selection = c.selection;
+  const project = createProject(editor, c.texts);
+  project.willCompile(...Array.from({ length: AGENT_POLICY.maxToolCalls }, () => c.diagnostics));
   const usages: ContextUsage[] = [];
-  for (;;) {
-    const { decision, contextUsage } = await agent.decide({
-      message: c.request,
-      conversation: [],
-      workspace,
-      transcript: [...transcript],
-      signal: new AbortController().signal,
-    });
-    usages.push(contextUsage);
-    let accepted: AcceptedDecision;
-    try {
-      accepted = acceptDecision(decision, workspace, transcript);
-    } catch (error) {
-      if (!isAgentMistake(error)) throw error;
-      transcript.push({ kind: 'mistake', decision, problem: error.message });
-      if (!hasMistakesLeft(transcript)) {
-        throw new TestFixtureError(`the agent kept taking invalid steps: ${error.message}`);
-      }
-      continue;
-    }
-    if (accepted.kind !== 'tool') return { reply: accepted, tools, usages };
-    tools.push(accepted.call.tool);
-    transcript.push({ kind: 'tool', call: accepted.call, result: runTool(c, accepted.call) });
-  }
+  const recordingAgent: AgentPort = {
+    async decide(request) {
+      const step = await agent.decide(request);
+      usages.push(step.contextUsage);
+      return step;
+    },
+  };
+  const handleRequest = new HandleAssistantRequest({
+    agent: recordingAgent,
+    project,
+    editor,
+    conversation: new ConversationLog(new InMemoryConversationRepository()),
+    pendingChanges: new PendingChanges(),
+    lock: new OperationLock(() => new AbortController()),
+    newId: sequentialIds(),
+  });
+  const tools: ToolCall['tool'][] = [];
+  const result = await handleRequest.execute(c.request, (progress) => {
+    const tool = TOOL_OF_PROGRESS[progress.stage];
+    if (tool !== undefined) tools.push(tool);
+  });
+  return { result, tools, usages, project };
 }
 
 function gap(texts: ReadonlyMap<string, DocumentSnapshot>, edit: ExpectedEdit): number {
@@ -411,7 +397,32 @@ function createContractAgent(): OllamaAgent {
   return new OllamaAgent(client);
 }
 
-describe.runIf(OLLAMA_URL)('Ollama agent contract', () => {
+function expectEdit(
+  texts: ReadonlyMap<string, DocumentSnapshot>,
+  run: ApplicationRun,
+  expected: ExpectedEdit,
+): void {
+  const { result } = run;
+  expect(result.kind).toBe('proposal');
+  if (result.kind !== 'proposal') return;
+  expect(result.message.path).toBe(expected.path);
+  const { command } = result.message;
+  if (expected.operation.startsWith('insert') && command.operation.startsWith('insert')) {
+    const actual = { ...expected, operation: command.operation, line: command.target.lineNumber };
+    expect(gap(texts, actual)).toBe(gap(texts, expected));
+  } else {
+    expect(command.operation).toBe(expected.operation);
+    expect(command.target.lineNumber).toBe(expected.line);
+  }
+  if (expected.lastLines && (command.operation === 'replace' || command.operation === 'delete')) {
+    expect(expected.lastLines).toContain(command.target.lineNumber + command.lineCount - 1);
+  }
+  if (expected.content) {
+    expect(command).toMatchObject({ content: textMatching(expected.content) });
+  }
+}
+
+describe('Ollama agent contract', () => {
   let agent: OllamaAgent;
 
   beforeAll(() => {
@@ -421,43 +432,43 @@ describe.runIf(OLLAMA_URL)('Ollama agent contract', () => {
   it.each(CASES)(
     '$name',
     async (c) => {
-      const { reply, tools, usages } = await runAgent(agent, c);
-      for (const usage of usages) {
+      const run = await runApplication(agent, c);
+      for (const usage of run.usages) {
         expect(usage.promptTokens).toBeGreaterThan(0);
         expect(usage.promptTokens).toBeLessThanOrEqual(usage.contextTokens);
       }
-      if (c.tools) expect(c.tools).toContainEqual(tools);
+      if (c.tools) expect(c.tools).toContainEqual(run.tools);
       if (c.answer) {
-        expect(reply.kind).toBe('answer');
-        if (reply.kind === 'answer') expect(reply.text).toMatch(c.answer);
+        expect(run.result.message).toMatchObject({
+          kind: 'explanation',
+          text: textMatching(c.answer),
+        });
       }
-      const expected = c.edit;
-      if (expected === undefined) return;
-      expect(reply.kind).toBe('edit');
-      if (reply.kind !== 'edit') return;
-      expect(reply.change.file.path).toBe(expected.path);
-      const { command } = reply.change.edit;
-      const { texts } = c;
-      if (expected.operation.startsWith('insert') && command.operation.startsWith('insert')) {
-        const actual = {
-          ...expected,
-          operation: command.operation,
-          line: command.target.lineNumber,
-        };
-        expect(gap(texts, actual)).toBe(gap(texts, expected));
-      } else {
-        expect(command.operation).toBe(expected.operation);
-        expect(command.target.lineNumber).toBe(expected.line);
-      }
-      if (
-        expected.lastLines &&
-        (command.operation === 'replace' || command.operation === 'delete')
-      ) {
-        expect(expected.lastLines).toContain(command.target.lineNumber + command.lineCount - 1);
-      }
-      if (expected.content) {
-        expect('content' in command ? command.content : '').toMatch(expected.content);
-      }
+      if (c.edit) expectEdit(c.texts, run, c.edit);
+    },
+    CASE_TIMEOUT_MS,
+  );
+
+  it(
+    'replies once the tools are used up',
+    async () => {
+      const project = createProject(new FakeEditor([]), TEXTS);
+      const { decision } = await agent.decide({
+        message: 'jaki tytuł ma praca cytowana w dokumencie jako greenwade93?',
+        conversation: [],
+        workspace: {
+          files: project.files,
+          openFile: { path: MAIN, document: getText(TEXTS, MAIN) },
+          cursorLine: 1,
+          selection: '',
+        },
+        transcript: CLOSED_TRANSCRIPT,
+        signal: new AbortController().signal,
+      });
+      expect(decision).toMatchObject({
+        kind: 'reply',
+        reply: { kind: 'answer', text: textMatching(/Comprehensive|CTAN/i) },
+      });
     },
     CASE_TIMEOUT_MS,
   );
