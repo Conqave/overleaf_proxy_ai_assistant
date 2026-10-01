@@ -93,7 +93,6 @@ function parseMessage(value: unknown): ConversationMessage {
     if (!isProposalStatus(status)) throw new UnknownStoredFormatError('unknown proposal status');
     return { id, role, kind, path, command, status };
   }
-  if (kind === AssistantMessageKind.Greeting) return { id, role, kind };
   if (!isReplyKind(kind)) throw new UnknownStoredFormatError('unknown message kind');
   return { id, role, kind, text: getString(fields, 'text') };
 }

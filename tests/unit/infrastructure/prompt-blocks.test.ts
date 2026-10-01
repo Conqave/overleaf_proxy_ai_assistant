@@ -60,17 +60,6 @@ describe('conversation history', () => {
     expect(prompt).not.toContain('[user] message 2\n');
   });
 
-  it('leaves out the greetings answered without the model', () => {
-    const prompt = promptOf({
-      conversation: [
-        { id: 'u', role: 'user', text: 'hi' },
-        { id: 'g', role: 'assistant', kind: 'greeting' },
-      ],
-    });
-    expect(prompt).toContain('Conversation so far:\n[user] hi');
-    expect(prompt).not.toContain('[assistant]');
-  });
-
   it('shows a request the assistant made on its own as a system line', () => {
     const prompt = promptOf({
       conversation: [{ id: 's', role: 'system', text: 'Compiling reports errors.' }],

@@ -165,6 +165,9 @@ async function start({ replies = [], storage = {} }: StartOptions) {
 
 const reply = (...lines: readonly string[]): ResponseReply => ({ response: lines.join('\n') });
 
+const GREETING_ANSWER = 'Hi! What should I change?';
+const greetingReply = reply('ACTION: answer', 'TEXT:', GREETING_ANSWER);
+
 const editReply = (fields: Record<string, string>, content: string): ResponseReply =>
   reply(
     'ACTION: edit',
@@ -287,21 +290,21 @@ describe('assistant conversation', () => {
     expect(ollama.prompts).toHaveLength(0);
   });
 
-  it('answers a greeting locally', async () => {
-    const { send, messages, ollama, doc } = await start({});
+  it('sends a greeting to the model like any other message', async () => {
+    const { send, messages, ollama, doc } = await start({ replies: [greetingReply] });
     await send('hello');
-    expect(ollama.prompts).toHaveLength(0);
-    expect(messages()).toEqual(['hello', expect.stringContaining('Hi, I am here')]);
+    expect(itemAt(ollama.prompts, 0, 'prompt').userMessage).toContain('User message:\nhello');
+    expect(messages()).toEqual(['hello', expect.stringContaining(GREETING_ANSWER)]);
     expect(commandInput(doc).value).toBe('');
   });
 
   it('reloads history and starts a new conversation', async () => {
-    const first = await start({});
+    const first = await start({ replies: [greetingReply] });
     await first.send('hi');
     const stored = first.browser.window.localStorage.getItem(HISTORY_KEY);
     if (stored === null) throw new TestFixtureError('the conversation was not saved');
     const second = await start({ storage: { [HISTORY_KEY]: stored } });
-    expect(second.messages()).toEqual(['hi', expect.stringContaining('Hi, I am here')]);
+    expect(second.messages()).toEqual(['hi', expect.stringContaining(GREETING_ANSWER)]);
     await second.click('.ola-new-chat', () => {
       expect(second.messages()).toEqual([expect.stringContaining('Ready to help')]);
     });
@@ -310,15 +313,18 @@ describe('assistant conversation', () => {
   });
 
   it('reports corrupted history, continues and keeps it stored until a new chat', async () => {
-    const { browser, messages, send } = await start({ storage: { [HISTORY_KEY]: '{oops' } });
+    const { browser, messages, send } = await start({
+      replies: [greetingReply],
+      storage: { [HISTORY_KEY]: '{oops' },
+    });
     expect(messages().at(-1)).toContain('The saved conversation is corrupted');
     await send('hi');
-    expect(messages().at(-1)).toContain('Hi, I am here');
+    expect(messages().at(-1)).toContain(GREETING_ANSWER);
     expect(browser.window.localStorage.getItem(HISTORY_KEY)).toBe('{oops');
   });
 
   it('sends with Enter, not with Shift+Enter, and leaves page shortcuts alone', async () => {
-    const { browser, doc, messages } = await start({});
+    const { browser, doc, messages } = await start({ replies: [greetingReply] });
     const input = commandInput(doc);
     const { KeyboardEvent } = browser.window;
     input.value = 'hi';
@@ -326,7 +332,7 @@ describe('assistant conversation', () => {
     expect(messages()).toEqual([expect.stringContaining('Ready to help')]);
     input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' }));
     await vi.waitFor(() => {
-      expect(messages()).toEqual(['hi', expect.stringContaining('Hi, I am here')]);
+      expect(messages()).toEqual(['hi', expect.stringContaining(GREETING_ANSWER)]);
     }, PAGE_WAIT);
     input.value = 'hey';
     const inspect = new KeyboardEvent('keydown', {
@@ -354,8 +360,6 @@ describe('assistant agent', () => {
       'Project files:\nmain.tex (open in the editor)\nrefs.bib\nfrog.jpg (binary)\nchapters/intro/intro.tex',
     );
     expect(call.userMessage).toContain('3: \\section{Introduction}');
-    expect(texts('.ola-context')).toEqual([contextText(call)]);
-    await send('hi');
     expect(texts('.ola-context')).toEqual([contextText(call)]);
     await click('.ola-new-chat', () => {
       expect(texts('.ola-context')).toEqual([UNUSED_CONTEXT]);
@@ -489,12 +493,13 @@ describe('assistant agent', () => {
       'The assistant replied in an unexpected format',
     ],
   ])('reports %s and stays usable', async (_name, replies: OllamaReply[], error) => {
-    const { send, texts, messages } = await start({ replies });
+    const { send, texts, messages, ollama } = await start({ replies });
     await send('What is this document about?');
     expect(texts('.ola-error')).toEqual([expect.stringContaining(error)]);
     expect(texts('.ola-status')).toEqual(['']);
+    ollama.reply(greetingReply);
     await send('hi');
-    expect(messages().at(-1)).toContain('Hi, I am here');
+    expect(messages().at(-1)).toContain(GREETING_ANSWER);
   });
 
   it('reports a model that does not answer in time and stays usable', async () => {
@@ -511,8 +516,9 @@ describe('assistant agent', () => {
     expect(texts('.ola-error')).toEqual([
       expect.stringContaining('Ollama did not finish this step within 10 seconds'),
     ]);
+    ollama.reply(greetingReply);
     await send('hi');
-    expect(messages().at(-1)).toContain('Hi, I am here');
+    expect(messages().at(-1)).toContain(GREETING_ANSWER);
   });
 });
 
@@ -590,11 +596,12 @@ describe('assistant under interference', () => {
       'lookups are used',
     ],
   ])('stops after repeated %s and stays usable', async (_name, replies, problem) => {
-    const { send, texts, messages } = await start({ replies });
+    const { send, texts, messages, ollama } = await start({ replies });
     await send('Find it.');
     expect(texts('.ola-error')).toEqual([expect.stringContaining(problem)]);
+    ollama.reply(greetingReply);
     await send('hi');
-    expect(messages().at(-1)).toContain('Hi, I am here');
+    expect(messages().at(-1)).toContain(GREETING_ANSWER);
   });
 
   it('reports a compile that ends without a result', async () => {
@@ -638,8 +645,9 @@ describe('assistant under interference', () => {
         'Error: The conversation was reset before the assistant finished; the reply was dropped.',
       ]);
     });
+    ollama.reply(greetingReply);
     await send('hi');
-    expect(messages().at(-1)).toContain('Hi, I am here');
+    expect(messages().at(-1)).toContain(GREETING_ANSWER);
   });
 
   it('ignores Enter while a request is running', async () => {

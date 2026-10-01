@@ -110,12 +110,6 @@ describe('AssistantController context usage', () => {
     expect(texts('.ola-context')).toEqual(['Context 0 / 98.3k']);
   });
 
-  it('keeps the context usage of the last request for a greeting', async () => {
-    const { controller, texts } = await proposeBibEdit();
-    await controller.send('hi');
-    expect(texts('.ola-context')).toEqual(['Context 2.0k / 98.3k']);
-  });
-
   it('shows the context usage of the fix proposed after a failed compilation', async () => {
     const { controller, project, agent, changeId, texts } = await proposeBibEdit();
     project.willCompile([{ level: 'error', message: 'Missing } inserted.' }]);

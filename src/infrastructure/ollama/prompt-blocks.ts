@@ -2,7 +2,6 @@ import {
   AssistantMessageKind,
   ProposalStatus,
   type ConversationMessage,
-  type GreetingMessage,
   type ProposalMessage,
   type SystemRequestMessage,
   type UserMessage,
@@ -51,7 +50,7 @@ export function conversationBlock(
   conversation: readonly ConversationMessage[],
   maxChars: number,
 ): string[] {
-  const recent = conversation.filter(isTranscribed).slice(-CONVERSATION_WINDOW);
+  const recent = conversation.slice(-CONVERSATION_WINDOW);
   if (!recent.length) return [];
   const text = recent
     .map((message) => `[${message.role}] ${transcriptText(message)}`)
@@ -59,13 +58,7 @@ export function conversationBlock(
   return [block(CONVERSATION_LABEL, text, maxChars)];
 }
 
-function isTranscribed(
-  message: ConversationMessage,
-): message is Exclude<ConversationMessage, GreetingMessage> {
-  return message.role !== 'assistant' || message.kind !== AssistantMessageKind.Greeting;
-}
-
-function transcriptText(message: Exclude<ConversationMessage, GreetingMessage>): string {
+function transcriptText(message: ConversationMessage): string {
   if (message.role !== 'assistant' || message.kind !== AssistantMessageKind.Proposal) {
     return message.text.trim();
   }

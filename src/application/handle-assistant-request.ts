@@ -4,7 +4,6 @@ import type { AgentTurn, CompileDiagnostic } from '../domain/agent-transcript';
 import {
   ProposalStatus,
   type ConversationMessage,
-  type GreetingMessage,
   type ProposalMessage,
   type ReplyMessage,
   type SystemRequestMessage,
@@ -18,7 +17,6 @@ import { acceptDecision, isAgentMistake, type AcceptedDecision } from './agent-d
 import type { AgentProgress } from './agent-progress';
 import type { ConversationLog } from './conversation-log';
 import { AgentMistakeLimitError, EmptyRequestError } from './errors';
-import { isGreetingOnly } from './greeting-policy';
 import type { OperationLock } from './operation-lock';
 import { PendingDocumentChange, type PendingChanges } from './pending-change';
 import { ProjectTools } from './project-tools';
@@ -34,9 +32,6 @@ interface RequestRun {
 
 export const COMPILE_FIX_REQUEST =
   'Compiling the project after the applied change reports errors; fix the first error.';
-
-export type AssistantRequestResult =
-  { readonly kind: 'greeting'; readonly message: GreetingMessage } | AgentResult;
 
 export type AgentResult =
   | {
@@ -72,16 +67,12 @@ export class HandleAssistantRequest {
     return { contextTokens: this.deps.agent.contextTokens, promptTokens: 0 };
   }
 
-  async execute(
-    text: string,
-    onProgress: (progress: AgentProgress) => void,
-  ): Promise<AssistantRequestResult> {
+  async execute(text: string, onProgress: (progress: AgentProgress) => void): Promise<AgentResult> {
     const request = text.trim();
     if (!request) throw new EmptyRequestError();
     return await this.deps.lock.run(async (signal) => {
       const message: UserMessage = { id: this.deps.newId(), role: 'user', text: request };
       const { history, epoch } = this.receive(message, onProgress);
-      if (isGreetingOnly(request)) return { kind: 'greeting', message: this.greet() };
       return await this.runAgent(message, history, [], { epoch, signal, onProgress });
     });
   }
@@ -222,12 +213,6 @@ export class HandleAssistantRequest {
       throw error;
     }
     change.markPreviewed();
-  }
-
-  private greet(): GreetingMessage {
-    const message: GreetingMessage = { id: this.deps.newId(), role: 'assistant', kind: 'greeting' };
-    this.deps.conversation.append(message);
-    return message;
   }
 
   private reply(kind: ReplyMessage['kind'], text: string): ReplyMessage {

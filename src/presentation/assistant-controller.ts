@@ -1,10 +1,7 @@
 import type { ApplyDocumentChange } from '../application/apply-document-change';
 import type { ConversationLog } from '../application/conversation-log';
 import type { StartNewConversation } from '../application/conversation-session';
-import type {
-  AssistantRequestResult,
-  HandleAssistantRequest,
-} from '../application/handle-assistant-request';
+import type { AgentResult, HandleAssistantRequest } from '../application/handle-assistant-request';
 import type { AgentProgress } from '../application/agent-progress';
 import type { OperationLock } from '../application/operation-lock';
 import type { RejectDocumentChange } from '../application/reject-document-change';
@@ -103,11 +100,8 @@ export class AssistantController implements ViewEvents {
     view.setContextUsage(contextUsageText(this.useCases.handleRequest.getUnusedContext()));
   }
 
-  private showResult(view: AssistantView, result: AssistantRequestResult): void {
+  private showResult(view: AssistantView, result: AgentResult): void {
     switch (result.kind) {
-      case 'greeting':
-        view.appendMessage(result.message);
-        break;
       case 'reply':
         view.appendMessage(result.message);
         view.setContextUsage(contextUsageText(result.contextUsage));

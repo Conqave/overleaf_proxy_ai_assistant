@@ -4,7 +4,7 @@ import type { AgentProgress } from '../../src/application/agent-progress';
 import { ConversationLog } from '../../src/application/conversation-log';
 import {
   HandleAssistantRequest,
-  type AssistantRequestResult,
+  type AgentResult,
 } from '../../src/application/handle-assistant-request';
 import { OperationLock } from '../../src/application/operation-lock';
 import { PendingChanges } from '../../src/application/pending-change';
@@ -337,7 +337,7 @@ const TOOL_OF_PROGRESS: Partial<Record<AgentProgress['stage'], ToolCall['tool']>
 };
 
 interface ApplicationRun {
-  readonly result: AssistantRequestResult;
+  readonly result: AgentResult;
   readonly tools: readonly ToolCall['tool'][];
   readonly usages: readonly ContextUsage[];
   readonly project: FakeProject;

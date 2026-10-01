@@ -5,7 +5,6 @@ import { ProposalStatus, type AssistantMessage } from '../domain/conversation';
 import { DocumentOperation } from '../domain/document-command';
 
 const KIND_TITLE: Record<Exclude<AssistantMessage['kind'], 'proposal'>, string> = {
-  greeting: 'Hi, I am here',
   explanation: 'Explanation',
   clarification: 'Hans needs a little more detail',
 };
@@ -36,7 +35,6 @@ export const VIEW_TEXT = {
     'Ask for an explanation, a cleaner paragraph, or a precise LaTeX edit. I will show a suggestion before changing anything.',
 } as const;
 
-export const GREETING = 'Tell me what to change, explain, or fix in this Overleaf document.';
 export const COMPILED = 'Compiled without errors.';
 export const INTERNAL_ERROR = 'Unexpected internal error. Details are in the browser console.';
 

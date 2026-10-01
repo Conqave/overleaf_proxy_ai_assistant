@@ -14,7 +14,7 @@ import {
 import {
   COMPILE_FIX_REQUEST,
   HandleAssistantRequest,
-  type AssistantRequestResult,
+  type AgentResult,
 } from '../../../src/application/handle-assistant-request';
 import { OperationLock } from '../../../src/application/operation-lock';
 import { PendingChanges, PendingDocumentChange } from '../../../src/application/pending-change';
@@ -101,7 +101,7 @@ const mainEdit = () => editOf('main.tex', MAIN, 4);
 const bibEdit = () => editOf('refs.bib', BIB, 3);
 const readBib = () => tool({ tool: 'read_file', path: 'refs.bib' });
 
-function changeIdOf(result: AssistantRequestResult): string {
+function changeIdOf(result: AgentResult): string {
   if (result.kind !== 'proposal') throw new InvariantViolation('no change proposed');
   return result.changeId;
 }
@@ -146,11 +146,11 @@ describe('HandleAssistantRequest', () => {
     expect(conversation.messages()).toHaveLength(0);
   });
 
-  it('answers greetings locally', async () => {
+  it('sends a greeting to the agent like any other message', async () => {
+    agent.will(answer('Hi! What should I change?'));
     const result = await send('Cześć!');
-    expect(result.message).toMatchObject({ kind: 'greeting' });
-    expect(result).not.toHaveProperty('contextUsage');
-    expect(agent.requests).toHaveLength(0);
+    expect(result.message).toMatchObject({ kind: 'explanation' });
+    expect(requestAt(0).request).toMatchObject({ role: 'user', text: 'Cześć!' });
     expect(repository.stored.map((m) => m.role)).toEqual(['user', 'assistant']);
   });
 
@@ -187,12 +187,12 @@ describe('HandleAssistantRequest', () => {
   });
 
   it('passes the conversation to the agent', async () => {
-    agent.will(answer('ok'));
+    agent.will(answer('ok'), answer('fine'));
     await send('hello');
     await send('second?');
-    expect(requestAt(0).conversation).toMatchObject([
+    expect(requestAt(1).conversation).toMatchObject([
       { role: 'user', text: 'hello' },
-      { role: 'assistant', kind: 'greeting' },
+      { role: 'assistant', kind: 'explanation', text: 'ok' },
     ]);
   });
 
@@ -450,6 +450,7 @@ describe('HandleAssistantRequest', () => {
 
   it('discards the open change when a new request starts', async () => {
     const changeId = await proposeEdit();
+    agent.will(answer('Hi.'));
     await send('hi');
     expect(editor.preview).toBeNull();
     await expect(apply.execute(changeId, record)).rejects.toThrow(ChangeNoLongerPendingError);
@@ -607,6 +608,7 @@ describe('preview / apply / reject', () => {
     await apply.execute(applied, record);
     const rejected = await proposeEdit();
     reject.execute(rejected);
+    agent.will(answer('Hi.'));
     await send('hi');
     expect(() => pendingChanges.get(applied)).toThrow(ChangeNoLongerPendingError);
     expect(() => pendingChanges.get(rejected)).toThrow(ChangeNoLongerPendingError);
@@ -719,8 +721,9 @@ describe('conversation', () => {
 
   it('keeps working when storage fails and reports it once', async () => {
     repository.failing = true;
+    agent.will(answer('Hi.'));
     const result = await send('hello');
-    expect(result.message.kind).toBe('greeting');
+    expect(result.message.kind).toBe('explanation');
     expect(conversation.messages()).toHaveLength(2);
     expect(conversation.takePersistenceFailure()?.message).toBe('storage off');
     expect(conversation.takePersistenceFailure()).toBeNull();
@@ -732,6 +735,7 @@ describe('conversation', () => {
     repository.unreadable = true;
     expect(conversation.restore()).toEqual([]);
     expect(conversation.takePersistenceFailure()).toBeInstanceOf(UnreadableConversationError);
+    agent.will(answer('Hi.'), answer('Hi again.'));
     await send('hello');
     expect(conversation.messages()).toHaveLength(2);
     expect(repository.stored).toBe(unreadable);
@@ -741,7 +745,10 @@ describe('conversation', () => {
   });
 
   it('keeps only the last 80 messages', async () => {
-    for (let i = 0; i < 45; i += 1) await send('hi');
+    for (let i = 0; i < 45; i += 1) {
+      agent.will(answer('Hi.'));
+      await send('hi');
+    }
     expect(repository.stored).toHaveLength(80);
   });
 });

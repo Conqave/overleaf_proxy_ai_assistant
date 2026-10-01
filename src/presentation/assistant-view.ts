@@ -8,13 +8,7 @@ import {
 import { DocumentOperation } from '../domain/document-command';
 import css from './assistant.css?raw';
 import { InvariantViolation } from '../domain/errors';
-import {
-  GREETING,
-  messageMeta,
-  messageTitle,
-  proposalStatusText,
-  VIEW_TEXT,
-} from './message-format';
+import { messageMeta, messageTitle, proposalStatusText, VIEW_TEXT } from './message-format';
 
 export interface ViewEvents {
   send(text: string): Promise<void>;
@@ -175,9 +169,6 @@ export class AssistantView {
     const node = this.el('div', 'ola-msg ola-ai');
     node.append(this.el('div', 'ola-result-title', messageTitle(message)));
     switch (message.kind) {
-      case AssistantMessageKind.Greeting:
-        node.append(this.el('div', 'ola-result-body', GREETING));
-        break;
       case AssistantMessageKind.Proposal:
         node.append(...this.renderProposal(message));
         node.classList.toggle(`is-${message.status}`, message.status !== ProposalStatus.Proposed);
