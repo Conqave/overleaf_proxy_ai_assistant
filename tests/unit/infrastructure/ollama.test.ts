@@ -422,6 +422,28 @@ describe('OllamaAgent', () => {
     expect(ollama.prompts).toHaveLength(0);
   });
 
+  it('gives back the token openings it neutralised in the prompt', async () => {
+    const listing = {
+      ...step,
+      workspace: {
+        ...step.workspace,
+        openFile: { path: 'main.tex', document: createDocumentSnapshot(['f <|> g']) },
+      },
+    };
+    const ollama = new FakeOllama().reply({
+      response:
+        'ACTION: edit\nPATH: main.tex\nOPERATION: replace\nLINE: 1\nLINE_TEXT: f <\uFF5C> g\nCONTENT:\nh <\uFF5C> g',
+    });
+    const { decision } = await agent(ollama).decide(listing);
+    expect(itemAt(ollama.prompts, 0, 'prompt').userMessage).toContain('1: f <\uFF5C> g');
+    expect(decision).toMatchObject({
+      reply: {
+        kind: 'edit',
+        command: { target: { lineText: 'f <|> g' }, content: 'h <|> g' },
+      },
+    });
+  });
+
   it('returns a well-formed action unchecked and leaves its policy to the application', async () => {
     const ollama = new FakeOllama().reply({
       response: 'ACTION: edit\nPATH: missing.tex\nOPERATION: delete\nLINE: 9\nLINE_TEXT: x',

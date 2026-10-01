@@ -78,7 +78,7 @@ function parseFinalText(text: string, raw: string): string {
       raw,
     );
   }
-  return text;
+  return text.replaceAll(NEUTRAL_OPENING, TOKEN_OPENING);
 }
 
 export function renderFinalContinuation(prompt: string, analysis: string): string {
