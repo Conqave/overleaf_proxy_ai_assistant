@@ -67,3 +67,7 @@ function parseLineNumber(name: string, value: unknown): number {
   }
   return value;
 }
+
+export function isSpanCovering(outer: LineSpan, inner: LineSpan): boolean {
+  return outer.first <= inner.first && inner.last <= outer.last;
+}

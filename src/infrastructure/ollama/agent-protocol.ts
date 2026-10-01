@@ -1,6 +1,6 @@
 import { AgentTool, type AgentDecision, type ToolCall } from '../../domain/agent-action';
 import { countToolCallsLeft } from '../../domain/agent-policy';
-import { recordToolTurn, type AgentTurn } from '../../domain/agent-transcript';
+import { recordToolTurn, type AgentTurn, type ToolRecord } from '../../domain/agent-transcript';
 import type { ConversationMessage } from '../../domain/conversation';
 import type { DocumentSnapshot } from '../../domain/document';
 import { DocumentOperation } from '../../domain/document-command';
@@ -13,6 +13,7 @@ import { getCorrectionReserveChars, type ProtocolExchange } from './correction-e
 import { parseAgentDecision } from './reply-parser';
 import { diagnosticsText, renderRecord } from './tool-record-text';
 import { conversationText } from './conversation-text';
+import { findOutdatedReads, renderUnlessOutdated } from './outdated-reads';
 import {
   AGENT_ACTIONS,
   AgentAction,
@@ -201,14 +202,21 @@ function buildPrompt(request: AgentStepRequest, budget: number): string {
       : [block(SELECTION_LABEL, workspace.selection, smallBlock)]),
     `${LINE_BREAK}${toolsLeft(transcript)}`,
   ];
-  const history = historyBlock(request.conversation);
+  const records = transcript.map((turn) => (turn.kind === 'tool' ? recordToolTurn(turn) : null));
+  const outdated = findOutdatedReads([
+    ...request.conversation.flatMap((message) => (message.role === 'tool' ? [message.record] : [])),
+    ...records.filter((record) => record !== null),
+  ]);
+  const history = historyBlock(request.conversation, outdated);
   const open = {
     label: `Numbered lines of ${workspace.openFile.path} (open in the editor, caret on line ${String(workspace.cursorLine)}):`,
     text: numberLines(workspace.openFile.document),
   };
   const results = [
     ...attachedBlocks(request.request),
-    ...transcript.map((turn, index) => turnBlock(index + 1, turn)),
+    ...transcript.map((turn, index) =>
+      turnBlock(index + 1, turn, itemAt(records, index), outdated),
+    ),
   ];
   const separators = (history.length + results.length + 2) * LINE_BREAK.length;
   const available = budget - lines(requested, files, ...after).length - separators;
@@ -216,9 +224,12 @@ function buildPrompt(request: AgentStepRequest, budget: number): string {
   return lines(requested, ...rendered.history, files, rendered.open, ...rendered.results, ...after);
 }
 
-function historyBlock(conversation: readonly ConversationMessage[]): PromptBlock[] {
+function historyBlock(
+  conversation: readonly ConversationMessage[],
+  outdated: ReadonlySet<ToolRecord>,
+): PromptBlock[] {
   if (!conversation.length) return [];
-  return [{ label: CONVERSATION_LABEL, text: conversationText(conversation) }];
+  return [{ label: CONVERSATION_LABEL, text: conversationText(conversation, outdated) }];
 }
 
 function renderBlocks(
@@ -237,7 +248,7 @@ function renderBlocks(
   const current = renderCurrentBlocks(available - sum(historyShares), open, results);
   return {
     history: history.map((past, index) =>
-      block(past.label, past.text, itemOf(historyShares, index)),
+      block(past.label, past.text, itemAt(historyShares, index)),
     ),
     ...current,
   };
@@ -270,9 +281,9 @@ function renderCurrentBlocks(
   return { open: block(open.label, open.text, openShare), results: rendered };
 }
 
-function itemOf(values: readonly number[], index: number): number {
+function itemAt<T>(values: readonly T[], index: number): T {
   const value = values[index];
-  if (value === undefined) throw new InvariantViolation(`no share for block ${String(index)}`);
+  if (value === undefined) throw new InvariantViolation(`no item ${String(index)}`);
   return value;
 }
 
@@ -319,12 +330,18 @@ function attachedBlocks(request: AgentRequest): PromptBlock[] {
   }
 }
 
-function turnBlock(position: number, turn: AgentTurn): PromptBlock {
+function turnBlock(
+  position: number,
+  turn: AgentTurn,
+  record: ToolRecord | null,
+  outdated: ReadonlySet<ToolRecord>,
+): PromptBlock {
   switch (turn.kind) {
     case 'tool':
+      if (record === null) throw new InvariantViolation('a lookup has no record');
       return {
         label: `Result ${String(position)} (${describeCall(turn.call)}):`,
-        text: renderRecord(recordToolTurn(turn)),
+        text: renderUnlessOutdated(record, outdated, renderRecord),
       };
     case 'mistake':
       return {
