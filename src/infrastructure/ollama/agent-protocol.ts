@@ -5,11 +5,19 @@ import type { DocumentSnapshot } from '../../domain/document';
 import { DocumentOperation } from '../../domain/document-command';
 import { ProjectFileKind, type ProjectFile } from '../../domain/project-file';
 import type { AgentStepRequest } from '../../ports/agent-port';
-import { AGENT_ACTIONS, AgentAction, AgentField, TEXT_MARKER } from './agent-reply-format';
-import { parseAgentDecision } from './agent-response-parser';
 import { createTooLargeError, PROMPT_BUDGET_CHARS } from './context-budget';
 import { getCorrectionReserveChars, type ProtocolExchange } from './correction-exchange';
-import { CONTENT, CONTENT_MARKER, EditField, fieldLine } from './edit-reply-format';
+import { parseAgentDecision } from './reply-parser';
+import {
+  AGENT_ACTIONS,
+  AgentAction,
+  AgentField,
+  CONTENT,
+  CONTENT_MARKER,
+  EditField,
+  fieldLine,
+  TEXT_MARKER,
+} from './reply-format';
 import {
   block,
   blockHeading,

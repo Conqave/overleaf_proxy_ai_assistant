@@ -3,8 +3,10 @@ import { AgentTool, type AgentReply } from '../../../src/domain/agent-action';
 import type { AgentTurn } from '../../../src/domain/agent-transcript';
 import { createDocumentSnapshot } from '../../../src/domain/document';
 import { ProjectFileKind } from '../../../src/domain/project-file';
-import { parseAgentDecision } from '../../../src/infrastructure/ollama/agent-response-parser';
-import { InvalidAssistantResponse } from '../../../src/infrastructure/ollama/edit-reply-parser';
+import {
+  InvalidAssistantResponse,
+  parseAgentDecision,
+} from '../../../src/infrastructure/ollama/reply-parser';
 import type { AgentStepRequest } from '../../../src/ports/agent-port';
 import { TestFixtureError } from '../../support/test-errors';
 

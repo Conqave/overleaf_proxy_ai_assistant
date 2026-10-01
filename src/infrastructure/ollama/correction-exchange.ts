@@ -1,6 +1,6 @@
 import type { ContextUsage } from '../../ports/agent-port';
 import { AssistantProtocolError } from '../../ports/errors';
-import { InvalidAssistantResponse } from './edit-reply-parser';
+import { InvalidAssistantResponse } from './reply-parser';
 import { CONTEXT_TOKENS } from './context-budget';
 import { compact, LINE_BREAK, lines } from './prompt-blocks';
 import { HarmonyFormatError } from './harmony-format';

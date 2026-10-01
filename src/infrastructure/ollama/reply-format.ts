@@ -1,3 +1,23 @@
+import { AgentTool } from '../../domain/agent-action';
+
+export const AgentField = {
+  Action: 'ACTION',
+  Path: 'PATH',
+  Query: 'QUERY',
+  Question: 'QUESTION',
+} as const;
+export type AgentField = (typeof AgentField)[keyof typeof AgentField];
+
+export const AgentAction = {
+  ...AgentTool,
+  Answer: 'answer',
+  Question: 'question',
+  Edit: 'edit',
+} as const;
+export type AgentAction = (typeof AgentAction)[keyof typeof AgentAction];
+
+export const AGENT_ACTIONS: readonly AgentAction[] = Object.values(AgentAction);
+
 export const EditField = {
   Operation: 'OPERATION',
   Line: 'LINE',
@@ -15,11 +35,13 @@ export const CONTENT = 'CONTENT';
 
 export const CONTENT_MARKER = `${CONTENT}${FIELD_MARK}`;
 
+export const TEXT_MARKER = fieldName('TEXT');
+
 export function createFieldPattern(names: readonly string[]): RegExp {
   return new RegExp(`^(${names.join('|')})${FIELD_MARK}(?: |$)(.*)$`);
 }
 
-export function fieldName(field: string): string {
+function fieldName(field: string): string {
   return `${field}${FIELD_MARK}`;
 }
 
