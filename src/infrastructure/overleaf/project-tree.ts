@@ -57,13 +57,15 @@ function collectFolder(
   files: ProjectFile[],
   folderIds: Map<string, readonly string[]>,
 ): void {
-  const add = (value: unknown, kind: ProjectFileKind): void => {
+  const entry = (value: unknown): { id: string; path: string } => {
     const { id, name } = readEntity(value);
-    files.push({ id, path: [...names, name].join(PATH_SEPARATOR), kind });
     folderIds.set(id, ancestors);
+    return { id, path: [...names, name].join(PATH_SEPARATOR) };
   };
-  for (const doc of folder.docs) add(doc, ProjectFileKind.Text);
-  for (const fileRef of folder.fileRefs) add(fileRef, ProjectFileKind.Binary);
+  for (const doc of folder.docs) files.push({ ...entry(doc), kind: ProjectFileKind.Text });
+  for (const fileRef of folder.fileRefs) {
+    files.push({ ...entry(fileRef), kind: ProjectFileKind.Binary });
+  }
   for (const value of folder.folders) {
     const child = readFolder(value);
     collectFolder(child, [...names, child.name], [...ancestors, child.id], files, folderIds);

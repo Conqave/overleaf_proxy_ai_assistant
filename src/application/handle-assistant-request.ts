@@ -13,7 +13,7 @@ import type {
   ReplyMessage,
   UserMessage,
 } from '../domain/conversation';
-import { findTextFile, ProjectFileKind } from '../domain/project-file';
+import { findTextFile, listTextFiles } from '../domain/project-file';
 import { searchProject } from '../domain/project-search';
 import type { AgentPort, AgentWorkspace, ContextUsage } from '../ports/agent-port';
 import type { EditorPort } from '../ports/editor-port';
@@ -124,9 +124,8 @@ export class HandleAssistantRequest {
       }
       case AgentTool.Search: {
         onProgress({ stage: 'searching', query: call.query });
-        const textFiles = workspace.files.filter((file) => file.kind === ProjectFileKind.Text);
         const searched = await Promise.all(
-          textFiles.map(async (file) => ({
+          listTextFiles(workspace.files).map(async (file) => ({
             path: file.path,
             document: await project.readFile(file),
           })),

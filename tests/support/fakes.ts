@@ -7,6 +7,7 @@ import {
   createProjectFiles,
   ProjectFileKind,
   type ProjectFile,
+  type TextFile,
 } from '../../src/domain/project-file';
 import type { ResolvedEdit } from '../../src/domain/resolved-edit';
 import type { AgentPort, AgentStep, AgentStepRequest } from '../../src/ports/agent-port';
@@ -138,13 +139,13 @@ export class FakeProject implements ProjectPort {
   openFilePath(): string {
     return this.openPath;
   }
-  readFile(file: ProjectFile): Promise<DocumentSnapshot> {
+  readFile(file: TextFile): Promise<DocumentSnapshot> {
     this.reads.push(file.path);
     if (this.failure.readFile) return Promise.reject(this.failure.readFile);
     const lines = file.path === this.openPath ? this.editor.lines : this.document(file.path);
     return Promise.resolve(createDocumentSnapshot(lines));
   }
-  openFile(file: ProjectFile): Promise<void> {
+  openFile(file: TextFile): Promise<void> {
     this.opened.push(file.path);
     if (this.failure.openFile) return Promise.reject(this.failure.openFile);
     this.switchTo(file.path);

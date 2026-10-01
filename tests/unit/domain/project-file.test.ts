@@ -4,7 +4,7 @@ import {
   NotATextFileError,
   ProjectFileNotFoundError,
 } from '../../../src/domain/errors';
-import { createProjectFiles, findTextFile } from '../../../src/domain/project-file';
+import { createProjectFiles, findTextFile, listTextFiles } from '../../../src/domain/project-file';
 
 const files = createProjectFiles([
   { id: 'd1', path: 'main.tex', kind: 'text' },
@@ -15,6 +15,13 @@ const files = createProjectFiles([
 describe('project files', () => {
   it('finds a text file by its path', () => {
     expect(findTextFile(files, 'chapters/intro.tex').id).toBe('d2');
+  });
+
+  it('lists the text files only', () => {
+    expect(listTextFiles(files).map((file) => file.path)).toEqual([
+      'main.tex',
+      'chapters/intro.tex',
+    ]);
   });
 
   it('rejects an unknown path and a binary file', () => {

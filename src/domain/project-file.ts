@@ -11,11 +11,20 @@ export const ProjectFileKind = {
 } as const;
 export type ProjectFileKind = (typeof ProjectFileKind)[keyof typeof ProjectFileKind];
 
-export interface ProjectFile {
+interface ProjectEntry {
   readonly id: string;
   readonly path: string;
-  readonly kind: ProjectFileKind;
 }
+
+export interface TextFile extends ProjectEntry {
+  readonly kind: typeof ProjectFileKind.Text;
+}
+
+export interface BinaryFile extends ProjectEntry {
+  readonly kind: typeof ProjectFileKind.Binary;
+}
+
+export type ProjectFile = TextFile | BinaryFile;
 
 export const PATH_SEPARATOR = '/';
 
@@ -52,7 +61,7 @@ export function createProjectFiles(files: readonly ProjectFile[]): readonly Proj
   return Object.freeze(files.map((file) => Object.freeze({ ...file })));
 }
 
-export function findTextFile(files: readonly ProjectFile[], path: string): ProjectFile {
+export function findTextFile(files: readonly ProjectFile[], path: string): TextFile {
   const file = files.find((candidate) => candidate.path === path);
   if (file === undefined) {
     throw new ProjectFileNotFoundError(`The project has no file ${path}.`);
@@ -61,4 +70,8 @@ export function findTextFile(files: readonly ProjectFile[], path: string): Proje
     throw new NotATextFileError(`${path} is not a text file.`);
   }
   return file;
+}
+
+export function listTextFiles(files: readonly ProjectFile[]): readonly TextFile[] {
+  return files.filter((file) => file.kind === ProjectFileKind.Text);
 }

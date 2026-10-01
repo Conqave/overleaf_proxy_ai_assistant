@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { NotATextFileError, ProjectFileNotFoundError } from '../../../src/domain/errors';
-import { findTextFile, type ProjectFile } from '../../../src/domain/project-file';
+import { ProjectFileNotFoundError } from '../../../src/domain/errors';
+import { findTextFile, type TextFile } from '../../../src/domain/project-file';
 import { OverleafEditorBridge } from '../../../src/infrastructure/overleaf/overleaf-editor-bridge';
 import {
   OverleafFileTreeContractError,
@@ -27,12 +27,7 @@ let adapter: OverleafProjectAdapter;
 let requests: string[];
 let answer: () => Promise<Response>;
 
-const file = (path: string): ProjectFile => findTextFile(adapter.listFiles(), path);
-const binaryFile = (path: string): ProjectFile => {
-  const found = adapter.listFiles().find((candidate) => candidate.path === path);
-  if (found === undefined) throw new TestFixtureError(`the fixture project has no ${path}`);
-  return found;
-};
+const file = (path: string): TextFile => findTextFile(adapter.listFiles(), path);
 
 beforeEach(() => {
   bridge = new OverleafEditorBridge(() =>
@@ -112,12 +107,6 @@ describe('OverleafProjectAdapter files', () => {
     await expect(adapter.readFile(file('refs.bib'))).rejects.toThrow(ProjectFileReadError);
     answer = () => Promise.reject(new TypeError('Failed to fetch'));
     await expect(adapter.readFile(file('refs.bib'))).rejects.toThrow(ProjectUnavailableError);
-  });
-
-  it('refuses to read or open a binary file', async () => {
-    const frog = binaryFile('frog.jpg');
-    await expect(adapter.readFile(frog)).rejects.toThrow(NotATextFileError);
-    await expect(adapter.openFile(frog)).rejects.toThrow(NotATextFileError);
   });
 });
 

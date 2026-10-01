@@ -1,7 +1,7 @@
 import type { CompileDiagnostic } from '../../domain/agent-transcript';
 import { createDocumentSnapshot, type DocumentSnapshot } from '../../domain/document';
-import { NamedError, NotATextFileError, ProjectFileNotFoundError } from '../../domain/errors';
-import { ProjectFileKind, type ProjectFile } from '../../domain/project-file';
+import { NamedError, ProjectFileNotFoundError } from '../../domain/errors';
+import type { ProjectFile, TextFile } from '../../domain/project-file';
 import {
   CompileTimeoutError,
   FileOpenTimeoutError,
@@ -71,8 +71,7 @@ export class OverleafProjectAdapter implements ProjectPort {
     return file.path;
   }
 
-  async readFile(file: ProjectFile): Promise<DocumentSnapshot> {
-    requireTextFile(file);
+  async readFile(file: TextFile): Promise<DocumentSnapshot> {
     if (file.id === this.openDocId()) {
       const { view } = await this.shownEditor(
         file,
@@ -92,8 +91,7 @@ export class OverleafProjectAdapter implements ProjectPort {
     return createDocumentSnapshot((await this.readText(response, file)).split(/\r?\n/));
   }
 
-  async openFile(file: ProjectFile): Promise<void> {
-    requireTextFile(file);
+  async openFile(file: TextFile): Promise<void> {
     const signal = AbortSignal.timeout(this.deps.timeouts.fileOpenMs);
     if (file.id === this.openDocId() && !this.isBinaryFileShown()) {
       await this.shownEditor(file, signal);
@@ -169,13 +167,13 @@ export class OverleafProjectAdapter implements ProjectPort {
     );
   }
 
-  private async shownEditor(file: ProjectFile, signal: AbortSignal): Promise<OpenEditor> {
+  private async shownEditor(file: TextFile, signal: AbortSignal): Promise<OpenEditor> {
     const editor = await this.deps.bridge.whenShowing(file.id, signal);
     if (editor === null) throw this.openTimeout(file);
     return editor;
   }
 
-  private openTimeout(file: ProjectFile): FileOpenTimeoutError {
+  private openTimeout(file: TextFile): FileOpenTimeoutError {
     return new FileOpenTimeoutError(
       `${file.path} did not open within ${String(this.deps.timeouts.fileOpenMs)} ms.`,
     );
@@ -194,7 +192,7 @@ export class OverleafProjectAdapter implements ProjectPort {
     return this.deps.store.getString(StoreKey.OpenDocId);
   }
 
-  private async download(file: ProjectFile): Promise<Response> {
+  private async download(file: TextFile): Promise<Response> {
     const { projectId } = this.deps;
     try {
       return await this.deps.fetch(`/Project/${projectId}/doc/${file.id}/download`, {
@@ -208,7 +206,7 @@ export class OverleafProjectAdapter implements ProjectPort {
     }
   }
 
-  private async readText(response: Response, file: ProjectFile): Promise<string> {
+  private async readText(response: Response, file: TextFile): Promise<string> {
     try {
       return await response.text();
     } catch (error) {
@@ -219,7 +217,7 @@ export class OverleafProjectAdapter implements ProjectPort {
     }
   }
 
-  private expandFolder(folderId: string, file: ProjectFile): void {
+  private expandFolder(folderId: string, file: TextFile): void {
     const entity = this.findEntity(folderId, file);
     const item = entity.closest('[role="treeitem"]');
     if (item === null) {
@@ -233,7 +231,7 @@ export class OverleafProjectAdapter implements ProjectPort {
     button.click();
   }
 
-  private findEntity(id: string, file: ProjectFile): HTMLElement {
+  private findEntity(id: string, file: TextFile): HTMLElement {
     const tree = this.deps.window.document.querySelector(FILE_TREE_SELECTOR);
     if (tree === null) throw new OverleafFileTreeContractError('the page shows no file tree');
     const entities = tree.querySelectorAll<HTMLElement>(ENTITY_SELECTOR);
@@ -242,12 +240,6 @@ export class OverleafProjectAdapter implements ProjectPort {
       throw new ProjectFileNotFoundError(`${file.path} is no longer in the project's file tree.`);
     }
     return entity;
-  }
-}
-
-function requireTextFile(file: ProjectFile): void {
-  if (file.kind !== ProjectFileKind.Text) {
-    throw new NotATextFileError(`${file.path} is not a text file.`);
   }
 }
 
