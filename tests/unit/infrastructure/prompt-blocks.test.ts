@@ -76,15 +76,49 @@ describe('conversation history', () => {
     expect(prompt).toContain(`Lookups left: ${String(AGENT_POLICY.maxToolCalls)}`);
   });
 
-  it('carries the message and the last 12 turns', () => {
+  it('carries the message and the whole conversation', () => {
     const prompt = promptOf({
       request: { kind: 'user', message: { id: 'r', role: 'user', text: 'Add a table' } },
       conversation,
     });
     expect(prompt).toContain('User message:\nAdd a table');
+    expect(prompt).toContain('Conversation so far:\n[user] message 0\n');
     expect(prompt).toContain('[user] message 14');
-    expect(prompt).toContain('[user] message 3');
-    expect(prompt).not.toContain('[user] message 2\n');
+  });
+
+  it('shows earlier lookups shortened, with their notices at the edge', () => {
+    const lines = Array.from({ length: 300 }, (_, i) => `Line ${String(i + 1)} of the chapter.`);
+    const prompt = promptOf({
+      conversation: [
+        {
+          id: 't',
+          role: 'tool',
+          record: {
+            tool: 'read_file',
+            path: 'ch.tex',
+            shown: { first: 1, last: 300 },
+            totalLines: 900,
+            lines,
+          },
+        },
+        {
+          id: 's',
+          role: 'tool',
+          record: { tool: 'search', query: 'fig', matches: [], truncated: false },
+        },
+      ],
+    });
+    const read = /\[tool\] read_file ch\.tex lines 1–300 of 900:\n1: Line 1[^]*?\n\[tool\]/.exec(
+      prompt,
+    );
+    if (read === null) throw new TestFixtureError('the earlier read is missing');
+    expect(read[0]).toContain('[AUTOCOMPACTED: omitted');
+    expect(read[0]).toContain('300: Line 300 of the chapter.');
+    expect(read[0]).toContain(
+      '[Showing lines 1–300 of 900. Read another range with START_LINE and END_LINE, or search.]\n[shortened to 2000 characters; repeat the lookup to see it whole]',
+    );
+    expect(read[0].length).toBeLessThan(2_400);
+    expect(prompt).toContain('[tool] search "fig":\n(no matches)');
   });
 
   it('shows a request the assistant made on its own as a system line', () => {

@@ -33,6 +33,8 @@ export class UnshownLinesEditError extends NamedError {}
 
 export class ReadRangeError extends NamedError {}
 
+export class InvalidToolRecordError extends NamedError {}
+
 export class ProjectFileNotFoundError extends OperationalError {}
 
 export class NotATextFileError extends OperationalError {}

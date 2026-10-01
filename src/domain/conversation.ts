@@ -1,3 +1,4 @@
+import type { ToolRecord } from './agent-transcript';
 import type { DocumentCommand } from './document-command';
 import { InvariantViolation } from './errors';
 
@@ -74,7 +75,19 @@ export function decideProposal(
 
 export type AssistantMessage = ReplyMessage | ProposalMessage;
 
-export type ConversationMessage = UserMessage | SystemRequestMessage | AssistantMessage;
+export interface ToolMessage {
+  readonly id: string;
+  readonly role: 'tool';
+  readonly record: ToolRecord;
+}
+
+export type ChatMessage = UserMessage | SystemRequestMessage | AssistantMessage;
+
+export type ConversationMessage = ChatMessage | ToolMessage;
+
+export function isChatMessage(message: ConversationMessage): message is ChatMessage {
+  return message.role !== 'tool';
+}
 
 export function isUndecidedProposal(message: ConversationMessage): message is ProposalMessage {
   return (

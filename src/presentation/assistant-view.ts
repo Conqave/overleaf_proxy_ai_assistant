@@ -1,8 +1,10 @@
 import type { SessionList } from '../application/conversation-session';
 import {
   AssistantMessageKind,
+  isChatMessage,
   ProposalStatus,
   type AssistantMessage,
+  type ChatMessage,
   type ConversationMessage,
   type ProposalMessage,
 } from '../domain/conversation';
@@ -127,21 +129,22 @@ export class AssistantView {
     this.chat.textContent = '';
     this.messageNodes.clear();
     this.actionNodes.clear();
-    if (!messages.length) {
+    const chat = messages.filter(isChatMessage);
+    if (!chat.length) {
       this.showWelcome();
       return;
     }
-    for (const message of messages) this.appendMessage(message);
+    for (const message of chat) this.appendMessage(message);
   }
 
-  appendMessage(message: ConversationMessage, changeId?: string): void {
+  appendMessage(message: ChatMessage, changeId?: string): void {
     this.chat.querySelector('.ola-welcome')?.remove();
     const node = this.renderMessage(message, changeId);
     this.messageNodes.set(message.id, node);
     this.append(node);
   }
 
-  updateMessage(message: ConversationMessage): void {
+  updateMessage(message: ChatMessage): void {
     const shown = this.messageNodes.get(message.id);
     if (shown === undefined)
       throw new InvariantViolation(`the chat shows no message ${message.id}`);
@@ -204,7 +207,7 @@ export class AssistantView {
     void this.events.send(this.input.value);
   }
 
-  private renderMessage(message: ConversationMessage, changeId?: string): HTMLElement {
+  private renderMessage(message: ChatMessage, changeId?: string): HTMLElement {
     switch (message.role) {
       case 'user':
         return this.el('div', 'ola-msg ola-user', message.text);

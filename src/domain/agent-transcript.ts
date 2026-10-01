@@ -1,7 +1,12 @@
 import { AgentTool, type AgentDecision, type ToolCall } from './agent-action';
 import { isSameDocument, type DocumentSnapshot } from './document';
 import { DocumentOperation, type DocumentCommand } from './document-command';
-import { UnreadFileEditError, UnshownLinesEditError } from './errors';
+import {
+  InvalidToolRecordError,
+  InvariantViolation,
+  UnreadFileEditError,
+  UnshownLinesEditError,
+} from './errors';
 import type { LineSpan } from './read-window';
 
 export interface SearchMatch {
@@ -16,6 +21,12 @@ export const DiagnosticLevel = {
   Typesetting: 'typesetting',
 } as const;
 export type DiagnosticLevel = (typeof DiagnosticLevel)[keyof typeof DiagnosticLevel];
+
+const DIAGNOSTIC_LEVELS: readonly string[] = Object.values(DiagnosticLevel);
+
+export function isDiagnosticLevel(value: unknown): value is DiagnosticLevel {
+  return typeof value === 'string' && DIAGNOSTIC_LEVELS.includes(value);
+}
 
 export interface CompileDiagnostic {
   readonly level: DiagnosticLevel;
@@ -37,6 +48,74 @@ export type ToolResult =
       readonly truncated: boolean;
     }
   | { readonly tool: typeof AgentTool.Compile; readonly diagnostics: readonly CompileDiagnostic[] };
+
+export interface ReadRecord {
+  readonly tool: typeof AgentTool.ReadFile;
+  readonly path: string;
+  readonly shown: LineSpan;
+  readonly totalLines: number;
+  readonly lines: readonly string[];
+}
+
+export interface SearchRecord {
+  readonly tool: typeof AgentTool.Search;
+  readonly query: string;
+  readonly matches: readonly SearchMatch[];
+  readonly truncated: boolean;
+}
+
+export interface CompileRecord {
+  readonly tool: typeof AgentTool.Compile;
+  readonly diagnostics: readonly CompileDiagnostic[];
+}
+
+export type ToolRecord = ReadRecord | SearchRecord | CompileRecord;
+
+export function createReadRecord(
+  path: string,
+  shown: LineSpan,
+  totalLines: number,
+  lines: readonly string[],
+): ReadRecord {
+  const isEmpty = totalLines === 0 && shown.first === 1 && shown.last === 0;
+  const isInside = shown.first >= 1 && shown.first <= shown.last && shown.last <= totalLines;
+  if (!isEmpty && !isInside) {
+    throw new InvalidToolRecordError(
+      `lines ${String(shown.first)}-${String(shown.last)} are not inside the ${String(totalLines)} lines of ${path}`,
+    );
+  }
+  if (lines.length !== shown.last - shown.first + 1) {
+    throw new InvalidToolRecordError(
+      `${String(lines.length)} lines were recorded for lines ${String(shown.first)}-${String(shown.last)} of ${path}`,
+    );
+  }
+  return Object.freeze({
+    tool: AgentTool.ReadFile,
+    path,
+    shown: Object.freeze({ ...shown }),
+    totalLines,
+    lines: Object.freeze([...lines]),
+  });
+}
+
+export function recordToolTurn({ call, result }: ToolTurn): ToolRecord {
+  switch (result.tool) {
+    case AgentTool.ReadFile:
+      return createReadRecord(
+        result.path,
+        result.shown,
+        result.document.lines.length,
+        result.document.lines.slice(result.shown.first - 1, result.shown.last),
+      );
+    case AgentTool.Search:
+      if (call.tool !== AgentTool.Search) {
+        throw new InvariantViolation(`a search result came from a ${call.tool} call`);
+      }
+      return { ...result, query: call.query };
+    case AgentTool.Compile:
+      return result;
+  }
+}
 
 export interface ToolTurn {
   readonly kind: 'tool';

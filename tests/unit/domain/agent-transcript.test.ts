@@ -1,12 +1,19 @@
 import { describe, expect, it } from 'vitest';
 import {
   assertEditShown,
+  createReadRecord,
   getShownDocument,
+  recordToolTurn,
   type AgentTurn,
+  type ToolTurn,
 } from '../../../src/domain/agent-transcript';
 import { createDocumentSnapshot, type DocumentSnapshot } from '../../../src/domain/document';
 import { createDocumentCommand } from '../../../src/domain/document-command';
-import { UnreadFileEditError, UnshownLinesEditError } from '../../../src/domain/errors';
+import {
+  InvalidToolRecordError,
+  UnreadFileEditError,
+  UnshownLinesEditError,
+} from '../../../src/domain/errors';
 import type { LineSpan } from '../../../src/domain/read-window';
 
 const open = { path: 'main.tex', document: createDocumentSnapshot(['open']) };
@@ -14,7 +21,7 @@ const bib = createDocumentSnapshot(
   Array.from({ length: 10 }, (_, index) => `line ${String(index)}`),
 );
 
-function read(path: string, document: DocumentSnapshot, shown: LineSpan): AgentTurn {
+function read(path: string, document: DocumentSnapshot, shown: LineSpan): ToolTurn {
   return {
     kind: 'tool',
     call: { tool: 'read_file', path },
@@ -121,5 +128,42 @@ describe('assertEditShown', () => {
         }),
       );
     }).toThrow(UnshownLinesEditError);
+  });
+});
+
+describe('recordToolTurn', () => {
+  it('keeps only the lines a read showed', () => {
+    expect(recordToolTurn(read('refs.bib', bib, { first: 3, last: 4 }))).toEqual({
+      tool: 'read_file',
+      path: 'refs.bib',
+      shown: { first: 3, last: 4 },
+      totalLines: 10,
+      lines: ['line 2', 'line 3'],
+    });
+  });
+
+  it('keeps the query of a search with its matches', () => {
+    expect(
+      recordToolTurn({
+        kind: 'tool',
+        call: { tool: 'search', query: 'fig' },
+        result: { tool: 'search', matches: [], truncated: true },
+      }),
+    ).toEqual({ tool: 'search', query: 'fig', matches: [], truncated: true });
+  });
+});
+
+describe('createReadRecord', () => {
+  it('rejects lines that do not fit the range', () => {
+    expect(() => createReadRecord('a.tex', { first: 1, last: 2 }, 5, ['x'])).toThrow(
+      InvalidToolRecordError,
+    );
+    expect(() => createReadRecord('a.tex', { first: 4, last: 6 }, 5, ['x', 'y', 'z'])).toThrow(
+      InvalidToolRecordError,
+    );
+  });
+
+  it('records an empty file', () => {
+    expect(createReadRecord('a.tex', { first: 1, last: 0 }, 0, [])).toMatchObject({ lines: [] });
   });
 });

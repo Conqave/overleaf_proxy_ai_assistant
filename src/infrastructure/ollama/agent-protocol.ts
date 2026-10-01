@@ -1,14 +1,18 @@
 import { AgentTool, type AgentDecision, type ToolCall } from '../../domain/agent-action';
 import { countToolCallsLeft } from '../../domain/agent-policy';
-import type { AgentTurn, CompileDiagnostic, ToolResult } from '../../domain/agent-transcript';
+import { recordToolTurn, type AgentTurn } from '../../domain/agent-transcript';
+import type { ConversationMessage } from '../../domain/conversation';
 import type { DocumentSnapshot } from '../../domain/document';
 import { DocumentOperation } from '../../domain/document-command';
 import { ProjectFileKind, type ProjectFile } from '../../domain/project-file';
-import { isWholeDocument, numberLine, READ_LIMITS, type LineSpan } from '../../domain/read-window';
+import { InvariantViolation } from '../../domain/errors';
+import { numberLine, READ_LIMITS } from '../../domain/read-window';
 import type { AgentRequest, AgentStepRequest } from '../../ports/agent-port';
-import { createMessageTooLargeError, SEARCH_OUTPUT_CHARS } from './context-budget';
+import { createMessageTooLargeError } from './context-budget';
 import { getCorrectionReserveChars, type ProtocolExchange } from './correction-exchange';
 import { parseAgentDecision } from './reply-parser';
+import { diagnosticsText, renderRecord } from './tool-record-text';
+import { conversationText } from './conversation-text';
 import {
   AGENT_ACTIONS,
   AgentAction,
@@ -22,8 +26,6 @@ import {
 import {
   block,
   blockHeading,
-  compact,
-  conversationBlock,
   CONVERSATION_LABEL,
   LINE_BREAK,
   lines,
@@ -34,13 +36,10 @@ import {
 } from './prompt-blocks';
 
 const OPEN_FILE_SHARE = 2;
+const HISTORY_SHARE = 4;
 
 const FILES_LABEL = 'Project files:';
-const SMALL_BLOCK_LABELS: readonly string[] = [FILES_LABEL, CONVERSATION_LABEL, SELECTION_LABEL];
-const NO_PROBLEMS = '(no problems)';
-const NO_MATCHES = '(no matches)';
-const EMPTY_FILE = '(empty file)';
-const MORE_MATCHES = '(more matches or text omitted; search for something more specific)';
+const SMALL_BLOCK_LABELS: readonly string[] = [FILES_LABEL, SELECTION_LABEL];
 const REJECTED = 'rejected';
 const COMPILE_RESULT_LABEL = 'Compile result after the applied change';
 
@@ -183,6 +182,7 @@ interface PromptBlock {
 }
 
 interface RenderedBlocks {
+  readonly history: readonly string[];
   readonly open: string;
   readonly results: readonly string[];
 }
@@ -194,17 +194,14 @@ function buildPrompt(request: AgentStepRequest, budget: number): string {
   if (SMALL_BLOCK_LABELS.some((label) => smallBlock < minBlockChars(label))) {
     throw createMessageTooLargeError();
   }
-  const before = [
-    requested,
-    ...conversationBlock(request.conversation, smallBlock),
-    block(FILES_LABEL, fileList(workspace.files, workspace.openFile.path), smallBlock),
-  ];
+  const files = block(FILES_LABEL, fileList(workspace.files, workspace.openFile.path), smallBlock);
   const after = [
     ...(workspace.selection === ''
       ? []
       : [block(SELECTION_LABEL, workspace.selection, smallBlock)]),
     `${LINE_BREAK}${toolsLeft(transcript)}`,
   ];
+  const history = historyBlock(request.conversation);
   const open = {
     label: `Numbered lines of ${workspace.openFile.path} (open in the editor, caret on line ${String(workspace.cursorLine)}):`,
     text: numberLines(workspace.openFile.document),
@@ -213,17 +210,44 @@ function buildPrompt(request: AgentStepRequest, budget: number): string {
     ...attachedBlocks(request.request),
     ...transcript.map((turn, index) => turnBlock(index + 1, turn)),
   ];
-  const separators = (results.length + 2) * LINE_BREAK.length;
-  const available = budget - lines(...before, ...after).length - separators;
-  const rendered = renderBlocks(available, open, results);
-  return lines(...before, rendered.open, ...rendered.results, ...after);
+  const separators = (history.length + results.length + 2) * LINE_BREAK.length;
+  const available = budget - lines(requested, files, ...after).length - separators;
+  const rendered = renderBlocks(available, history, open, results);
+  return lines(requested, ...rendered.history, files, rendered.open, ...rendered.results, ...after);
+}
+
+function historyBlock(conversation: readonly ConversationMessage[]): PromptBlock[] {
+  if (!conversation.length) return [];
+  return [{ label: CONVERSATION_LABEL, text: conversationText(conversation) }];
 }
 
 function renderBlocks(
   available: number,
+  history: readonly PromptBlock[],
   open: PromptBlock,
   results: readonly PromptBlock[],
 ): RenderedBlocks {
+  const others = fullSize(open) + sum(results.map(fullSize));
+  const historyShares = history.map((past) =>
+    Math.max(
+      floorSize(past),
+      Math.min(fullSize(past), Math.max(available - others, Math.floor(available / HISTORY_SHARE))),
+    ),
+  );
+  const current = renderCurrentBlocks(available - sum(historyShares), open, results);
+  return {
+    history: history.map((past, index) =>
+      block(past.label, past.text, itemOf(historyShares, index)),
+    ),
+    ...current,
+  };
+}
+
+function renderCurrentBlocks(
+  available: number,
+  open: PromptBlock,
+  results: readonly PromptBlock[],
+): Omit<RenderedBlocks, 'history'> {
   const resultFloors = sum(results.map(floorSize));
   if (available < floorSize(open) + resultFloors) throw createMessageTooLargeError();
   const preferred = Math.max(
@@ -244,6 +268,12 @@ function renderBlocks(
     rendered.unshift(block(result.label, result.text, share));
   }
   return { open: block(open.label, open.text, openShare), results: rendered };
+}
+
+function itemOf(values: readonly number[], index: number): number {
+  const value = values[index];
+  if (value === undefined) throw new InvariantViolation(`no share for block ${String(index)}`);
+  return value;
 }
 
 function fullSize(promptBlock: PromptBlock): number {
@@ -280,18 +310,6 @@ function numberLines(document: DocumentSnapshot): string {
   return document.lines.map((line, index) => numberLine(index + 1, line)).join(LINE_BREAK);
 }
 
-function readText(document: DocumentSnapshot, shown: LineSpan): string {
-  if (document.lines.length === 0) return EMPTY_FILE;
-  const numbered = document.lines
-    .slice(shown.first - 1, shown.last)
-    .map((line, index) => numberLine(shown.first + index, line));
-  if (isWholeDocument(shown, document)) return lines(...numbered);
-  return lines(
-    ...numbered,
-    `[Showing lines ${String(shown.first)}–${String(shown.last)} of ${String(document.lines.length)}. Read another range with ${AgentField.StartLine} and ${EditField.EndLine}, or search.]`,
-  );
-}
-
 function attachedBlocks(request: AgentRequest): PromptBlock[] {
   switch (request.kind) {
     case 'user':
@@ -306,7 +324,7 @@ function turnBlock(position: number, turn: AgentTurn): PromptBlock {
     case 'tool':
       return {
         label: `Result ${String(position)} (${describeCall(turn.call)}):`,
-        text: resultText(turn.result),
+        text: renderRecord(recordToolTurn(turn)),
       };
     case 'mistake':
       return {
@@ -332,36 +350,4 @@ function describeCall(call: ToolCall): string {
     case AgentTool.Compile:
       return call.tool;
   }
-}
-
-function resultText(result: ToolResult): string {
-  switch (result.tool) {
-    case AgentTool.ReadFile:
-      return readText(result.document, result.shown);
-    case AgentTool.Search: {
-      const found = result.matches.map(
-        (match) => `${match.path}:${String(match.lineNumber)}: ${match.lineText}`,
-      );
-      const listed = found.length ? lines(...found) : NO_MATCHES;
-      const shown = compact(listed, SEARCH_OUTPUT_CHARS);
-      if (!result.truncated && shown === listed) return listed;
-      return lines(shown, MORE_MATCHES);
-    }
-    case AgentTool.Compile:
-      return diagnosticsText(result.diagnostics);
-  }
-}
-
-function diagnosticsText(diagnostics: readonly CompileDiagnostic[]): string {
-  return diagnostics.length ? diagnostics.map(diagnosticLine).join(LINE_BREAK) : NO_PROBLEMS;
-}
-
-function diagnosticLine(diagnostic: CompileDiagnostic): string {
-  return `${diagnostic.level} ${diagnosticPlace(diagnostic)}${diagnostic.message}`;
-}
-
-function diagnosticPlace({ path, lineNumber }: CompileDiagnostic): string {
-  if (path === undefined) return '';
-  if (lineNumber === undefined) return `${path}: `;
-  return `${path}:${String(lineNumber)}: `;
 }

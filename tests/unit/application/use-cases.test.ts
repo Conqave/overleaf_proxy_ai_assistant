@@ -331,6 +331,32 @@ describe('HandleAssistantRequest', () => {
     ]);
   });
 
+  it('keeps each lookup in the conversation for the next requests', async () => {
+    agent.will(readBib(), answer('One entry.'), answer('Still one.'));
+    await send('how many entries has refs.bib?');
+    await send('and now?');
+    expect(conversation.messages().map((m) => m.role)).toEqual([
+      'user',
+      'tool',
+      'assistant',
+      'user',
+      'assistant',
+    ]);
+    expect(conversation.messages()[1]).toEqual({
+      id: 'id-2',
+      role: 'tool',
+      record: {
+        tool: 'read_file',
+        path: 'refs.bib',
+        shown: { first: 1, last: BIB.length },
+        totalLines: BIB.length,
+        lines: BIB,
+      },
+    });
+    expect(requestAt(2).conversation).toEqual(conversation.messages().slice(0, 3));
+    expect(repository.stored.get('session-1')?.messages).toEqual(conversation.messages());
+  });
+
   it('searches every text file of the project', async () => {
     agent.will(tool({ tool: 'search', query: 'KNUTH' }), answer('Cited in main.tex.'));
     await send('where is knuth cited?');
@@ -522,7 +548,7 @@ describe('HandleAssistantRequest', () => {
     agent.will(tool({ tool: 'read_file', path: 'refs.bib' }), bibEdit());
     await expect(send('add knuth84')).rejects.toThrow(DocumentConflictError);
     expect(editor.preview).toBeNull();
-    expect(conversation.messages().map((m) => m.role)).toEqual(['user']);
+    expect(conversation.messages().map((m) => m.role)).toEqual(['user', 'tool']);
   });
 
   it('drops an edit when the document changed while the agent was working', async () => {

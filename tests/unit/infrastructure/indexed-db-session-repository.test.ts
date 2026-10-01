@@ -46,6 +46,50 @@ const messages: ConversationMessage[] = [
   },
   { id: '4', role: 'system', text: 'Compiling reports errors; fix the first error.' },
   { id: '5', role: 'assistant', kind: 'explanation', text: 'It **compiles**.' },
+  {
+    id: 't1',
+    role: 'tool',
+    record: {
+      tool: 'read_file',
+      path: 'refs.bib',
+      shown: { first: 2, last: 3 },
+      totalLines: 9,
+      lines: ['  title = {A},', '}'],
+    },
+  },
+  {
+    id: 't2',
+    role: 'tool',
+    record: {
+      tool: 'search',
+      query: 'fig:a',
+      matches: [{ path: 'main.tex', lineNumber: 4, lineText: 'See \\ref{fig:a}.' }],
+      truncated: true,
+    },
+  },
+  {
+    id: 't3',
+    role: 'tool',
+    record: {
+      tool: 'compile',
+      diagnostics: [
+        { level: 'error', message: 'Undefined control sequence.', path: 'main.tex', lineNumber: 2 },
+        { level: 'warning', message: 'Overfull box.', path: 'main.tex' },
+        { level: 'typesetting', message: 'Font shape undefined.' },
+      ],
+    },
+  },
+  {
+    id: 't4',
+    role: 'tool',
+    record: {
+      tool: 'read_file',
+      path: 'e.tex',
+      shown: { first: 1, last: 0 },
+      totalLines: 0,
+      lines: [],
+    },
+  },
   ...(['proposed', 'failed', 'discarded'] as const).map((status): ConversationMessage => ({
     id: `6-${status}`,
     role: 'assistant',
@@ -101,8 +145,8 @@ describe('IndexedDbSessionRepository', () => {
     await expect(repository.load('a')).resolves.toEqual(session('a'));
     await expect(repository.list()).resolves.toEqual({
       sessions: [
-        { id: 'a', title: 'Session a', createdAt: 10, updatedAt: 20, messageCount: 8 },
-        { id: 'b', title: 'Session b', createdAt: 10, updatedAt: 30, messageCount: 8 },
+        { id: 'a', title: 'Session a', createdAt: 10, updatedAt: 20, messageCount: 12 },
+        { id: 'b', title: 'Session b', createdAt: 10, updatedAt: 30, messageCount: 12 },
       ],
       unreadableIds: [],
     });
@@ -120,7 +164,7 @@ describe('IndexedDbSessionRepository', () => {
         title: 'Session a',
         createdAt: 10,
         updatedAt: 20,
-        messageCount: 8,
+        messageCount: 12,
         messages,
       },
     ]);
@@ -165,13 +209,55 @@ describe('IndexedDbSessionRepository', () => {
     await expect(loading).rejects.toThrow(SessionNotFoundError);
   });
 
-  it.each([
+  it.each<[string, Record<string, unknown>]>([
     ['without messages', { messages: undefined }],
     ['with a message of an unknown role', { messages: [{ id: 'm', role: 'robot', text: '' }] }],
     ['with a count that does not match its messages', { messageCount: 2 }],
     ['with an empty title', { title: '' }],
     ['with a negative timestamp', { createdAt: -1 }],
     ['with a fractional timestamp', { updatedAt: 1.5 }],
+    ...(
+      [
+        ['of an unknown tool', { tool: 'list_files' }],
+        [
+          'whose read lines do not match its range',
+          {
+            tool: 'read_file',
+            path: 'a.tex',
+            shown: { first: 1, last: 3 },
+            totalLines: 9,
+            lines: ['x'],
+          },
+        ],
+        [
+          'read past the end of its file',
+          {
+            tool: 'read_file',
+            path: 'a.tex',
+            shown: { first: 9, last: 9 },
+            totalLines: 3,
+            lines: ['x'],
+          },
+        ],
+        ['of a search without its query', { tool: 'search', matches: [], truncated: false }],
+        [
+          'of a search match at line zero',
+          {
+            tool: 'search',
+            query: 'q',
+            matches: [{ path: 'a.tex', lineNumber: 0, lineText: '' }],
+            truncated: false,
+          },
+        ],
+        [
+          'of a diagnostic of an unknown level',
+          { tool: 'compile', diagnostics: [{ level: 'fatal', message: 'x' }] },
+        ],
+      ] as const
+    ).map(([name, record]): [string, Record<string, unknown>] => [
+      `with a tool record ${name}`,
+      { messages: [{ id: 't', role: 'tool', record }] },
+    ]),
   ])('lists a session %s as unreadable and does not load it', async (_name, overrides) => {
     await repository.save(session('a'));
     await storeRaw(rawRecord(overrides));

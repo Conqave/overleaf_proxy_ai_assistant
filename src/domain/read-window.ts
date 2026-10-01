@@ -61,10 +61,6 @@ export function getReadSpan(document: DocumentSnapshot, range: ReadRange | undef
   return Object.freeze({ first, last });
 }
 
-export function isWholeDocument(span: LineSpan, document: DocumentSnapshot): boolean {
-  return span.first === 1 && span.last === document.lines.length;
-}
-
 function parseLineNumber(name: string, value: unknown): number {
   if (typeof value !== 'number' || !Number.isInteger(value) || value < 1) {
     throw new InvalidToolCallError(`${name} must be a line number from 1`);

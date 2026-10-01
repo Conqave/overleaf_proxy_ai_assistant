@@ -1,6 +1,12 @@
 import type { AgentDecision, ProjectEdit } from '../domain/agent-action';
 import { hasMistakesLeft } from '../domain/agent-policy';
-import type { AgentTurn, CompileDiagnostic, ToolResult } from '../domain/agent-transcript';
+import {
+  recordToolTurn,
+  type AgentTurn,
+  type CompileDiagnostic,
+  type ToolResult,
+  type ToolTurn,
+} from '../domain/agent-transcript';
 import {
   ProposalStatus,
   type ConversationMessage,
@@ -157,7 +163,9 @@ export class HandleAssistantRequest {
         continue;
       }
       conversation.ensureCurrent(epoch);
-      transcript.push({ kind: 'tool', call: accepted.call, result });
+      const turn: ToolTurn = { kind: 'tool', call: accepted.call, result };
+      transcript.push(turn);
+      conversation.append({ id: this.deps.newId(), role: 'tool', record: recordToolTurn(turn) });
     }
   }
 
