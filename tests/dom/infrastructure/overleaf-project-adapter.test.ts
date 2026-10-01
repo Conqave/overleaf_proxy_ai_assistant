@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { NamedError, ProjectFileNotFoundError } from '../../../src/domain/errors';
+import { NamedError } from '../../../src/domain/errors';
 import { findTextFile, type TextFile } from '../../../src/domain/project-file';
 import { OverleafEditorBridge } from '../../../src/infrastructure/overleaf/overleaf-editor-bridge';
 import {
@@ -126,7 +126,7 @@ describe('OverleafProjectAdapter files', () => {
   it('classifies a deleted file, a refused download and an unreachable Overleaf', async () => {
     answer = () => Promise.resolve(new Response('', { status: 404 }));
     await expect(adapter.readFile(file('refs.bib'), cancel.signal)).rejects.toThrow(
-      ProjectFileNotFoundError,
+      ProjectTreeOutdatedError,
     );
     answer = () => Promise.resolve(new Response('', { status: 500 }));
     await expect(adapter.readFile(file('refs.bib'), cancel.signal)).rejects.toThrow(
@@ -192,7 +192,14 @@ describe('OverleafProjectAdapter.openFile', () => {
   it('reports a file deleted since the page loaded', async () => {
     ide.remove('doc-refs');
     await expect(adapter.openFile(file('refs.bib'), cancel.signal)).rejects.toThrow(
-      ProjectFileNotFoundError,
+      ProjectTreeOutdatedError,
+    );
+  });
+
+  it('rejects a file that the project tree does not list', async () => {
+    const unlisted: TextFile = { id: 'doc-unlisted', path: 'unlisted.tex', kind: 'text' };
+    await expect(adapter.openFile(unlisted, cancel.signal)).rejects.toThrow(
+      OverleafFileTreeContractError,
     );
   });
 

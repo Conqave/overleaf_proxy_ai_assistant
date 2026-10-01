@@ -1,6 +1,6 @@
 import type { CompileDiagnostic } from '../../domain/agent-transcript';
 import { createDocumentSnapshot, type DocumentSnapshot } from '../../domain/document';
-import { NamedError, ProjectFileNotFoundError } from '../../domain/errors';
+import { NamedError } from '../../domain/errors';
 import { ProjectFileKind, type ProjectFile, type TextFile } from '../../domain/project-file';
 import {
   FileOpenTimeoutError,
@@ -104,7 +104,7 @@ export class OverleafProjectAdapter implements ProjectPort {
     }
     const folderIds = readProjectTree(this.deps.store.get(StoreKey.Project)).folderIds.get(file.id);
     if (folderIds === undefined) {
-      throw new ProjectFileNotFoundError(`The project has no file ${file.path}.`);
+      throw new OverleafFileTreeContractError(`the project tree has no entry for ${file.path}`);
     }
     for (const folderId of folderIds) this.expandFolder(folderId, file);
     const { store } = this.deps;
@@ -163,7 +163,7 @@ export class OverleafProjectAdapter implements ProjectPort {
   private async download(file: TextFile, signal: AbortSignal): Promise<string> {
     const response = await this.requestDownload(file, signal);
     if (response.status === HTTP_NOT_FOUND) {
-      throw new ProjectFileNotFoundError(`${file.path} is no longer in the project.`);
+      throw this.outdatedTree(file);
     }
     if (!response.ok) {
       throw new ProjectFileReadError(
@@ -221,8 +221,14 @@ export class OverleafProjectAdapter implements ProjectPort {
     const entities = tree.querySelectorAll<HTMLElement>(ENTITY_SELECTOR);
     const entity = [...entities].find((element) => element.dataset.fileId === id);
     if (entity === undefined) {
-      throw new ProjectFileNotFoundError(`${file.path} is no longer in the project's file tree.`);
+      throw this.outdatedTree(file);
     }
     return entity;
+  }
+
+  private outdatedTree(file: TextFile): ProjectTreeOutdatedError {
+    return new ProjectTreeOutdatedError(
+      `${file.path} was moved or deleted after the page loaded; reload Overleaf to see the current files.`,
+    );
   }
 }
