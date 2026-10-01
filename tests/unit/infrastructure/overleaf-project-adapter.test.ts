@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { NamedError, ProjectFileNotFoundError } from '../../../src/domain/errors';
 import { findTextFile, type TextFile } from '../../../src/domain/project-file';
 import { OverleafEditorBridge } from '../../../src/infrastructure/overleaf/overleaf-editor-bridge';
@@ -23,8 +23,8 @@ import { EMPTY_LOG_ENTRIES, FakeOverleafIde } from '../../support/fake-overleaf'
 import { rejectOnAbort } from '../../support/fakes';
 import { TestFixtureError } from '../../support/test-errors';
 
-const TIMEOUT_MS = 50;
-const COMPILE_TIMEOUT_MS = 1_000;
+const TIMEOUT_MS = 10_000;
+const COMPILE_TIMEOUT_MS = 60_000;
 
 class RequestCancelledForTest extends NamedError {}
 
@@ -72,8 +72,20 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  vi.useRealTimers();
   ide.destroy();
 });
+
+async function expectFailureAfter(
+  waitedMs: number,
+  operation: () => Promise<unknown>,
+  error: new (...args: never[]) => Error,
+): Promise<void> {
+  vi.useFakeTimers();
+  const outcome = expect(operation()).rejects.toThrow(error);
+  await vi.advanceTimersByTimeAsync(waitedMs);
+  await outcome;
+}
 
 describe('OverleafProjectAdapter files', () => {
   it('lists the project tree and names the open file', () => {
@@ -139,7 +151,9 @@ describe('OverleafProjectAdapter files', () => {
 describe('OverleafProjectAdapter download limits', () => {
   it('gives up on a download that does not finish in time', async () => {
     answer = rejectOnAbort;
-    await expect(adapter.readFile(file('refs.bib'), cancel.signal)).rejects.toThrow(
+    await expectFailureAfter(
+      TIMEOUT_MS,
+      () => adapter.readFile(file('refs.bib'), cancel.signal),
       ProjectFileReadTimeoutError,
     );
   });
@@ -178,7 +192,9 @@ describe('OverleafProjectAdapter.openFile', () => {
 
   it('times out when Overleaf does not open the file and stops watching', async () => {
     ide.opensDocs = false;
-    await expect(adapter.openFile(file('refs.bib'), cancel.signal)).rejects.toThrow(
+    await expectFailureAfter(
+      TIMEOUT_MS,
+      () => adapter.openFile(file('refs.bib'), cancel.signal),
       FileOpenTimeoutError,
     );
     expect(ide.store.watcherCount).toBe(0);
@@ -259,7 +275,7 @@ describe('OverleafProjectAdapter.compile', () => {
   it('refuses to compile while Overleaf has not saved the latest edits', async () => {
     ide.sharedDocument.bufferedOps = true;
     ide.sharedDocument.savesEdits = false;
-    await expect(adapter.compile(cancel.signal)).rejects.toThrow(EditsNotSavedError);
+    await expectFailureAfter(TIMEOUT_MS, () => adapter.compile(cancel.signal), EditsNotSavedError);
     expect(ide.compileCount).toBe(0);
   });
 
@@ -270,21 +286,31 @@ describe('OverleafProjectAdapter.compile', () => {
 
   it('times out when Overleaf never runs the compile and stops watching', async () => {
     ide.compiles = false;
-    await expect(adapter.compile(cancel.signal)).rejects.toThrow(CompileTimeoutError);
+    await expectFailureAfter(
+      COMPILE_TIMEOUT_MS,
+      () => adapter.compile(cancel.signal),
+      CompileTimeoutError,
+    );
     expect(ide.store.watcherCount).toBe(0);
   });
 
   it('reports a compile that ends without any log long before the compile timeout', async () => {
     ide.compileOutcome = 'http-error';
-    const started = performance.now();
-    await expect(adapter.compile(cancel.signal)).rejects.toThrow(CompileWithoutResultError);
-    expect(performance.now() - started).toBeLessThan(COMPILE_TIMEOUT_MS);
+    await expectFailureAfter(
+      TIMEOUT_MS,
+      () => adapter.compile(cancel.signal),
+      CompileWithoutResultError,
+    );
     expect(ide.store.watcherCount).toBe(0);
   });
 
   it('reports a compile that ends with an empty log and no new PDF', async () => {
     ide.compileOutcome = 'no-output';
-    await expect(adapter.compile(cancel.signal)).rejects.toThrow(CompileWithoutResultError);
+    await expectFailureAfter(
+      TIMEOUT_MS,
+      () => adapter.compile(cancel.signal),
+      CompileWithoutResultError,
+    );
   });
 
   it('takes a log that Overleaf publishes together with the end of the compile', async () => {
