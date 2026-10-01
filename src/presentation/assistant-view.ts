@@ -1,3 +1,4 @@
+import type { SessionList } from '../application/conversation-session';
 import {
   AssistantMessageKind,
   ProposalStatus,
@@ -6,16 +7,26 @@ import {
   type ProposalMessage,
 } from '../domain/conversation';
 import { DocumentOperation } from '../domain/document-command';
+import type { SessionSummary } from '../domain/session';
 import css from './assistant.css?raw';
 import { InvariantViolation } from '../domain/errors';
 import { MarkdownRenderer } from './markdown-renderer';
-import { messageMeta, messageTitle, proposalStatusText, VIEW_TEXT } from './message-format';
+import {
+  messageMeta,
+  messageTitle,
+  proposalStatusText,
+  sessionDetails,
+  VIEW_TEXT,
+} from './message-format';
 
 export interface ViewEvents {
   send(text: string): Promise<void>;
   apply(changeId: string): Promise<void>;
   reject(changeId: string): Promise<void>;
   newConversation(): Promise<void>;
+  showSessions(): Promise<void>;
+  openSession(id: string): Promise<void>;
+  deleteSession(id: string): Promise<void>;
 }
 
 const ROOT_ID = 'ola-root';
@@ -24,6 +35,7 @@ const STYLE_ID = 'ola-style';
 export class AssistantView {
   private readonly root: HTMLElement;
   private readonly chat: HTMLElement;
+  private readonly sessionList: HTMLElement;
   private readonly input: HTMLTextAreaElement;
   private readonly sendButton: HTMLButtonElement;
   private readonly status: HTMLElement;
@@ -52,16 +64,36 @@ export class AssistantView {
     badge.addEventListener('click', () => this.root.classList.toggle('is-collapsed'));
 
     const head = this.el('div', 'ola-head');
-    const newButton = this.el('button', 'ola-new-chat', VIEW_TEXT.newChat);
+    const newButton = this.el('button', 'ola-head-btn ola-new-chat', VIEW_TEXT.newChat);
     newButton.type = 'button';
     newButton.title = VIEW_TEXT.newChatHint;
     newButton.addEventListener('click', () => {
       void this.events.newConversation();
     });
+    const sessionsButton = this.el(
+      'button',
+      'ola-head-btn ola-sessions-toggle',
+      VIEW_TEXT.sessions,
+    );
+    sessionsButton.type = 'button';
+    sessionsButton.title = VIEW_TEXT.sessionsHint;
+    sessionsButton.addEventListener('click', () => {
+      if (this.sessionList.classList.contains('is-open')) {
+        this.closeSessionList();
+        return;
+      }
+      void this.events.showSessions();
+    });
     this.contextUsage = this.el('span', 'ola-context');
     this.contextUsage.title = VIEW_TEXT.contextHint;
-    head.append(this.el('span', undefined, VIEW_TEXT.title), this.contextUsage, newButton);
+    head.append(
+      this.el('span', 'ola-title', VIEW_TEXT.title),
+      this.contextUsage,
+      sessionsButton,
+      newButton,
+    );
 
+    this.sessionList = this.el('div', 'ola-sessions');
     this.chat = this.el('div', 'ola-chat');
 
     this.status = this.el('div', 'ola-status is-empty');
@@ -86,7 +118,7 @@ export class AssistantView {
     const body = this.el('div', 'ola-body');
     body.append(label, this.sendButton);
     const panel = this.el('section', 'ola-panel');
-    panel.append(head, this.chat, body);
+    panel.append(head, this.sessionList, this.chat, body);
     this.root.append(panel, badge);
     document.body.appendChild(this.root);
   }
@@ -119,6 +151,26 @@ export class AssistantView {
     this.messageNodes.set(message.id, node);
   }
 
+  showSessionList({ sessions, unreadableIds, currentId }: SessionList): void {
+    this.sessionList.textContent = '';
+    this.sessionList.append(this.el('div', 'ola-sessions-title', VIEW_TEXT.sessionsTitle));
+    if (sessions.length || unreadableIds.length) {
+      const rows = this.el('ul', 'ola-session-list');
+      for (const session of sessions) rows.append(this.renderSession(session, currentId));
+      for (const id of unreadableIds) rows.append(this.renderUnreadableSession(id));
+      this.sessionList.append(rows);
+    } else {
+      this.sessionList.append(this.el('div', 'ola-sessions-empty', VIEW_TEXT.noSessions));
+    }
+    this.sessionList.classList.add('is-open');
+    this.setSessionButtonsBusy();
+  }
+
+  closeSessionList(): void {
+    this.sessionList.classList.remove('is-open');
+    this.sessionList.textContent = '';
+  }
+
   showNotice(text: string, tone: 'info' | 'error'): void {
     this.append(this.el('div', `ola-msg ${tone === 'error' ? 'ola-error' : 'ola-system'}`, text));
   }
@@ -130,6 +182,7 @@ export class AssistantView {
     for (const actions of this.actionNodes.values()) {
       for (const action of actions.querySelectorAll('button')) action.disabled = busy;
     }
+    this.setSessionButtonsBusy();
   }
 
   setStatus(text: string): void {
@@ -219,6 +272,81 @@ export class AssistantView {
         break;
     }
     return parts;
+  }
+
+  private renderSession(session: SessionSummary, currentId: string | null): HTMLElement {
+    const row = this.el('li', 'ola-session');
+    const isCurrent = session.id === currentId;
+    const summary = isCurrent ? this.el('div', 'ola-session-open') : this.openButton(session.id);
+    summary.append(
+      this.el('span', 'ola-session-title', session.title),
+      this.el('span', 'ola-session-meta', sessionDetails(session)),
+    );
+    if (isCurrent) {
+      row.classList.add('is-current');
+      summary.append(this.el('span', 'ola-session-badge', VIEW_TEXT.currentSession));
+    }
+    row.append(summary, this.renderDeleteActions(session.id));
+    return row;
+  }
+
+  private openButton(id: string): HTMLButtonElement {
+    const open = this.sessionButton('ola-session-open');
+    open.title = VIEW_TEXT.openSessionHint;
+    open.addEventListener('click', () => {
+      void this.events.openSession(id);
+    });
+    return open;
+  }
+
+  private renderUnreadableSession(id: string): HTMLElement {
+    const row = this.el('li', 'ola-session is-unreadable');
+    const summary = this.el('div', 'ola-session-open');
+    summary.append(this.el('span', 'ola-session-title', VIEW_TEXT.unreadableSession));
+    row.append(summary, this.renderDeleteActions(id));
+    return row;
+  }
+
+  private renderDeleteActions(id: string): HTMLElement {
+    const actions = this.el('div', 'ola-session-actions');
+    this.showDeleteButton(actions, id);
+    return actions;
+  }
+
+  private showDeleteButton(actions: HTMLElement, id: string): void {
+    const remove = this.sessionButton('ola-session-delete', VIEW_TEXT.deleteSession);
+    remove.title = VIEW_TEXT.deleteSessionHint;
+    remove.addEventListener('click', () => {
+      this.showDeleteConfirmation(actions, id);
+    });
+    actions.replaceChildren(remove);
+  }
+
+  private showDeleteConfirmation(actions: HTMLElement, id: string): void {
+    const confirm = this.sessionButton('ola-session-confirm-delete', VIEW_TEXT.deleteSession);
+    confirm.addEventListener('click', () => {
+      void this.events.deleteSession(id);
+    });
+    const cancel = this.sessionButton('ola-session-cancel-delete', VIEW_TEXT.cancelDeleteSession);
+    cancel.addEventListener('click', () => {
+      this.showDeleteButton(actions, id);
+    });
+    actions.replaceChildren(
+      this.el('span', 'ola-session-question', VIEW_TEXT.confirmDeleteSession),
+      confirm,
+      cancel,
+    );
+  }
+
+  private sessionButton(className: string, text?: string): HTMLButtonElement {
+    const button = this.el('button', `ola-session-btn ${className}`, text);
+    button.type = 'button';
+    button.disabled = this.busy;
+    return button;
+  }
+
+  private setSessionButtonsBusy(): void {
+    for (const button of this.sessionList.querySelectorAll('button')) button.disabled = this.busy;
   }
 
   private showWelcome(): void {

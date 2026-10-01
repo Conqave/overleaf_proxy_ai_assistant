@@ -10,6 +10,7 @@ import {
   messageMeta,
   progressStatus,
   proposalStatusText,
+  sessionDetails,
 } from '../../../src/presentation/message-format';
 
 const proposal = (input: DocumentCommandInput, path = 'chapters/a.tex'): ProposalMessage => ({
@@ -87,5 +88,20 @@ describe('progressStatus', () => {
     [{ stage: 'opening', path: 'refs.bib' } as const, 'Hans is opening refs.bib'],
   ])('describes %o', (progress, text) => {
     expect(progressStatus(progress)).toBe(text);
+  });
+});
+
+describe('sessionDetails', () => {
+  const summary = { id: 's', title: 'Add a table', createdAt: 0, messageCount: 1 };
+  const updatedAt = Date.UTC(2026, 9, 1, 12, 0);
+
+  it('shows when the session last changed and how many messages it has', () => {
+    expect(sessionDetails({ ...summary, updatedAt, messageCount: 4 })).toMatch(
+      /2026.* · 4 messages$/,
+    );
+  });
+
+  it('counts a single message in the singular', () => {
+    expect(sessionDetails({ ...summary, updatedAt })).toMatch(/ · 1 message$/);
   });
 });

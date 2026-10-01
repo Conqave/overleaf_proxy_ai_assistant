@@ -6,6 +6,7 @@ import {
   type ProposalMessage,
 } from '../domain/conversation';
 import { DocumentOperation } from '../domain/document-command';
+import type { SessionSummary } from '../domain/session';
 
 const KIND_TITLE: Record<Exclude<AssistantMessage['kind'], 'proposal'>, string> = {
   explanation: 'Explanation',
@@ -25,7 +26,18 @@ export const VIEW_TEXT = {
   badge: 'Hans',
   title: 'Hans AI Assistant',
   newChat: 'New',
-  newChatHint: 'Start a new chat',
+  newChatHint: 'Start a new session; the current one stays saved',
+  sessions: 'Sessions',
+  sessionsHint: 'Show the saved sessions of this project',
+  sessionsTitle: 'Sessions of this project',
+  noSessions: 'No saved sessions in this project yet.',
+  currentSession: 'Current',
+  openSessionHint: 'Open this session',
+  deleteSession: 'Delete',
+  deleteSessionHint: 'Delete this session from this browser',
+  confirmDeleteSession: 'Delete this session?',
+  cancelDeleteSession: 'Cancel',
+  unreadableSession: 'Unreadable session',
   inputLabel: 'Command',
   inputPlaceholder:
     'Describe what you want: explain an error, improve text, insert a table or delete a line.',
@@ -72,6 +84,16 @@ export function messageMeta(message: AssistantMessage): string | undefined {
       if (command.lineCount === 1) return `${path}, line ${first}: ${lineText}`;
       return `${path}, lines ${first}–${String(lineNumber + command.lineCount - 1)}, starting: ${lineText}`;
   }
+}
+
+const SESSION_DATE_FORMAT = new Intl.DateTimeFormat(undefined, {
+  dateStyle: 'medium',
+  timeStyle: 'short',
+});
+
+export function sessionDetails({ updatedAt, messageCount }: SessionSummary): string {
+  const count = messageCount === 1 ? '1 message' : `${String(messageCount)} messages`;
+  return `${SESSION_DATE_FORMAT.format(updatedAt)} · ${count}`;
 }
 
 export function errorNotice(message: string): string {

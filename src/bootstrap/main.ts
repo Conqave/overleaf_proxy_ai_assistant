@@ -1,6 +1,12 @@
 import { ApplyDocumentChange } from '../application/apply-document-change';
 import { ConversationLog } from '../application/conversation-log';
-import { RestoreLatestSession, StartNewConversation } from '../application/conversation-session';
+import {
+  DeleteSession,
+  ListSessions,
+  OpenSession,
+  RestoreLatestSession,
+  StartNewConversation,
+} from '../application/conversation-session';
 import { HandleAssistantRequest } from '../application/handle-assistant-request';
 import { OperationLock } from '../application/operation-lock';
 import { PendingChanges } from '../application/pending-change';
@@ -84,8 +90,11 @@ function compose(
     }),
     lock,
     rejectChange: new RejectDocumentChange({ editor, pendingChanges, lock }),
-    restoreSession: new RestoreLatestSession({ sessions, conversation, lock }),
+    restoreSession: new RestoreLatestSession(sessionDeps),
     startNewConversation: new StartNewConversation(sessionDeps),
+    listSessions: new ListSessions(sessionDeps),
+    openSession: new OpenSession(sessionDeps),
+    deleteSession: new DeleteSession(sessionDeps),
     conversation,
   });
 

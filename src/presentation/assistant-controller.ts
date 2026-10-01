@@ -1,6 +1,9 @@
 import type { ApplyDocumentChange } from '../application/apply-document-change';
 import type { ConversationLog } from '../application/conversation-log';
 import type {
+  DeleteSession,
+  ListSessions,
+  OpenSession,
   RestoreLatestSession,
   StartNewConversation,
 } from '../application/conversation-session';
@@ -28,7 +31,10 @@ export interface UseCases {
   rejectChange: RejectDocumentChange;
   restoreSession: RestoreLatestSession;
   startNewConversation: StartNewConversation;
-  conversation: Pick<ConversationLog, 'messages' | 'takePersistenceFailure'>;
+  listSessions: ListSessions;
+  openSession: OpenSession;
+  deleteSession: DeleteSession;
+  conversation: Pick<ConversationLog, 'epoch' | 'messages' | 'takePersistenceFailure'>;
 }
 
 export class AssistantController implements ViewEvents {
@@ -38,7 +44,6 @@ export class AssistantController implements ViewEvents {
 
   attach(view: AssistantView): Promise<void> {
     this.view = view;
-    this.showUnusedContext(view);
     this.useCases.lock.onChange((busy) => {
       view.setBusy(busy);
     });
@@ -46,7 +51,7 @@ export class AssistantController implements ViewEvents {
       try {
         await this.useCases.restoreSession.execute();
       } finally {
-        view.showConversation(this.useCases.conversation.messages());
+        this.showConversation(view);
       }
     });
   }
@@ -98,10 +103,50 @@ export class AssistantController implements ViewEvents {
     const view = this.requireView();
     return this.guard(() => {
       this.useCases.startNewConversation.execute();
-      view.showConversation([]);
-      this.showUnusedContext(view);
+      view.closeSessionList();
+      this.showConversation(view);
       view.clearInput();
     });
+  }
+
+  showSessions(): Promise<void> {
+    const view = this.requireView();
+    return this.guard(async () => {
+      view.showSessionList(await this.useCases.listSessions.execute());
+    });
+  }
+
+  openSession(id: string): Promise<void> {
+    const view = this.requireView();
+    return this.guard(async () => {
+      await this.replacingConversation(view, () => this.useCases.openSession.execute(id));
+      view.closeSessionList();
+    });
+  }
+
+  deleteSession(id: string): Promise<void> {
+    const view = this.requireView();
+    return this.guard(async () => {
+      await this.replacingConversation(view, () => this.useCases.deleteSession.execute(id));
+      view.showSessionList(await this.useCases.listSessions.execute());
+    });
+  }
+
+  private async replacingConversation(
+    view: AssistantView,
+    replace: () => Promise<void>,
+  ): Promise<void> {
+    const epoch = this.useCases.conversation.epoch;
+    try {
+      await replace();
+    } finally {
+      if (this.useCases.conversation.epoch !== epoch) this.showConversation(view);
+    }
+  }
+
+  private showConversation(view: AssistantView): void {
+    view.showConversation(this.useCases.conversation.messages());
+    this.showUnusedContext(view);
   }
 
   private showUnusedContext(view: AssistantView): void {

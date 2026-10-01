@@ -3,6 +3,9 @@ import { describe, expect, it, vi } from 'vitest';
 import { ApplyDocumentChange } from '../../../src/application/apply-document-change';
 import { ConversationLog } from '../../../src/application/conversation-log';
 import {
+  DeleteSession,
+  ListSessions,
+  OpenSession,
   RestoreLatestSession,
   StartNewConversation,
 } from '../../../src/application/conversation-session';
@@ -14,6 +17,7 @@ import { ReviewAppliedChange } from '../../../src/application/review-applied-cha
 import type { CompileDiagnostic } from '../../../src/domain/agent-transcript';
 import { createDocumentCommand } from '../../../src/domain/document-command';
 import { InvariantViolation } from '../../../src/domain/errors';
+import type { ConversationSession } from '../../../src/domain/session';
 import { FileOpenTimeoutError } from '../../../src/ports/errors';
 import { AssistantController } from '../../../src/presentation/assistant-controller';
 import { AssistantView } from '../../../src/presentation/assistant-view';
@@ -24,13 +28,14 @@ import {
   InMemorySessionRepository,
   PendingStep,
   sequentialIds,
+  storedSession,
   ticking,
 } from '../../support/fakes';
 import { TestFixtureError } from '../../support/test-errors';
 
 const BIB = ['@article{smith20}', '}'];
 
-async function openAssistant() {
+async function openAssistant(...stored: ConversationSession[]) {
   const { window } = new JSDOM('<!doctype html><html><head></head><body></body></html>');
   const editor = new FakeEditor([]);
   const project = new FakeProject(
@@ -54,7 +59,7 @@ async function openAssistant() {
       },
     },
   );
-  const sessions = new InMemorySessionRepository();
+  const sessions = new InMemorySessionRepository(...stored);
   const conversation = new ConversationLog({
     sessions,
     newId: sequentialIds('session'),
@@ -73,6 +78,7 @@ async function openAssistant() {
     createController: () => new AbortController(),
   });
   const review = new ReviewAppliedChange({ project, conversation, handleRequest });
+  const sessionDeps = { sessions, conversation, pendingChanges, editor, lock };
   const controller = new AssistantController({
     handleRequest,
     lock,
@@ -85,20 +91,39 @@ async function openAssistant() {
       review,
     }),
     rejectChange: new RejectDocumentChange({ editor, pendingChanges, lock }),
-    restoreSession: new RestoreLatestSession({ sessions, conversation, lock }),
-    startNewConversation: new StartNewConversation({
-      sessions,
-      conversation,
-      pendingChanges,
-      editor,
-      lock,
-    }),
+    restoreSession: new RestoreLatestSession(sessionDeps),
+    startNewConversation: new StartNewConversation(sessionDeps),
+    listSessions: new ListSessions(sessionDeps),
+    openSession: new OpenSession(sessionDeps),
+    deleteSession: new DeleteSession(sessionDeps),
     conversation,
   });
   await controller.attach(new AssistantView(window.document, controller));
   const texts = (selector: string) =>
     Array.from(window.document.querySelectorAll(selector)).map((n) => n.textContent);
-  return { window, controller, conversation, editor, project, agent, texts };
+  const click = (selector: string) => {
+    const button = window.document.querySelector(selector);
+    if (!(button instanceof window.HTMLButtonElement)) {
+      throw new TestFixtureError(`the view shows no ${selector} button`);
+    }
+    button.click();
+  };
+  const buttons = (selector: string) =>
+    Array.from(window.document.querySelectorAll(selector)).filter(
+      (node) => node instanceof window.HTMLButtonElement,
+    );
+  return {
+    window,
+    controller,
+    conversation,
+    sessions,
+    editor,
+    project,
+    agent,
+    texts,
+    click,
+    buttons,
+  };
 }
 
 async function proposeBibEdit() {
@@ -250,5 +275,112 @@ describe('AssistantView while an operation runs', () => {
     expect(texts('.ola-error')).toEqual([]);
     expect(texts('.ola-user')).toEqual(['add the knuth84 entry']);
     expect(window.document.querySelector('#ola-root')?.classList.contains('is-busy')).toBe(false);
+  });
+});
+
+describe('AssistantController sessions', () => {
+  const older = storedSession('older', [{ id: 'o', role: 'user', text: 'Explain the intro.' }], 1);
+  const latest = storedSession(
+    'latest',
+    [
+      { id: 'l', role: 'user', text: 'Fix the table.' },
+      { id: 'a', role: 'assistant', kind: 'explanation', text: 'Fixed.' },
+    ],
+    2,
+  );
+
+  it('lists the sessions of the project newest first and marks the current one', async () => {
+    const { controller, texts, buttons } = await openAssistant(older, latest);
+    await controller.showSessions();
+    expect(texts('.ola-session-title')).toEqual(['Session latest', 'Session older']);
+    expect(texts('.ola-session.is-current .ola-session-title')).toEqual(['Session latest']);
+    expect(texts('.ola-session-meta')).toEqual([
+      expect.stringMatching(/ · 2 messages$/),
+      expect.stringMatching(/ · 1 message$/),
+    ]);
+    expect(buttons('.ola-session-open')).toHaveLength(1);
+  });
+
+  it('says when the project has no saved sessions', async () => {
+    const { controller, texts } = await openAssistant();
+    await controller.showSessions();
+    expect(texts('.ola-sessions-empty')).toEqual(['No saved sessions in this project yet.']);
+  });
+
+  it('opens a session, shows its conversation and closes the list', async () => {
+    const { controller, texts, click, window } = await openAssistant(older, latest);
+    expect(texts('.ola-user')).toEqual(['Fix the table.']);
+    await controller.showSessions();
+    click('button.ola-session-open');
+    await vi.waitFor(() => {
+      expect(texts('.ola-user')).toEqual(['Explain the intro.']);
+    });
+    expect(window.document.querySelector('.ola-sessions.is-open')).toBeNull();
+    expect(texts('.ola-context')).toEqual(['Context 0 / 98.3k']);
+  });
+
+  it('deletes a session only after confirmation and refreshes the list', async () => {
+    const { controller, sessions, texts, click } = await openAssistant(older, latest);
+    await controller.showSessions();
+    click('.ola-session:not(.is-current) .ola-session-delete');
+    expect(texts('.ola-session-question')).toEqual(['Delete this session?']);
+    click('.ola-session-cancel-delete');
+    expect(texts('.ola-session-question')).toEqual([]);
+    click('.ola-session:not(.is-current) .ola-session-delete');
+    click('.ola-session-confirm-delete');
+    await vi.waitFor(() => {
+      expect(texts('.ola-session-title')).toEqual(['Session latest']);
+    });
+    expect(sessions.stored.has('older')).toBe(false);
+    expect(texts('.ola-user')).toEqual(['Fix the table.']);
+  });
+
+  it('shows a new chat after deleting the current session', async () => {
+    const { controller, texts, click } = await openAssistant(older, latest);
+    await controller.showSessions();
+    click('.ola-session.is-current .ola-session-delete');
+    click('.ola-session-confirm-delete');
+    await vi.waitFor(() => {
+      expect(texts('.ola-session-title')).toEqual(['Session older']);
+    });
+    expect(texts('.ola-msg')).toEqual([expect.stringContaining('Ready to help')]);
+    expect(texts('.ola-session.is-current')).toEqual([]);
+  });
+
+  it('lists unreadable sessions so they can be deleted', async () => {
+    const { controller, sessions, texts, click } = await openAssistant(latest);
+    sessions.unreadableIds = ['broken'];
+    await controller.showSessions();
+    expect(texts('.ola-session.is-unreadable .ola-session-title')).toEqual(['Unreadable session']);
+    click('.ola-session.is-unreadable .ola-session-delete');
+    click('.ola-session-confirm-delete');
+    await vi.waitFor(() => {
+      expect(texts('.ola-session.is-unreadable')).toEqual([]);
+    });
+  });
+
+  it('disables the session actions while an operation runs', async () => {
+    const { controller, project, changeId, buttons } = await proposeBibEdit();
+    await controller.showSessions();
+    const compiled = Promise.withResolvers<readonly CompileDiagnostic[]>();
+    project.willCompile(new PendingStep(() => compiled.promise));
+    const applying = controller.apply(changeId);
+    expect(buttons('.ola-session-btn').every((button) => button.disabled)).toBe(true);
+    compiled.resolve([]);
+    await applying;
+    expect(buttons('.ola-session-btn').some((button) => button.disabled)).toBe(false);
+  });
+
+  it('reports a refused switch while an operation runs', async () => {
+    const { controller, project, changeId, texts } = await proposeBibEdit();
+    const compiled = Promise.withResolvers<readonly CompileDiagnostic[]>();
+    project.willCompile(new PendingStep(() => compiled.promise));
+    const applying = controller.apply(changeId);
+    await controller.openSession('session-1');
+    expect(texts('.ola-error')).toEqual([
+      'Error: The assistant is still working on the previous request.',
+    ]);
+    compiled.resolve([]);
+    await applying;
   });
 });

@@ -18,7 +18,7 @@ import {
   type FakeOverleafIde,
 } from '../support/fake-overleaf';
 import { itemAt } from '../support/guards';
-import { readStoredSessions } from '../support/session-store';
+import { readStoredSessions, storeRawSession } from '../support/session-store';
 import { TestFixtureError } from '../support/test-errors';
 
 const BUNDLE = readFileSync(
@@ -106,6 +106,12 @@ function session(browser: Browser, ide: FakeOverleafIde, sessions: IDBFactory) {
       expect(isIdle()).toBe(true);
     }, PAGE_WAIT);
   };
+  const showSessions = async () => {
+    button(doc, '.ola-sessions-toggle').click();
+    await vi.waitFor(() => {
+      element(doc, '.ola-sessions.is-open .ola-sessions-title');
+    }, PAGE_WAIT);
+  };
   const editorText = () => ide.editor.state.doc.toString();
   const preview = () => texts('.ola-preview-added');
   return {
@@ -116,6 +122,7 @@ function session(browser: Browser, ide: FakeOverleafIde, sessions: IDBFactory) {
     ollama: browser.ollama,
     send,
     click,
+    showSessions,
     texts,
     messages,
     editorText,
@@ -166,6 +173,13 @@ async function start({
   const ide = browser.loadOverleaf();
   await waitForAssistant(browser);
   return session(browser, ide, sessions);
+}
+
+function signIn(userId: string, projectId: string): (browser: Browser) => void {
+  return (browser) => {
+    element(browser.document, 'meta[name="ol-user_id"]').setAttribute('content', userId);
+    element(browser.document, 'meta[name="ol-project_id"]').setAttribute('content', projectId);
+  };
 }
 
 function denyStorage(browser: Browser): void {
@@ -369,6 +383,120 @@ describe('assistant conversation', () => {
     browser.window.dispatchEvent(inspect);
     expect(inspect.defaultPrevented).toBe(false);
     expect(messages()).toHaveLength(2);
+  });
+});
+
+describe('assistant sessions', () => {
+  const FIRST = 'What is this document about?';
+  const SECOND = 'Make the word experiment bold.';
+  const firstAnswer = reply('ACTION: answer', 'TEXT:', 'It describes an experiment.');
+
+  async function twoSessions(sessions = new IDBFactory()) {
+    const assistant = await start({ replies: [firstAnswer, boldExperimentEdit], sessions });
+    await assistant.send(FIRST);
+    await assistant.click('.ola-new-chat', () => {
+      expect(assistant.messages()).toEqual([expect.stringContaining('Ready to help')]);
+    });
+    await assistant.send(SECOND);
+    return assistant;
+  }
+
+  it('lists the sessions of the project newest first and switches between them', async () => {
+    const { doc, showSessions, click, texts, messages, preview } = await twoSessions();
+    expect(preview()).toEqual([BOLD_EXPERIMENT]);
+    await showSessions();
+    expect(texts('.ola-session-title')).toEqual([SECOND, FIRST]);
+    expect(texts('.ola-session.is-current .ola-session-title')).toEqual([SECOND]);
+    expect(texts('.ola-session-meta')).toEqual([
+      expect.stringMatching(/ · 2 messages$/),
+      expect.stringMatching(/ · 2 messages$/),
+    ]);
+    await click('button.ola-session-open', () => {
+      expect(messages()).toEqual([FIRST, expect.stringContaining('It describes an experiment.')]);
+    });
+    expect(doc.querySelector('.ola-sessions.is-open')).toBeNull();
+    expect(preview()).toEqual([]);
+    await showSessions();
+    expect(texts('.ola-session.is-current .ola-session-title')).toEqual([FIRST]);
+    await click('button.ola-session-open', () => {
+      expect(texts('.ola-user')).toEqual([SECOND]);
+    });
+    expect(texts('.ola-ai.is-discarded .ola-result-status')).toEqual(['Discarded']);
+    expect(texts('.ola-apply')).toEqual([]);
+  });
+
+  it('keeps the sessions over a reload and deletes one after confirmation', async () => {
+    const { sessions } = await twoSessions();
+    const reloaded = await start({ sessions });
+    expect(reloaded.texts('.ola-user')).toEqual([SECOND]);
+    await reloaded.showSessions();
+    expect(reloaded.texts('.ola-session-title')).toEqual([SECOND, FIRST]);
+    button(reloaded.doc, '.ola-session:not(.is-current) .ola-session-delete').click();
+    expect(reloaded.texts('.ola-session-question')).toEqual(['Delete this session?']);
+    await reloaded.click('.ola-session-confirm-delete', () => {
+      expect(reloaded.texts('.ola-session-title')).toEqual([SECOND]);
+    });
+    expect(reloaded.texts('.ola-user')).toEqual([SECOND]);
+    expect(await readStoredSessions(sessions)).toEqual([
+      expect.objectContaining({ title: SECOND }),
+    ]);
+  });
+
+  it('starts a new chat when the current session is deleted', async () => {
+    const { doc, showSessions, click, texts, messages, preview } = await twoSessions();
+    await showSessions();
+    button(element(doc, '.ola-session.is-current'), '.ola-session-delete').click();
+    await click('.ola-session-confirm-delete', () => {
+      expect(texts('.ola-session-title')).toEqual([FIRST]);
+    });
+    expect(messages()).toEqual([expect.stringContaining('Ready to help')]);
+    expect(preview()).toEqual([]);
+  });
+
+  it('never shows the sessions of another project or user', async () => {
+    const { sessions } = await twoSessions();
+    const otherProject = await start({ sessions, prepare: signIn('user-1', 'project-2') });
+    expect(otherProject.messages()).toEqual([expect.stringContaining('Ready to help')]);
+    await otherProject.showSessions();
+    expect(otherProject.texts('.ola-sessions-empty')).toEqual([
+      'No saved sessions in this project yet.',
+    ]);
+    const otherUser = await start({ sessions, prepare: signIn('user-2', 'project-1') });
+    await otherUser.showSessions();
+    expect(otherUser.texts('.ola-session')).toEqual([]);
+    const owner = await start({ sessions });
+    await owner.showSessions();
+    expect(owner.texts('.ola-session-title')).toEqual([SECOND, FIRST]);
+  });
+
+  it('lists an unreadable session and deletes it', async () => {
+    const { doc, sessions, showSessions, click, texts } = await twoSessions();
+    await storeRawSession(sessions, { userId: 'user-1', projectId: 'project-1', id: 'broken' });
+    await showSessions();
+    expect(texts('.ola-session.is-unreadable .ola-session-title')).toEqual(['Unreadable session']);
+    button(doc, '.ola-session.is-unreadable .ola-session-delete').click();
+    await click('.ola-session-confirm-delete', () => {
+      expect(texts('.ola-session.is-unreadable')).toEqual([]);
+    });
+    expect(texts('.ola-session-title')).toEqual([SECOND, FIRST]);
+  });
+
+  it('locks the session actions while a request runs', async () => {
+    const { doc, ollama, showSessions, click, texts, messages } = await twoSessions();
+    ollama.reply({ hang: true });
+    await showSessions();
+    commandInput(doc).value = 'And the conclusion?';
+    button(doc, '.ola-send').click();
+    await vi.waitFor(() => {
+      expect(ollama.prompts).toHaveLength(3);
+    }, PAGE_WAIT);
+    const actions = Array.from(doc.querySelectorAll<HTMLButtonElement>('.ola-session-btn'));
+    expect(actions.length).toBeGreaterThan(0);
+    expect(actions.every((action) => action.disabled)).toBe(true);
+    await click('.ola-new-chat', () => {
+      expect(messages()).toEqual([expect.stringContaining('Ready to help')]);
+    });
+    expect(texts('.ola-error')).toEqual([]);
   });
 });
 
