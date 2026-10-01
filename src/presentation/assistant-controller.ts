@@ -11,6 +11,7 @@ import {
   appliedNotice,
   COMPILED,
   errorNotice,
+  FIX_REQUEST,
   INTERNAL_ERROR,
   progressStatus,
   REJECTED,
@@ -72,7 +73,7 @@ export class AssistantController implements ViewEvents {
       try {
         const change = await this.useCases.applyChange.execute(changeId, onProgress);
         view.showNotice(appliedNotice(change), 'info');
-        const outcome = await this.useCases.reviewChange.execute(onProgress);
+        const outcome = await this.useCases.reviewChange.execute(FIX_REQUEST, onProgress);
         switch (outcome.kind) {
           case 'compiled':
             view.showNotice(COMPILED, 'info');

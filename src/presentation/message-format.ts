@@ -35,6 +35,7 @@ export const VIEW_TEXT = {
 export const GREETING = 'Tell me what to change, explain, or fix in this Overleaf document.';
 export const REJECTED = 'Change rejected.';
 export const COMPILED = 'Compiled without errors.';
+export const FIX_REQUEST = 'Compilation after the change reports errors; propose a fix.';
 export const INTERNAL_ERROR = 'Unexpected internal error. Details are in the browser console.';
 
 export function messageTitle(message: AssistantMessage): string {

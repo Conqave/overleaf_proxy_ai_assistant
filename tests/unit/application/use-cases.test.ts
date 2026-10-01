@@ -12,7 +12,7 @@ import {
 import { HandleAssistantRequest } from '../../../src/application/handle-assistant-request';
 import { PendingChanges, PendingDocumentChange } from '../../../src/application/pending-change';
 import { RejectDocumentChange } from '../../../src/application/reject-document-change';
-import { FIX_REQUEST, ReviewAppliedChange } from '../../../src/application/review-applied-change';
+import { ReviewAppliedChange } from '../../../src/application/review-applied-change';
 import type { AgentDecision, ToolCall } from '../../../src/domain/agent-action';
 import { AGENT_POLICY } from '../../../src/domain/agent-policy';
 import { createDocumentSnapshot } from '../../../src/domain/document';
@@ -472,7 +472,7 @@ describe('preview / apply / reject', () => {
 describe('ReviewAppliedChange', () => {
   it('reports a clean compilation without asking the agent', async () => {
     project.willCompile([{ level: 'warning', message: 'Overfull \\hbox.' }]);
-    await expect(review.execute(record)).resolves.toEqual({ kind: 'compiled' });
+    await expect(review.execute('fix the build', record)).resolves.toEqual({ kind: 'compiled' });
     expect(agent.requests).toHaveLength(0);
     expect(progress).toEqual([{ stage: 'compiling' }]);
   });
@@ -483,10 +483,10 @@ describe('ReviewAppliedChange', () => {
     ];
     project.willCompile(diagnostics);
     agent.will(mainEdit());
-    const outcome = await review.execute(record);
+    const outcome = await review.execute('fix the build', record);
     expect(outcome).toMatchObject({ kind: 'fix', result: { message: { kind: 'proposal' } } });
     expect(agent.requests[0]).toMatchObject({
-      message: FIX_REQUEST,
+      message: 'fix the build',
       transcript: [{ call: { tool: 'compile' }, result: { tool: 'compile', diagnostics } }],
     });
     expect(project.compileCalls).toBe(1);
@@ -497,7 +497,7 @@ describe('ReviewAppliedChange', () => {
       new StartNewConversation({ conversation, pendingChanges, editor }).execute();
       return Promise.resolve([{ level: 'error' as const, message: 'x' }]);
     };
-    await expect(review.execute(record)).rejects.toThrow(RequestSupersededError);
+    await expect(review.execute('fix the build', record)).rejects.toThrow(RequestSupersededError);
     expect(agent.requests).toHaveLength(0);
   });
 });
