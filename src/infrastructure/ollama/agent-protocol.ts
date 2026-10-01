@@ -7,14 +7,14 @@ import { ProjectFileKind, type ProjectFile } from '../../domain/project-file';
 import type { AgentStepRequest } from '../../ports/agent-port';
 import { AGENT_ACTIONS, AgentAction, AgentField, TEXT_MARKER } from './agent-reply-format';
 import { parseAgentDecision } from './agent-response-parser';
-import type { ProtocolExchange } from './correction-exchange';
+import { createTooLargeError, PROMPT_BUDGET_CHARS } from './context-budget';
+import { CORRECTION_RESERVE_CHARS, type ProtocolExchange } from './correction-exchange';
 import { CONTENT, CONTENT_MARKER, EditField, fieldLine } from './edit-reply-format';
 import {
   block,
   blockHeading,
   conversationBlock,
   CONVERSATION_LABEL,
-  createTooLargeError,
   LINE_BREAK,
   lines,
   minBlockChars,
@@ -147,6 +147,8 @@ const AGENT_SYSTEM = lines(
   fieldLine(F.LineText, '\\subsection{Wyniki pomocnicze}'),
   fieldLine(F.Reason, 'Usuwam podsekcję z wynikami pomocniczymi.'),
 );
+
+export const AGENT_PROMPT_BUDGET = PROMPT_BUDGET_CHARS - CORRECTION_RESERVE_CHARS;
 
 const RETRY = `Reply again with exactly one action: the first line ${fieldLine(AgentField.Action, AGENT_ACTIONS.join('|'))}, then only the lines that action takes. No JSON.`;
 

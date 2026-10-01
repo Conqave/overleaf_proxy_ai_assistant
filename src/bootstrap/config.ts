@@ -1,14 +1,11 @@
-import { MIN_CONTEXT_TOKENS } from '../infrastructure/ollama/prompt-blocks';
-
 export interface AssistantConfig {
   readonly ollamaEndpoint: string;
   readonly model: string;
   readonly requestTimeoutMs: number;
-  readonly contextTokens: number;
 }
 
 const CONFIG_URL = '/overleaf-ai-assistant/config.json';
-const CONFIG_KEYS = ['ollamaEndpoint', 'model', 'requestTimeoutMs', 'contextTokens'];
+const CONFIG_KEYS = ['ollamaEndpoint', 'model', 'requestTimeoutMs'];
 
 export class ConfigurationError extends Error {
   constructor(message: string, options?: { cause?: unknown }) {
@@ -29,15 +26,10 @@ export function parseConfig(data: unknown): AssistantConfig {
   if (!/^\/(?!\/)/.test(ollamaEndpoint)) {
     throw new ConfigurationError('"ollamaEndpoint" must be a same-origin path');
   }
-  const contextTokens = getPositiveInteger(fields, 'contextTokens');
-  if (contextTokens < MIN_CONTEXT_TOKENS) {
-    throw new ConfigurationError(`"contextTokens" must be at least ${String(MIN_CONTEXT_TOKENS)}`);
-  }
   return Object.freeze({
     ollamaEndpoint,
     model: getText(fields, 'model'),
     requestTimeoutMs: getPositiveInteger(fields, 'requestTimeoutMs'),
-    contextTokens,
   });
 }
 

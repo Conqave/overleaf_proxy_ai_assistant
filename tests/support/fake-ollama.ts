@@ -1,4 +1,3 @@
-import { MIN_CONTEXT_TOKENS } from '../../src/infrastructure/ollama/prompt-blocks';
 import { UnexpectedFakeCallError } from './test-errors';
 
 interface OllamaRequestBody {
@@ -56,7 +55,6 @@ export class FakeOllama {
     ollamaEndpoint: '/ollama/main/api/generate',
     model: 'test-model',
     requestTimeoutMs: 200,
-    contextTokens: MIN_CONTEXT_TOKENS,
   };
 
   readonly fetch: typeof fetch = async (url, init) => {

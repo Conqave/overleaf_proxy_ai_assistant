@@ -1,11 +1,13 @@
 import type { ContextUsage } from '../../ports/agent-port';
 import { AssistantProtocolError } from '../../ports/errors';
 import { InvalidAssistantResponse } from './edit-reply-parser';
-import { compact, estimatePromptTokens, LINE_BREAK, lines } from './prompt-blocks';
+import { CONTEXT_TOKENS } from './context-budget';
+import { compact, LINE_BREAK, lines } from './prompt-blocks';
 import { HarmonyFormatError } from './harmony-format';
 import type { Completion, GenerateRequest, OllamaClient } from './ollama-client';
 
 const REJECTED_REPLY_CHARS = 3_000;
+export const CORRECTION_RESERVE_CHARS = 4_096;
 
 export interface ProtocolExchange<T> {
   readonly request: GenerateRequest;
@@ -51,7 +53,7 @@ async function attempt<T>(
   try {
     return {
       kind: 'accepted',
-      outcome: outcome(client, request, parse(completion.text), completion.promptTokens),
+      outcome: outcome(parse(completion.text), completion.promptTokens),
     };
   } catch (error) {
     if (!(error instanceof InvalidAssistantResponse)) throw error;
@@ -71,20 +73,8 @@ async function generate(
   }
 }
 
-function outcome<T>(
-  client: OllamaClient,
-  request: GenerateRequest,
-  value: T,
-  promptTokens: number,
-): ExchangeOutcome<T> {
-  return {
-    value,
-    contextUsage: {
-      contextTokens: client.contextTokens,
-      estimatedPromptTokens: estimatePromptTokens(request),
-      promptTokens,
-    },
-  };
+function outcome<T>(value: T, promptTokens: number): ExchangeOutcome<T> {
+  return { value, contextUsage: { contextTokens: CONTEXT_TOKENS, promptTokens } };
 }
 
 export function createCorrectionRequest(

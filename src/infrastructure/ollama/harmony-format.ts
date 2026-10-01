@@ -18,6 +18,11 @@ const SYSTEM_HEADER = [
   '# Valid channels: analysis, commentary, final. Channel must be included for every message.',
 ].join('\n');
 
+export const HARMONY_FRAMING_CHARS = renderFinalContinuation(
+  renderHarmonyPrompt({ system: '', prompt: '' }),
+  '',
+).length;
+
 export class HarmonyFormatError extends Error {
   constructor(
     readonly problem: string,

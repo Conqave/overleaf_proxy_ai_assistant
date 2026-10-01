@@ -170,7 +170,6 @@ describe('HandleAssistantRequest', () => {
     const result = await send('does it compile?');
     expect(result.contextUsage).toEqual({
       contextTokens: FAKE_CONTEXT_TOKENS,
-      estimatedPromptTokens: 2_100,
       promptTokens: 2_000,
     });
   });

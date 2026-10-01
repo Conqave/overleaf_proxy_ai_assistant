@@ -5,15 +5,9 @@ import {
 } from '../../domain/conversation';
 import { DocumentOperation, type DocumentCommand } from '../../domain/document-command';
 import { InvariantViolation } from '../../domain/errors';
-import { AssistantRequestTooLargeError } from '../../ports/errors';
-import { MAX_COMPLETION_TOKENS, type GenerateRequest } from './ollama-client';
 
-export const MIN_CONTEXT_TOKENS = 16_384;
-const REPLY_RESERVE_TOKENS = 2 * MAX_COMPLETION_TOKENS;
-const CHARS_PER_TOKEN = 3;
 const CONVERSATION_WINDOW = 12;
 export const SMALL_BLOCK_SHARE = 8;
-const CORRECTION_RESERVE_CHARS = 4_096;
 const MIN_KEPT_CHARS = 32;
 
 export const LINE_BREAK = '\n';
@@ -24,14 +18,6 @@ const MIN_COMPACT_CHARS = COMPACT_MARKER_CHARS + 2 * MIN_KEPT_CHARS;
 const USER_MESSAGE_LABEL = 'User message:';
 export const CONVERSATION_LABEL = 'Conversation so far:';
 export const SELECTION_LABEL = 'Selected text:';
-
-export function getPromptBudget(contextTokens: number): number {
-  return (contextTokens - REPLY_RESERVE_TOKENS) * CHARS_PER_TOKEN - CORRECTION_RESERVE_CHARS;
-}
-
-export function estimatePromptTokens(request: GenerateRequest): number {
-  return Math.ceil((request.system.length + request.prompt.length) / CHARS_PER_TOKEN);
-}
 
 export function userMessage(message: string): string {
   return `${USER_MESSAGE_LABEL}${LINE_BREAK}${message}`;
@@ -100,12 +86,6 @@ export function compact(text: string, maxChars: number): string {
 
 function compactMarker(omitted: number): string {
   return `${COMPACT_GAP}[AUTOCOMPACTED: omitted ${String(omitted)} chars]${COMPACT_GAP}`;
-}
-
-export function createTooLargeError(): AssistantRequestTooLargeError {
-  return new AssistantRequestTooLargeError(
-    "The message is too long for the model's context window; shorten it and try again.",
-  );
 }
 
 export function lines(...parts: readonly string[]): string {

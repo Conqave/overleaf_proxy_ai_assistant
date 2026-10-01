@@ -5,14 +5,10 @@ import { createDocumentSnapshot } from '../../../src/domain/document';
 import { ProjectFileKind } from '../../../src/domain/project-file';
 import { createAgentExchange } from '../../../src/infrastructure/ollama/agent-protocol';
 import { createCorrectionRequest } from '../../../src/infrastructure/ollama/correction-exchange';
-import {
-  getPromptBudget,
-  MIN_CONTEXT_TOKENS,
-} from '../../../src/infrastructure/ollama/prompt-blocks';
 import type { AgentStepRequest } from '../../../src/ports/agent-port';
 import { AssistantRequestTooLargeError } from '../../../src/ports/errors';
 
-const budget = getPromptBudget(MIN_CONTEXT_TOKENS);
+const budget = 20_480;
 const main = createDocumentSnapshot(['\\section{A}', 'Body.']);
 const bib = createDocumentSnapshot(['@book{a,', '}']);
 

@@ -14,7 +14,6 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { parseConfig } from '../../src/bootstrap/config';
-import { MIN_CONTEXT_TOKENS } from '../../src/infrastructure/ollama/prompt-blocks';
 import { TestFixtureError } from '../support/test-errors';
 
 const ROOT = path.resolve(import.meta.dirname, '../..');
@@ -44,7 +43,6 @@ const VALID_ENV = {
   OLLAMA_UPSTREAM: '127.0.0.1:11434',
   OLLAMA_MODEL: 'gpt-oss:20b',
   OLLAMA_REQUEST_TIMEOUT_MS: '900000',
-  OLLAMA_CONTEXT_TOKENS: '98304',
 };
 
 function validate(env: Record<string, string>) {
@@ -74,12 +72,6 @@ function render(vars: Record<string, string>): string {
 }
 
 describe('deployment configuration', () => {
-  it('refuses the same minimum context window as the bundle', () => {
-    expect(readFileSync(ENVSH, 'utf8')).toContain(
-      `ASSISTANT_MIN_CONTEXT_TOKENS=${String(MIN_CONTEXT_TOKENS)}`,
-    );
-  });
-
   it('accepts the example configuration', () => {
     const example = Object.fromEntries(
       readFileSync(path.join(ROOT, '.env.example'), 'utf8')
@@ -113,18 +105,7 @@ describe('deployment configuration', () => {
       { ...VALID_ENV, OLLAMA_REQUEST_TIMEOUT_MS: '' },
       'OLLAMA_REQUEST_TIMEOUT_MS is required',
     ],
-    [
-      'missing context window',
-      { ...VALID_ENV, OLLAMA_CONTEXT_TOKENS: '' },
-      'OLLAMA_CONTEXT_TOKENS is required',
-    ],
     ['non-numeric timeout', { ...VALID_ENV, OLLAMA_REQUEST_TIMEOUT_MS: '15m' }, 'positive integer'],
-    ['too small context window', { ...VALID_ENV, OLLAMA_CONTEXT_TOKENS: '8000' }, 'at least'],
-    [
-      'non-numeric context window',
-      { ...VALID_ENV, OLLAMA_CONTEXT_TOKENS: '128k' },
-      'positive integer',
-    ],
   ])('fails start-up on %s', (_name, env, message) => {
     const { status, stderr } = validate(env);
     expect(status).not.toBe(0);
@@ -137,7 +118,6 @@ describe('deployment configuration', () => {
       ollamaEndpoint: '/ollama/main/api/generate',
       model: 'gpt-oss:20b',
       requestTimeoutMs: 900000,
-      contextTokens: 98304,
     });
   });
 

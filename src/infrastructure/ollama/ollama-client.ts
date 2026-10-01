@@ -10,11 +10,11 @@ import {
   renderFinalContinuation,
   renderHarmonyPrompt,
 } from './harmony-format';
+import { CONTEXT_TOKENS, MAX_COMPLETION_TOKENS } from './context-budget';
 
 export interface OllamaClientConfig {
   readonly endpoint: string;
   readonly model: string;
-  readonly contextTokens: number;
   readonly timeoutMs: number;
 }
 
@@ -30,17 +30,11 @@ export interface Completion {
 
 const TEMPERATURE = 0.2;
 
-export const MAX_COMPLETION_TOKENS = 4_096;
-
 export class OllamaClient {
   constructor(
     private readonly config: OllamaClientConfig,
     private readonly fetchFn: typeof fetch,
   ) {}
-
-  get contextTokens(): number {
-    return this.config.contextTokens;
-  }
 
   async generate(request: GenerateRequest): Promise<Completion> {
     const prompt = renderHarmonyPrompt(request);
@@ -88,7 +82,7 @@ export class OllamaClient {
 
   private getOptions(): { num_ctx: number; num_predict: number; temperature: number } {
     return {
-      num_ctx: this.config.contextTokens,
+      num_ctx: CONTEXT_TOKENS,
       num_predict: MAX_COMPLETION_TOKENS,
       temperature: TEMPERATURE,
     };

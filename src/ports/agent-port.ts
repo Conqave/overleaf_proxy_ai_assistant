@@ -19,7 +19,6 @@ export interface AgentStepRequest {
 
 export interface ContextUsage {
   readonly contextTokens: number;
-  readonly estimatedPromptTokens: number;
   readonly promptTokens: number;
 }
 

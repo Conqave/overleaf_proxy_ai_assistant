@@ -3,14 +3,10 @@ import { createDocumentSnapshot } from '../../../src/domain/document';
 import { createDocumentCommand } from '../../../src/domain/document-command';
 import { ProjectFileKind } from '../../../src/domain/project-file';
 import { createAgentExchange } from '../../../src/infrastructure/ollama/agent-protocol';
-import {
-  getPromptBudget,
-  MIN_CONTEXT_TOKENS,
-} from '../../../src/infrastructure/ollama/prompt-blocks';
 import type { AgentStepRequest } from '../../../src/ports/agent-port';
 import { TestFixtureError } from '../../support/test-errors';
 
-const budget = getPromptBudget(MIN_CONTEXT_TOKENS);
+const budget = 20_480;
 const conversation = Array.from({ length: 15 }, (_, i) => ({
   id: String(i),
   role: 'user' as const,

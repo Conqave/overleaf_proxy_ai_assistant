@@ -78,7 +78,6 @@ export function agentStep(decision: AgentDecision, promptTokens = 1_000): AgentS
     decision,
     contextUsage: {
       contextTokens: FAKE_CONTEXT_TOKENS,
-      estimatedPromptTokens: promptTokens + 100,
       promptTokens,
     },
   };

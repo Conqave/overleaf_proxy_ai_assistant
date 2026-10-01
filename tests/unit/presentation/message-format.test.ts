@@ -64,7 +64,6 @@ describe('contextUsageText', () => {
     expect(
       contextUsageText({
         contextTokens: 98_304,
-        estimatedPromptTokens: 12_500,
         promptTokens: 12_345,
       }),
     ).toBe('Context 12.3k / 98.3k');

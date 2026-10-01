@@ -386,7 +386,6 @@ function createContractAgent(): OllamaAgent {
     {
       endpoint: requireEnv('OLLAMA_CONTRACT_URL'),
       model: requireEnv('OLLAMA_CONTRACT_MODEL'),
-      contextTokens: Number(requireEnv('OLLAMA_CONTRACT_CONTEXT_TOKENS')),
       timeoutMs: REQUEST_TIMEOUT_MS,
     },
     (input, init) => fetch(input, init),

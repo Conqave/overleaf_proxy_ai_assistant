@@ -26,15 +26,10 @@ echo "$OLLAMA_MODEL" | grep -Eq '^[A-Za-z0-9._:/-]+$' \
     || assistant_config_fail "OLLAMA_MODEL contains unsupported characters: '$OLLAMA_MODEL'"
 
 assistant_positive_int OLLAMA_REQUEST_TIMEOUT_MS "milliseconds the assistant waits for Ollama"
-assistant_positive_int OLLAMA_CONTEXT_TOKENS "context window of the model in tokens"
-ASSISTANT_MIN_CONTEXT_TOKENS=16384
-[ "$OLLAMA_CONTEXT_TOKENS" -ge "$ASSISTANT_MIN_CONTEXT_TOKENS" ] \
-    || assistant_config_fail "OLLAMA_CONTEXT_TOKENS must be at least $ASSISTANT_MIN_CONTEXT_TOKENS"
 
 OLLAMA_PROXY_TIMEOUT_S=$((OLLAMA_REQUEST_TIMEOUT_MS / 1000 + 30))
 ASSISTANT_OLLAMA_PATH=/ollama/main/api/generate
 
 export OVERLEAF_UPSTREAM OLLAMA_UPSTREAM OLLAMA_MODEL OLLAMA_REQUEST_TIMEOUT_MS \
-    OLLAMA_CONTEXT_TOKENS OLLAMA_PROXY_TIMEOUT_S \
-    ASSISTANT_OLLAMA_PATH
+    OLLAMA_PROXY_TIMEOUT_S ASSISTANT_OLLAMA_PATH
 unset assistant_value

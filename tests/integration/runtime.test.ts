@@ -140,7 +140,7 @@ const smithEntryEdit = editReply(
 );
 
 function contextText(call: OllamaCall): string {
-  return `Context ${(call.harmonyPrompt.length / 1000).toFixed(1)}k / 16.4k`;
+  return `Context ${(call.harmonyPrompt.length / 1000).toFixed(1)}k / 98.3k`;
 }
 
 function undefinedCommandLog(ide: FakeOverleafIde): () => unknown {

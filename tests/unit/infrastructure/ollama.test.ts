@@ -2,10 +2,8 @@ import { describe, expect, it, vi } from 'vitest';
 import { HarmonyFormatError } from '../../../src/infrastructure/ollama/harmony-format';
 import { OllamaAgent } from '../../../src/infrastructure/ollama/ollama-agent';
 import { OllamaClient } from '../../../src/infrastructure/ollama/ollama-client';
-import {
-  getPromptBudget,
-  MIN_CONTEXT_TOKENS,
-} from '../../../src/infrastructure/ollama/prompt-blocks';
+import { AGENT_PROMPT_BUDGET } from '../../../src/infrastructure/ollama/agent-protocol';
+import { CONTEXT_TOKENS } from '../../../src/infrastructure/ollama/context-budget';
 import { preloadOllamaModel } from '../../../src/infrastructure/ollama/ollama-preload';
 import {
   AssistantHttpError,
@@ -23,7 +21,6 @@ import type { AgentStepRequest } from '../../../src/ports/agent-port';
 const config = {
   endpoint: '/ollama/main/api/generate',
   model: 'm',
-  contextTokens: MIN_CONTEXT_TOKENS,
   timeoutMs: 50,
 };
 const make = (ollama: FakeOllama) => ({ client: new OllamaClient(config, ollama.fetch) });
@@ -48,7 +45,7 @@ describe('OllamaClient', () => {
       raw: true,
       system: 'S',
       prompt: 'P',
-      options: { num_ctx: MIN_CONTEXT_TOKENS, num_predict: 4_096, temperature: 0.2 },
+      options: { num_ctx: CONTEXT_TOKENS, num_predict: 4_096, temperature: 0.2 },
     });
   });
 
@@ -250,15 +247,12 @@ describe('OllamaAgent', () => {
     expect(ollama.promptCalls).toHaveLength(1);
   });
 
-  it('reports the context window, the estimated and the counted size of its prompt', async () => {
+  it('reports the context window and the counted size of its prompt', async () => {
     const ollama = new FakeOllama().reply({ response: 'ACTION: compile' });
     const { contextUsage } = await agent(ollama).decide(step);
-    const [call] = ollama.promptCalls;
-    const sent = call!.body.system!.length + call!.body.prompt.length;
     expect(contextUsage).toEqual({
-      contextTokens: MIN_CONTEXT_TOKENS,
-      estimatedPromptTokens: Math.ceil(sent / 3),
-      promptTokens: call!.harmonyPrompt.length,
+      contextTokens: CONTEXT_TOKENS,
+      promptTokens: ollama.promptCalls[0]!.harmonyPrompt.length,
     });
   });
 
@@ -300,19 +294,11 @@ describe('OllamaAgent', () => {
     expect(ollama.promptCalls).toHaveLength(1);
   });
 
-  it('sizes its prompts to the context window of its client', async () => {
-    const long = { ...step, message: 'm'.repeat(getPromptBudget(MIN_CONTEXT_TOKENS)) };
-    await expect(agent(new FakeOllama()).decide(long)).rejects.toThrow(
-      AssistantRequestTooLargeError,
-    );
-    const ollama = new FakeOllama().reply({ response: 'ACTION: compile' });
-    const wide = new OllamaClient(
-      { ...config, contextTokens: 2 * MIN_CONTEXT_TOKENS },
-      ollama.fetch,
-    );
-    await expect(new OllamaAgent(wide).decide(long)).resolves.toMatchObject({
-      decision: { kind: 'tool', call: { tool: 'compile' } },
-    });
+  it('refuses a message too long for the context window without calling the model', async () => {
+    const long = { ...step, message: 'm'.repeat(AGENT_PROMPT_BUDGET) };
+    const ollama = new FakeOllama();
+    await expect(agent(ollama).decide(long)).rejects.toThrow(AssistantRequestTooLargeError);
+    expect(ollama.promptCalls).toHaveLength(0);
   });
 
   it('sends a mistyped edit target back to the model with the real line text', async () => {

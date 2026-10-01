@@ -40,7 +40,6 @@ function compose(
     {
       endpoint: config.ollamaEndpoint,
       model: config.model,
-      contextTokens: config.contextTokens,
       timeoutMs: config.requestTimeoutMs,
     },
     window.fetch.bind(window),
