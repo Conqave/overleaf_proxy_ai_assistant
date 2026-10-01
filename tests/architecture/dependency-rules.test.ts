@@ -98,12 +98,15 @@ describe('dependency rules', () => {
     expect(violations).toEqual([]);
   });
 
-  it('src has no third-party runtime imports', () => {
+  it('src imports third-party code at runtime only in the Markdown renderer', () => {
     expect(
       edges
         .filter((edge) => edge.layer === null && !edge.typeOnly)
         .map((e) => `${e.from} -> ${e.target}`),
-    ).toEqual([]);
+    ).toEqual([
+      `presentation${path.sep}markdown-renderer.ts -> dompurify`,
+      `presentation${path.sep}markdown-renderer.ts -> marked`,
+    ]);
   });
 
   it('only the Overleaf adapter knows CodeMirror, and only its types', () => {
