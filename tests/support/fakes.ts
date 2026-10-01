@@ -71,10 +71,16 @@ export class FakeEditor implements EditorPort {
 
 type Step<T> = T | Error;
 
-export function agentStep(decision: AgentDecision): AgentStep {
+export const FAKE_CONTEXT_TOKENS = 98_304;
+
+export function agentStep(decision: AgentDecision, promptTokens = 1_000): AgentStep {
   return {
     decision,
-    contextUsage: { contextTokens: 98304, estimatedPromptTokens: 1200, promptTokens: 1150 },
+    contextUsage: {
+      contextTokens: FAKE_CONTEXT_TOKENS,
+      estimatedPromptTokens: promptTokens + 100,
+      promptTokens,
+    },
   };
 }
 
@@ -88,7 +94,7 @@ export class FakeAgent implements AgentPort {
   }
   async decide(request: AgentStepRequest): Promise<AgentStep> {
     this.requests.push(request);
-    return agentStep(await next(this.decisions, 'decide'));
+    return agentStep(await next(this.decisions, 'decide'), 1_000 * this.requests.length);
   }
 }
 

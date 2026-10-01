@@ -36,6 +36,7 @@ import {
 } from '../../../src/ports/errors';
 import {
   agentStep,
+  FAKE_CONTEXT_TOKENS,
   FakeAgent,
   FakeEditor,
   FakeProject,
@@ -137,6 +138,7 @@ describe('HandleAssistantRequest', () => {
   it('answers greetings locally', async () => {
     const result = await send('Cześć!');
     expect(result.message).toMatchObject({ kind: 'greeting' });
+    expect(result).not.toHaveProperty('contextUsage');
     expect(agent.requests).toHaveLength(0);
     expect(repository.stored.map((m) => m.role)).toEqual(['user', 'assistant']);
   });
@@ -160,6 +162,17 @@ describe('HandleAssistantRequest', () => {
       transcript: [],
     });
     expect(progress.map((p) => p.stage)).toEqual(['received', 'thinking']);
+  });
+
+  it('reports the context usage of the decision that ended the request', async () => {
+    agent.will(tool({ tool: 'compile' }), answer('It compiles.'));
+    project.willCompile([]);
+    const result = await send('does it compile?');
+    expect(result.contextUsage).toEqual({
+      contextTokens: FAKE_CONTEXT_TOKENS,
+      estimatedPromptTokens: 2_100,
+      promptTokens: 2_000,
+    });
   });
 
   it('passes the conversation to the agent', async () => {

@@ -1,7 +1,10 @@
 import type { ApplyDocumentChange } from '../application/apply-document-change';
 import type { ConversationLog } from '../application/conversation-log';
 import type { StartNewConversation } from '../application/conversation-session';
-import type { HandleAssistantRequest } from '../application/handle-assistant-request';
+import type {
+  AssistantRequestResult,
+  HandleAssistantRequest,
+} from '../application/handle-assistant-request';
 import type { AgentProgress } from '../application/agent-progress';
 import type { RejectDocumentChange } from '../application/reject-document-change';
 import type { ReviewAppliedChange } from '../application/review-applied-change';
@@ -10,6 +13,7 @@ import type { AssistantView, ViewEvents } from './assistant-view';
 import {
   appliedNotice,
   COMPILED,
+  contextUsageText,
   errorNotice,
   FIX_REQUEST,
   INTERNAL_ERROR,
@@ -51,7 +55,7 @@ export class AssistantController implements ViewEvents {
           }
           this.showProgress(view, progress);
         });
-        view.appendMessage(result.message, result.changeId);
+        this.showResult(view, result);
       } finally {
         if (accepted) {
           view.setBusy(false);
@@ -79,7 +83,7 @@ export class AssistantController implements ViewEvents {
             view.showNotice(COMPILED, 'info');
             break;
           case 'fix':
-            view.appendMessage(outcome.result.message, outcome.result.changeId);
+            this.showResult(view, outcome.result);
         }
       } finally {
         view.setBusy(false);
@@ -103,8 +107,16 @@ export class AssistantController implements ViewEvents {
     return this.guard(() => {
       this.useCases.startNewConversation.execute();
       view.showConversation([]);
+      view.setContextUsage('');
       view.clearInput();
     });
+  }
+
+  private showResult(view: AssistantView, result: AssistantRequestResult): void {
+    view.appendMessage(result.message, result.changeId);
+    if (result.contextUsage !== undefined) {
+      view.setContextUsage(contextUsageText(result.contextUsage));
+    }
   }
 
   private showProgress(view: AssistantView, progress: AgentProgress): void {

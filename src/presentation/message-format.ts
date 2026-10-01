@@ -1,4 +1,5 @@
 import type { AgentProgress } from '../application/agent-progress';
+import type { AssistantRequestResult } from '../application/handle-assistant-request';
 import type { ProjectEdit } from '../domain/agent-action';
 import type { AssistantMessage } from '../domain/conversation';
 import { DocumentOperation } from '../domain/document-command';
@@ -16,6 +17,10 @@ const PROPOSAL_TITLE: Record<DocumentOperation, string> = {
   [DocumentOperation.Delete]: 'Proposed deletion',
 };
 
+type ContextUsage = NonNullable<AssistantRequestResult['contextUsage']>;
+
+const TOKENS_PER_THOUSAND = 1_000;
+
 export const VIEW_TEXT = {
   badge: 'Hans',
   title: 'Hans AI Assistant',
@@ -27,6 +32,7 @@ export const VIEW_TEXT = {
   send: 'Send',
   apply: 'Apply',
   reject: 'Reject',
+  contextHint: 'Tokens of the last prompt sent to the model / context window of the model',
   welcomeTitle: 'Ready to help with this document',
   welcomeCopy:
     'Ask for an explanation, a cleaner paragraph, or a precise LaTeX edit. I will show a suggestion before changing anything.',
@@ -79,6 +85,14 @@ export function appliedNotice({ path, edit }: ProjectEdit): string {
         ? `Done. Line deleted in ${path}.`
         : `Done. ${String(command.lineCount)} lines deleted in ${path}.`;
   }
+}
+
+export function contextUsageText({ promptTokens, contextTokens }: ContextUsage): string {
+  return `Context ${thousands(promptTokens)} / ${thousands(contextTokens)}`;
+}
+
+function thousands(tokens: number): string {
+  return `${(tokens / TOKENS_PER_THOUSAND).toFixed(1)}k`;
 }
 
 export function progressStatus(progress: AgentProgress): string {

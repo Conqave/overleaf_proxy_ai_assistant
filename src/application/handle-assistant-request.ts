@@ -15,7 +15,7 @@ import type {
 } from '../domain/conversation';
 import { findTextFile, ProjectFileKind } from '../domain/project-file';
 import { searchProject } from '../domain/project-search';
-import type { AgentPort, AgentWorkspace } from '../ports/agent-port';
+import type { AgentPort, AgentWorkspace, ContextUsage } from '../ports/agent-port';
 import type { EditorPort } from '../ports/editor-port';
 import type { ProjectPort } from '../ports/project-port';
 import type { AgentProgress } from './agent-progress';
@@ -28,6 +28,7 @@ import { showProjectFile } from './show-project-file';
 export interface AssistantRequestResult {
   readonly message: AssistantMessage;
   readonly changeId?: string;
+  readonly contextUsage?: ContextUsage;
 }
 
 export class HandleAssistantRequest {
@@ -82,14 +83,16 @@ export class HandleAssistantRequest {
     const transcript: AgentTurn[] = [...initialTranscript];
     for (let step = 1; ; step += 1) {
       onProgress({ stage: 'thinking', step });
-      const { decision } = await agent.decide({
+      const { decision, contextUsage } = await agent.decide({
         message: request,
         conversation: history,
         workspace,
         transcript: [...transcript],
       });
       this.ensureCurrent(epoch);
-      if (decision.kind === 'reply') return this.answer(decision.reply, epoch, onProgress);
+      if (decision.kind === 'reply') {
+        return { ...(await this.answer(decision.reply, epoch, onProgress)), contextUsage };
+      }
       checkToolCall(transcript, decision.call);
       const result = await this.callTool(decision.call, workspace, onProgress);
       this.ensureCurrent(epoch);

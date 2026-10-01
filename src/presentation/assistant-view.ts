@@ -24,6 +24,7 @@ export class AssistantView {
   private readonly input: HTMLTextAreaElement;
   private readonly sendButton: HTMLButtonElement;
   private readonly status: HTMLElement;
+  private readonly contextUsage: HTMLElement;
   private readonly messageNodes = new Map<string, HTMLElement>();
   private readonly actionNodes = new Map<string, HTMLElement>();
 
@@ -51,7 +52,9 @@ export class AssistantView {
     newButton.addEventListener('click', () => {
       void this.events.newConversation();
     });
-    head.append(this.el('span', undefined, VIEW_TEXT.title), newButton);
+    this.contextUsage = this.el('span', 'ola-context');
+    this.contextUsage.title = VIEW_TEXT.contextHint;
+    head.append(this.el('span', undefined, VIEW_TEXT.title), this.contextUsage, newButton);
 
     this.chat = this.el('div', 'ola-chat');
 
@@ -129,6 +132,10 @@ export class AssistantView {
   setStatus(text: string): void {
     this.status.textContent = text;
     this.status.classList.toggle('is-empty', !text);
+  }
+
+  setContextUsage(text: string): void {
+    this.contextUsage.textContent = text;
   }
 
   clearInput(): void {

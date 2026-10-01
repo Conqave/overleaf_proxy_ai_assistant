@@ -79,6 +79,23 @@ async function proposeBibEdit() {
   return { controller, editor, project, agent, documents, changeId: proposal.id, texts };
 }
 
+describe('AssistantController context usage', () => {
+  it('shows the context usage of the last request and clears it for a new chat', async () => {
+    const { controller, texts } = await proposeBibEdit();
+    expect(texts('.ola-context')).toEqual(['Context 2.0k / 98.3k']);
+    await controller.newConversation();
+    expect(texts('.ola-context')).toEqual(['']);
+  });
+
+  it('shows the context usage of the fix proposed after a failed compilation', async () => {
+    const { controller, project, agent, changeId, texts } = await proposeBibEdit();
+    project.willCompile([{ level: 'error', message: 'Missing } inserted.' }]);
+    agent.will({ kind: 'reply', reply: { kind: 'answer', text: 'Add a closing brace.' } });
+    await controller.apply(changeId);
+    expect(texts('.ola-context')).toEqual(['Context 3.0k / 98.3k']);
+  });
+});
+
 describe('AssistantController apply', () => {
   it('reports the applied file and a clean compilation', async () => {
     const { controller, project, changeId, texts } = await proposeBibEdit();

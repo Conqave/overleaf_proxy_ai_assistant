@@ -8,6 +8,7 @@ import {
 import { ResolvedEdit } from '../../../src/domain/resolved-edit';
 import {
   appliedNotice,
+  contextUsageText,
   messageMeta,
   progressStatus,
 } from '../../../src/presentation/message-format';
@@ -55,6 +56,18 @@ describe('appliedNotice', () => {
     expect(appliedNotice({ path: 'main.tex', edit: deleted })).toBe(
       'Done. 4 lines deleted in main.tex.',
     );
+  });
+});
+
+describe('contextUsageText', () => {
+  it('shows the prompt and the context window in thousands of tokens', () => {
+    expect(
+      contextUsageText({
+        contextTokens: 98_304,
+        estimatedPromptTokens: 12_500,
+        promptTokens: 12_345,
+      }),
+    ).toBe('Context 12.3k / 98.3k');
   });
 });
 
