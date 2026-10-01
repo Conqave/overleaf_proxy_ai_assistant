@@ -8,6 +8,7 @@ import {
 import { DocumentOperation } from '../domain/document-command';
 import css from './assistant.css?raw';
 import { InvariantViolation } from '../domain/errors';
+import { MarkdownRenderer } from './markdown-renderer';
 import { messageMeta, messageTitle, proposalStatusText, VIEW_TEXT } from './message-format';
 
 export interface ViewEvents {
@@ -27,6 +28,7 @@ export class AssistantView {
   private readonly sendButton: HTMLButtonElement;
   private readonly status: HTMLElement;
   private readonly contextUsage: HTMLElement;
+  private readonly markdown: MarkdownRenderer;
   private readonly messageNodes = new Map<string, HTMLElement>();
   private busy = false;
   private readonly actionNodes = new Map<string, HTMLElement>();
@@ -39,6 +41,7 @@ export class AssistantView {
     private readonly document: Document,
     private readonly events: ViewEvents,
   ) {
+    this.markdown = new MarkdownRenderer(document);
     this.injectStyles();
     this.root = this.el('div');
     this.root.id = ROOT_ID;
@@ -169,7 +172,7 @@ export class AssistantView {
         break;
       case AssistantMessageKind.Explanation:
       case AssistantMessageKind.Clarification:
-        node.append(this.el('div', 'ola-result-body', message.text));
+        node.append(this.renderMarkdown(message.text));
     }
     const meta = messageMeta(message);
     if (meta !== undefined) node.append(this.el('div', 'ola-result-meta', meta));
@@ -189,6 +192,12 @@ export class AssistantView {
       node.append(actions);
       this.actionNodes.set(changeId, actions);
     }
+    return node;
+  }
+
+  private renderMarkdown(text: string): HTMLElement {
+    const node = this.el('div', 'ola-result-body ola-markdown');
+    node.append(this.markdown.render(text));
     return node;
   }
 

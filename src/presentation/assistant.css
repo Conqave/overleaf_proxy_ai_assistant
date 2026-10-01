@@ -154,6 +154,7 @@
 }
 #ola-root .ola-chat {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   align-content: start;
   align-items: start;
   gap: 8px;
@@ -220,6 +221,106 @@
   word-break: break-word;
   font: inherit;
   font-size: 13px;
+}
+#ola-root .ola-markdown {
+  white-space: normal;
+}
+#ola-root .ola-markdown > :first-child {
+  margin-top: 0;
+}
+#ola-root .ola-markdown > :last-child {
+  margin-bottom: 0;
+}
+#ola-root .ola-markdown :is(p, ul, ol, pre, blockquote, table) {
+  margin: 0 0 8px;
+}
+#ola-root .ola-markdown :is(h1, h2, h3, h4, h5, h6) {
+  margin: 12px 0 6px;
+  color: #fff;
+  font-family: inherit;
+  font-weight: 800;
+  line-height: 1.3;
+}
+#ola-root .ola-markdown h1 {
+  font-size: 16px;
+}
+#ola-root .ola-markdown h2 {
+  font-size: 15px;
+}
+#ola-root .ola-markdown h3 {
+  font-size: 14px;
+}
+#ola-root .ola-markdown :is(h4, h5, h6) {
+  font-size: 13px;
+}
+#ola-root .ola-markdown :is(ul, ol) {
+  padding-left: 20px;
+}
+#ola-root .ola-markdown li + li {
+  margin-top: 3px;
+}
+#ola-root .ola-markdown :is(code, pre) {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace;
+  font-size: 12px;
+}
+#ola-root .ola-markdown code {
+  padding: 1px 4px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.1);
+  color: #f8e3a1;
+}
+#ola-root .ola-markdown pre {
+  padding: 8px 10px;
+  overflow-x: auto;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 6px;
+  background: #1b2733;
+  white-space: pre;
+  word-break: normal;
+  overflow-wrap: normal;
+  line-height: 1.4;
+}
+#ola-root .ola-markdown pre code {
+  padding: 0;
+  background: none;
+  color: rgba(255, 255, 255, 0.92);
+}
+#ola-root .ola-markdown blockquote {
+  padding: 2px 0 2px 10px;
+  border-left: 3px solid rgba(255, 255, 255, 0.24);
+  color: rgba(255, 255, 255, 0.76);
+}
+#ola-root .ola-markdown a {
+  color: #7fc8f8;
+  text-decoration: underline;
+}
+#ola-root .ola-markdown hr {
+  margin: 10px 0;
+  border: 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.16);
+}
+#ola-root .ola-markdown table {
+  display: block;
+  max-width: 100%;
+  overflow-x: auto;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+#ola-root .ola-markdown :is(th, td) {
+  padding: 4px 8px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  text-align: left;
+  word-break: normal;
+}
+#ola-root .ola-markdown th {
+  background: rgba(255, 255, 255, 0.08);
+  font-weight: 700;
+}
+#ola-root .ola-markdown :is(th, td)[align='center'] {
+  text-align: center;
+}
+#ola-root .ola-markdown :is(th, td)[align='right'] {
+  text-align: right;
 }
 #ola-root .ola-result-status {
   display: inline-block;

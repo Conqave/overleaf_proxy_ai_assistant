@@ -380,6 +380,59 @@ describe('assistant agent', () => {
     );
   });
 
+  it('shows answers and questions as Markdown and keeps the user text plain', async () => {
+    const { doc, send, texts } = await start({
+      replies: [
+        reply(
+          'ACTION: answer',
+          'TEXT:',
+          '## Steps',
+          '- add `\\label{fig:a}`',
+          '- see [docs](https://www.overleaf.com/learn)',
+          '',
+          '```latex',
+          '\\begin{figure}',
+          '\\end{figure}',
+          '```',
+          '<img src=x onerror="alert(1)">',
+        ),
+        reply('ACTION: question', 'QUESTION: Which **figure** do you mean?'),
+      ],
+    });
+    await send('How do I add a **figure**?');
+    const answer = element(doc, '.ola-ai .ola-markdown');
+    expect(element(answer, 'h2').textContent).toBe('Steps');
+    expect(texts('.ola-markdown li code')).toEqual(['\\label{fig:a}']);
+    expect(element(answer, 'pre code').textContent).toBe('\\begin{figure}\n\\end{figure}\n');
+    expect(element(answer, 'a').getAttribute('rel')).toBe('noopener noreferrer');
+    expect(answer.querySelector('img')).toBe(null);
+    expect(answer.textContent).toContain('<img src=x onerror="alert(1)">');
+    expect(texts('.ola-user')).toEqual(['How do I add a **figure**?']);
+    await send('Add one.');
+    expect(texts('.ola-markdown strong')).toEqual(['figure']);
+  });
+
+  it('shows the content of a proposal as plain text', async () => {
+    const { send, texts, doc } = await start({
+      replies: [
+        editReply(
+          {
+            PATH: 'main.tex',
+            OPERATION: 'replace',
+            LINE: '4',
+            LINE_TEXT: EXPERIMENT_LINE,
+            REASON: 'Make **it** bold.',
+          },
+          '**This** report.',
+        ),
+      ],
+    });
+    await send('Make it bold.');
+    expect(texts('.ola-result-reason')).toEqual(['Make **it** bold.']);
+    expect(texts('.ola-result-body')).toEqual(['**This** report.']);
+    expect(doc.querySelector('.ola-ai .ola-markdown, .ola-ai strong')).toBe(null);
+  });
+
   it('reads another file, opens it and previews an edit of it', async () => {
     const { send, texts, ollama, ide, editorText, preview } = await start({
       replies: [reply('ACTION: read_file', 'PATH: refs.bib'), smithEntryEdit],

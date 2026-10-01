@@ -21,6 +21,7 @@ const ROOT = path.resolve(import.meta.dirname, '../..');
 const ENVSH = path.join(ROOT, 'deploy/10-assistant-config.envsh');
 const TEMPLATE = path.join(ROOT, 'deploy/nginx.conf.template');
 const DOCKERFILE = path.join(ROOT, 'Dockerfile');
+const BUNDLE = path.join(ROOT, 'dist/overleaf-ai-assistant.js');
 const POLL_ATTEMPTS = 50;
 const POLL_INTERVAL_MS = 50;
 const NGINX_START_ATTEMPTS = 3;
@@ -127,6 +128,10 @@ describe('deployment configuration', () => {
     expect(rendered).not.toMatch(/\$\{/);
     expect(readFileSync(TEMPLATE, 'utf8')).not.toMatch(/\d+\.\d+\.\d+\.\d+/);
     expect(readFileSync(TEMPLATE, 'utf8')).not.toMatch(/unsafe-(inline|eval)|proxy_hide_header/);
+  });
+
+  it('ships a bundle that runs under a CSP without unsafe-eval', () => {
+    expect(readFileSync(BUNDLE, 'utf8')).not.toMatch(/\beval\(|\bnew Function\(|\bFunction\(['"`]/);
   });
 });
 
