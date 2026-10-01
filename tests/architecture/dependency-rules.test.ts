@@ -107,11 +107,22 @@ describe('dependency rules', () => {
     expect(leaking).toEqual([]);
   });
 
-  it('only the Ollama adapter knows the Ollama wire format and fetch', () => {
+  it('only the Ollama adapter knows the Ollama wire format', () => {
     const leaking = tsFiles
       .filter((file) => !file.includes(`${path.sep}infrastructure${path.sep}ollama${path.sep}`))
-      .filter((file) => !file.includes(`${path.sep}bootstrap${path.sep}`))
-      .filter((file) => /\bfetch\(|keep_alive|\/api\/generate/.test(readFileSync(file, 'utf8')));
+      .filter((file) => /keep_alive|\/api\/generate/.test(readFileSync(file, 'utf8')));
+    expect(leaking.map((file) => path.relative(SRC, file))).toEqual([]);
+  });
+
+  it('only the Ollama and Overleaf adapters and the bootstrap use fetch', () => {
+    const fetching = [
+      `${path.sep}infrastructure${path.sep}ollama${path.sep}`,
+      `${path.sep}infrastructure${path.sep}overleaf${path.sep}`,
+      `${path.sep}bootstrap${path.sep}`,
+    ];
+    const leaking = tsFiles
+      .filter((file) => !fetching.some((dir) => file.includes(dir)))
+      .filter((file) => /\bfetch\(/.test(readFileSync(file, 'utf8')));
     expect(leaking.map((file) => path.relative(SRC, file))).toEqual([]);
   });
 });

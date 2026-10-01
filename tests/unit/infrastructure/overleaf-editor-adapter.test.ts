@@ -57,6 +57,13 @@ describe('OverleafEditorBridge', () => {
     editor = open('\\section{Other file}');
     expect(bridge.openEditor?.view).toBe(editor);
   });
+
+  it('announces the next editor it tracks', async () => {
+    const next = bridge.nextEditor();
+    editor.destroy();
+    editor = open('\\section{Other file}');
+    expect((await next).view).toBe(editor);
+  });
 });
 
 describe('OverleafEditorAdapter', () => {
