@@ -1,3 +1,5 @@
+import { NamedError } from '../domain/errors';
+
 export interface AssistantConfig {
   readonly ollamaEndpoint: string;
   readonly model: string;
@@ -7,10 +9,9 @@ export interface AssistantConfig {
 const CONFIG_URL = '/overleaf-ai-assistant/config.json';
 const CONFIG_KEYS = ['ollamaEndpoint', 'model', 'requestTimeoutMs'];
 
-export class ConfigurationError extends Error {
+export class ConfigurationError extends NamedError {
   constructor(message: string, options?: { cause?: unknown }) {
     super(`Invalid assistant configuration: ${message}`, options);
-    this.name = 'ConfigurationError';
   }
 }
 

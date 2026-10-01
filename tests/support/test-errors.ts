@@ -1,13 +1,5 @@
-export class UnexpectedFakeCallError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = 'UnexpectedFakeCallError';
-  }
-}
+import { NamedError } from '../../src/domain/errors';
 
-export class TestFixtureError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = 'TestFixtureError';
-  }
-}
+export class UnexpectedFakeCallError extends NamedError {}
+
+export class TestFixtureError extends NamedError {}

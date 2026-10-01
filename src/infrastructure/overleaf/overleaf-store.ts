@@ -1,3 +1,5 @@
+import { NamedError } from '../../domain/errors';
+
 export const StoreKey = {
   Project: 'project',
   OpenDocId: 'editor.open_doc_id',
@@ -12,13 +14,12 @@ interface RawStore {
   watch(key: string, callback: () => void): unknown;
 }
 
-export class OverleafStoreContractError extends Error {
+export class OverleafStoreContractError extends NamedError {
   constructor(problem: string, options?: { cause?: unknown }) {
     super(
       `window.overleaf.unstable.store does not match the expected contract: ${problem}.`,
       options,
     );
-    this.name = 'OverleafStoreContractError';
   }
 }
 

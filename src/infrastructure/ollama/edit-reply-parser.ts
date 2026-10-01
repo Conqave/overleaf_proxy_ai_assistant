@@ -9,6 +9,7 @@ import {
   DocumentTargetNotFoundError,
   InvalidDocumentCommandError,
   InvariantViolation,
+  NamedError,
 } from '../../domain/errors';
 import { findLinesStartingWith, MIN_QUOTED_START } from '../../domain/document-target';
 import { ResolvedEdit } from '../../domain/resolved-edit';
@@ -16,10 +17,9 @@ import { CONTENT, CONTENT_MARKER, EditField, createFieldPattern } from './edit-r
 
 const NEARBY_LINES = 2;
 
-export class InvalidAssistantResponse extends Error {
+export class InvalidAssistantResponse extends NamedError {
   constructor(readonly problem: string) {
     super(`invalid assistant response: ${problem}`);
-    this.name = 'InvalidAssistantResponse';
   }
 }
 

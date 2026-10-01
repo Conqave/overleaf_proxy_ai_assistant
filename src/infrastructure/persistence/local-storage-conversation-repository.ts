@@ -4,7 +4,11 @@ import {
   type ConversationMessage,
 } from '../../domain/conversation';
 import { createDocumentCommand, type DocumentCommand } from '../../domain/document-command';
-import { InvalidDocumentCommandError, InvalidProjectPathError } from '../../domain/errors';
+import {
+  InvalidDocumentCommandError,
+  InvalidProjectPathError,
+  NamedError,
+} from '../../domain/errors';
 import { createProjectPath } from '../../domain/project-file';
 import type { ConversationRepository } from '../../ports/conversation-repository';
 import { PersistenceError } from '../../ports/errors';
@@ -12,12 +16,7 @@ import type { OverleafPageIdentity } from '../overleaf/overleaf-page';
 
 type StorageAction = 'read' | 'save' | 'clear';
 
-class UnknownStoredFormatError extends Error {
-  constructor(message: string, options?: { cause?: unknown }) {
-    super(message, options);
-    this.name = new.target.name;
-  }
-}
+class UnknownStoredFormatError extends NamedError {}
 
 export class LocalStorageConversationRepository implements ConversationRepository {
   private readonly key: string;

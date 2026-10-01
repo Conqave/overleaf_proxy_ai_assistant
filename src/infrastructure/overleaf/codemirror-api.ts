@@ -1,5 +1,6 @@
 import type { Extension, StateEffect, StateField } from '@codemirror/state';
 import type { Decoration, EditorView, ViewPlugin, WidgetType } from '@codemirror/view';
+import { NamedError } from '../../domain/errors';
 
 export const EXTENSIONS_EVENT = 'UNSTABLE_editor:extensions';
 
@@ -17,10 +18,9 @@ export interface ExtensionsEventDetail {
   readonly extensions: Extension[];
 }
 
-export class OverleafHookContractError extends Error {
+export class OverleafHookContractError extends NamedError {
   constructor(problem: string) {
     super(`Overleaf's ${EXTENSIONS_EVENT} event does not match the expected contract: ${problem}.`);
-    this.name = 'OverleafHookContractError';
   }
 }
 

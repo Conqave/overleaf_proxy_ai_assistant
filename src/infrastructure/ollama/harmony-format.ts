@@ -1,3 +1,4 @@
+import { NamedError } from '../../domain/errors';
 import type { GenerateRequest } from './ollama-client';
 
 const START = '<|start|>';
@@ -23,13 +24,12 @@ export const HARMONY_FRAMING_CHARS = renderFinalContinuation(
   '',
 ).length;
 
-export class HarmonyFormatError extends Error {
+export class HarmonyFormatError extends NamedError {
   constructor(
     readonly problem: string,
     readonly completion: string,
   ) {
     super(`invalid harmony completion: ${problem}`);
-    this.name = 'HarmonyFormatError';
   }
 }
 

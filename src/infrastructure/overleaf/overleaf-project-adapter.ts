@@ -1,6 +1,6 @@
 import type { CompileDiagnostic } from '../../domain/agent-transcript';
 import { createDocumentSnapshot, type DocumentSnapshot } from '../../domain/document';
-import { NotATextFileError, ProjectFileNotFoundError } from '../../domain/errors';
+import { NamedError, NotATextFileError, ProjectFileNotFoundError } from '../../domain/errors';
 import { ProjectFileKind, type ProjectFile } from '../../domain/project-file';
 import {
   CompileTimeoutError,
@@ -38,17 +38,15 @@ export interface OverleafProjectDependencies {
   readonly timeouts: OverleafProjectTimeouts;
 }
 
-export class OverleafFileTreeContractError extends Error {
+export class OverleafFileTreeContractError extends NamedError {
   constructor(problem: string) {
     super(`Overleaf's file tree does not match the expected contract: ${problem}.`);
-    this.name = 'OverleafFileTreeContractError';
   }
 }
 
-export class OverleafToolbarContractError extends Error {
+export class OverleafToolbarContractError extends NamedError {
   constructor(problem: string) {
     super(`Overleaf's PDF toolbar does not match the expected contract: ${problem}.`);
-    this.name = 'OverleafToolbarContractError';
   }
 }
 

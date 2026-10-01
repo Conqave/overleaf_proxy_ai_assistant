@@ -1,12 +1,13 @@
+import { NamedError } from '../../domain/errors';
+
 export interface OverleafPageIdentity {
   readonly userId: string;
   readonly projectId: string;
 }
 
-export class MissingPageIdentityError extends Error {
+export class MissingPageIdentityError extends NamedError {
   constructor(meta: string) {
     super(`The Overleaf page has no ${meta} metadata.`);
-    this.name = 'MissingPageIdentityError';
   }
 }
 
