@@ -1,18 +1,25 @@
 import { readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { groupOf } from '../support/guards';
 import { TestFixtureError } from '../support/test-errors';
 
 const SRC = path.resolve(import.meta.dirname, '../../src');
 
-const ALLOWED: Record<string, readonly string[]> = {
-  domain: ['domain'],
-  ports: ['ports', 'domain'],
-  application: ['application', 'ports', 'domain'],
-  infrastructure: ['infrastructure', 'ports', 'domain'],
-  presentation: ['presentation', 'application', 'domain'],
-  bootstrap: ['bootstrap', 'presentation', 'application', 'infrastructure', 'ports', 'domain'],
-};
+const ALLOWED: ReadonlyMap<string, readonly string[]> = new Map([
+  ['domain', ['domain']],
+  ['ports', ['ports', 'domain']],
+  ['application', ['application', 'ports', 'domain']],
+  ['infrastructure', ['infrastructure', 'ports', 'domain']],
+  ['presentation', ['presentation', 'application', 'domain']],
+  ['bootstrap', ['bootstrap', 'presentation', 'application', 'infrastructure', 'ports', 'domain']],
+]);
+
+function allowedLayersOf(layer: string): readonly string[] {
+  const allowed = ALLOWED.get(layer);
+  if (allowed === undefined) throw new TestFixtureError(`${layer} is no known layer`);
+  return allowed;
+}
 
 const STATIC_REFERENCE =
   /^\s*(?:import|export)\s+(type\s+)?(?:[^'";]*?\sfrom\s+)?['"]([^'"]+)['"]/gm;
@@ -28,11 +35,11 @@ function sourceFiles(dir: string): string[] {
 
 function importsOf(source: string): { target: string; typeOnly: boolean }[] {
   const staticReferences = [...source.matchAll(STATIC_REFERENCE)].map((m) => ({
-    target: m[2]!,
+    target: groupOf(m, 2, 'static module reference'),
     typeOnly: m[1] !== undefined,
   }));
   const dynamicReferences = [...source.matchAll(DYNAMIC_REFERENCE)].map((m) => ({
-    target: m[1]!,
+    target: groupOf(m, 1, 'dynamic module reference'),
     typeOnly: false,
   }));
   return [...staticReferences, ...dynamicReferences];
@@ -56,7 +63,7 @@ const edges = tsFiles.flatMap((file) =>
 
 describe('dependency rules', () => {
   it('every source file belongs to a known layer', () => {
-    expect(tsFiles.map(layerOf).filter((layer) => !(layer in ALLOWED))).toEqual([]);
+    expect(tsFiles.map(layerOf).filter((layer) => !ALLOWED.has(layer))).toEqual([]);
   });
 
   it('recognises every form of module reference', () => {
@@ -85,8 +92,8 @@ describe('dependency rules', () => {
 
   it('imports point only inward', () => {
     const violations = edges
-      .filter((edge) => edge.layer !== null)
-      .filter((edge) => !ALLOWED[layerOf(path.join(SRC, edge.from))]!.includes(edge.layer!))
+      .flatMap(({ layer, ...edge }) => (layer === null ? [] : [{ ...edge, layer }]))
+      .filter((edge) => !allowedLayersOf(layerOf(path.join(SRC, edge.from))).includes(edge.layer))
       .map((edge) => `${edge.from} -> ${edge.target}`);
     expect(violations).toEqual([]);
   });

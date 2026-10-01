@@ -11,6 +11,7 @@ import {
 } from '../../../src/infrastructure/ollama/correction-exchange';
 import type { AgentStepRequest } from '../../../src/ports/agent-port';
 import { AssistantRequestTooLargeError } from '../../../src/ports/errors';
+import { itemAt } from '../../support/guards';
 
 const budget = 20_480;
 const main = createDocumentSnapshot(['\\section{A}', 'Body.']);
@@ -224,9 +225,11 @@ describe('agent prompt budget', () => {
       Number(m[1]),
     );
     expect(marks).toHaveLength(3);
-    const [open, older, newer] = marks;
-    expect(older).toBeGreaterThan(newer!);
-    expect(open).toBeLessThan(older!);
+    const open = itemAt(marks, 0, 'omission mark of the open file');
+    const older = itemAt(marks, 1, 'omission mark of the older read');
+    const newer = itemAt(marks, 2, 'omission mark of the newer read');
+    expect(older).toBeGreaterThan(newer);
+    expect(open).toBeLessThan(older);
     expect(prompt).toContain('Result 4 (compile):\nerror main.tex:2');
   });
 

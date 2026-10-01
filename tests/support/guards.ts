@@ -1,0 +1,30 @@
+import { expect } from 'vitest';
+import { TestFixtureError } from './test-errors';
+
+export function itemAt<T>(items: readonly T[], index: number, what: string): T {
+  const item = items.at(index);
+  if (item === undefined) {
+    throw new TestFixtureError(`there is no ${what} at index ${String(index)}`);
+  }
+  return item;
+}
+
+export function groupOf(match: RegExpMatchArray | null, group: number, what: string): string {
+  const text = match?.[group];
+  if (text === undefined) throw new TestFixtureError(`found no ${what}`);
+  return text;
+}
+
+export function elementById(document: Document, id: string): HTMLElement {
+  const element = document.getElementById(id);
+  if (element === null) throw new TestFixtureError(`the page has no #${id}`);
+  return element;
+}
+
+export function anInstanceOf(type: abstract new (...args: never[]) => unknown): unknown {
+  return expect.any(type);
+}
+
+export function textContaining(text: string): unknown {
+  return expect.stringContaining(text);
+}

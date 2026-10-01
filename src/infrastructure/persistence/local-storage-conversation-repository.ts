@@ -22,7 +22,7 @@ export class LocalStorageConversationRepository implements ConversationRepositor
   private readonly key: string;
 
   constructor(
-    private readonly window: Window,
+    private readonly window: Pick<Window, 'localStorage'>,
     scope: OverleafPageIdentity,
   ) {
     this.key = `ola-conversation:${scope.userId}:${scope.projectId}`;

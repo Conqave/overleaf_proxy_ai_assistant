@@ -14,6 +14,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { parseConfig } from '../../src/bootstrap/config';
+import { groupOf, itemAt } from '../support/guards';
 import { TestFixtureError } from '../support/test-errors';
 
 const ROOT = path.resolve(import.meta.dirname, '../..');
@@ -32,8 +33,7 @@ for (const binary of ['nginx', 'envsubst']) {
 
 function readEnvsubstFilter(): RegExp {
   const match = /NGINX_ENVSUBST_FILTER='([^']+)'/.exec(readFileSync(DOCKERFILE, 'utf8'));
-  if (match === null) throw new TestFixtureError(`${DOCKERFILE} sets no NGINX_ENVSUBST_FILTER`);
-  return new RegExp(match[1]!);
+  return new RegExp(groupOf(match, 1, `NGINX_ENVSUBST_FILTER in ${DOCKERFILE}`));
 }
 
 const ENVSUBST_FILTER = readEnvsubstFilter();
@@ -114,7 +114,7 @@ describe('deployment configuration', () => {
 
   it('renders a config.json the bundle accepts', () => {
     const config = /return 200 '(\{"ollamaEndpoint".*\})';/.exec(render(validate(VALID_ENV).vars));
-    expect(parseConfig(JSON.parse(config![1]!))).toEqual({
+    expect(parseConfig(JSON.parse(groupOf(config, 1, 'rendered config.json')))).toEqual({
       ollamaEndpoint: '/ollama/main/api/generate',
       model: 'gpt-oss:20b',
       requestTimeoutMs: 900000,
@@ -227,7 +227,7 @@ describe('nginx proxy', () => {
       url: '/api/generate',
       origin: undefined,
     });
-    expect(ollamaRequests.at(-1)!.host).toMatch(/^127\.0\.0\.1:\d+$/);
+    expect(itemAt(ollamaRequests, -1, 'Ollama request').host).toMatch(/^127\.0\.0\.1:\d+$/);
     expect((await fetch(`${base}/ollama/main/api/generate`)).status).toBe(403);
     const count = ollamaRequests.length;
     await fetch(`${base}/ollama/main/api/pull`, { method: 'POST', body: '{}' });

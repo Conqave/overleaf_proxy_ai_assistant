@@ -53,7 +53,7 @@ export function openBrowser(ollama: FakeOllama): Browser {
     },
     loadOverleaf() {
       window.eval(inject('fakeOverleafScript'));
-      return (window as unknown as Window).fakeOverleaf.load();
+      return window.fakeOverleaf.load();
     },
     close() {
       window.close();

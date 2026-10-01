@@ -49,6 +49,7 @@ import {
   rejectOnAbort,
   sequentialIds,
 } from '../../support/fakes';
+import { anInstanceOf, itemAt, textContaining } from '../../support/guards';
 
 const MAIN = ['\\section{Intro}', 'Hello world.', '\\section{Results}', 'Numbers \\cite{knuth84}.'];
 const BIB = ['@article{smith20,', '  title = {Smith},', '}'];
@@ -70,6 +71,7 @@ const record = (p: AgentProgress) => {
   progress.push(p);
 };
 const send = (text: string) => handle.execute(text, record);
+const requestAt = (index: number) => itemAt(agent.requests, index, 'agent request');
 const tool = (call: ToolCall): AgentDecision => ({ kind: 'tool', call });
 const answer = (text: string): AgentDecision => ({
   kind: 'reply',
@@ -77,7 +79,7 @@ const answer = (text: string): AgentDecision => ({
 });
 
 function editOf(path: string, lines: readonly string[], lineNumber: number): AgentDecision {
-  return editAt(path, lineNumber, lines[lineNumber - 1]!);
+  return editAt(path, lineNumber, itemAt(lines, lineNumber - 1, 'line'));
 }
 
 function editAt(path: string, lineNumber: number, lineText: string): AgentDecision {
@@ -170,7 +172,7 @@ describe('HandleAssistantRequest', () => {
         selection: 'world',
       },
       transcript: [],
-      signal: expect.any(AbortSignal) as unknown,
+      signal: anInstanceOf(AbortSignal),
     });
     expect(progress.map((p) => p.stage)).toEqual(['received', 'thinking']);
   });
@@ -189,7 +191,7 @@ describe('HandleAssistantRequest', () => {
     agent.will(answer('ok'));
     await send('hello');
     await send('second?');
-    expect(agent.requests[0]!.conversation).toMatchObject([
+    expect(requestAt(0).conversation).toMatchObject([
       { role: 'user', text: 'hello' },
       { role: 'assistant', kind: 'greeting' },
     ]);
@@ -220,7 +222,7 @@ describe('HandleAssistantRequest', () => {
   it('reads another file, then opens it before previewing its edit', async () => {
     agent.will(tool({ tool: 'read_file', path: 'refs.bib' }), bibEdit());
     const result = await send('add knuth84 to the bibliography');
-    expect(agent.requests[1]!.transcript).toEqual([
+    expect(requestAt(1).transcript).toEqual([
       {
         kind: 'tool',
         call: { tool: 'read_file', path: 'refs.bib' },
@@ -243,8 +245,8 @@ describe('HandleAssistantRequest', () => {
     agent.will(tool({ tool: 'search', query: 'KNUTH' }), answer('Cited in main.tex.'));
     await send('where is knuth cited?');
     expect(project.reads.sort()).toEqual(['chapters/intro.tex', 'main.tex', 'refs.bib']);
-    expect(agent.requests[1]!.transcript[0]).toMatchObject({ kind: 'tool' });
-    expect(agent.requests[1]!.transcript[0]).toHaveProperty('result', {
+    expect(requestAt(1).transcript[0]).toMatchObject({ kind: 'tool' });
+    expect(requestAt(1).transcript[0]).toHaveProperty('result', {
       tool: 'search',
       matches: [
         { path: 'main.tex', lineNumber: 4, lineText: 'Numbers \\cite{knuth84}.' },
@@ -260,7 +262,7 @@ describe('HandleAssistantRequest', () => {
     project.willCompile(diagnostics);
     agent.will(tool({ tool: 'compile' }), answer('A typo on line 2.'));
     await send('why does it not compile?');
-    expect(agent.requests[1]!.transcript[0]).toEqual({
+    expect(requestAt(1).transcript[0]).toEqual({
       kind: 'tool',
       call: { tool: 'compile' },
       result: { tool: 'compile', diagnostics },
@@ -274,7 +276,7 @@ describe('HandleAssistantRequest', () => {
     const result = await send('read it twice');
     expect(result.message).toMatchObject({ kind: 'explanation', text: 'One entry.' });
     expect(project.reads).toEqual(['refs.bib']);
-    expect(agent.requests[2]!.transcript[1]).toEqual({
+    expect(requestAt(2).transcript[1]).toEqual({
       kind: 'mistake',
       decision: call,
       problem: 'read_file was already called with the same argument; use its earlier result',
@@ -289,9 +291,9 @@ describe('HandleAssistantRequest', () => {
     await expect(send('search forever')).resolves.toMatchObject({
       message: { kind: 'explanation' },
     });
-    expect(agent.requests.at(-1)!.transcript.at(-1)).toMatchObject({
+    expect(requestAt(-1).transcript.at(-1)).toMatchObject({
       kind: 'mistake',
-      problem: expect.stringContaining('lookups are used') as unknown,
+      problem: textContaining('lookups are used'),
     });
   });
 
@@ -322,7 +324,7 @@ describe('HandleAssistantRequest', () => {
           path: 'main.tex',
           command: createDocumentCommand({
             operation: 'delete',
-            target: { lineNumber: 4, lineText: MAIN[3]! },
+            target: { lineNumber: 4, lineText: itemAt(MAIN, 3, 'line') },
             lineCount: 3,
           }),
         },
@@ -332,8 +334,8 @@ describe('HandleAssistantRequest', () => {
   ])('sends %s back to the agent to correct', async (_name, mistake, problem) => {
     agent.will(mistake, answer('Corrected.'));
     await expect(send('do it')).resolves.toMatchObject({ message: { text: 'Corrected.' } });
-    expect(agent.requests[1]!.transcript).toEqual([
-      { kind: 'mistake', decision: mistake, problem: expect.stringContaining(problem) as unknown },
+    expect(requestAt(1).transcript).toEqual([
+      { kind: 'mistake', decision: mistake, problem: textContaining(problem) },
     ]);
     expect(editor.preview).toBeNull();
     expect(project.reads).toEqual([]);
@@ -607,7 +609,7 @@ describe('preview / apply / reject', () => {
   it('treats approving a change that was never previewed as a defect', () => {
     const command = createDocumentCommand({
       operation: 'delete',
-      target: { lineNumber: 1, lineText: MAIN[0]! },
+      target: { lineNumber: 1, lineText: itemAt(MAIN, 0, 'line') },
     });
     const change = new PendingDocumentChange('c', {
       file: findTextFile(project.files, 'main.tex'),
@@ -662,7 +664,7 @@ describe('ReviewAppliedChange', () => {
     agent.will(answer('Fixed nothing.'));
     await reviewApplied();
     expect(conversation.messages()[0]).toEqual({
-      id: expect.any(String) as unknown,
+      id: anInstanceOf(String),
       role: 'system',
       text: COMPILE_FIX_REQUEST,
     });

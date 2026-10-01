@@ -14,6 +14,7 @@ import { OverleafEditorBridge } from '../../../src/infrastructure/overleaf/overl
 import { OverleafStoreContractError } from '../../../src/infrastructure/overleaf/overleaf-store';
 import { EditorShowsOtherFileError, EditorUnavailableError } from '../../../src/ports/errors';
 import { FIXTURE_DOC_ID, FIXTURE_DOCUMENT, openOverleafEditor } from '../../support/fake-overleaf';
+import { elementById } from '../../support/guards';
 
 let bridge: OverleafEditorBridge;
 let shownDocId: string;
@@ -44,7 +45,7 @@ function captureWindowErrors(): { errors: unknown[]; stop: () => void } {
 
 function open(text: string = FIXTURE_DOCUMENT): EditorView {
   document.body.innerHTML = '<div id="editor"></div>';
-  return openOverleafEditor(window, document.getElementById('editor')!, text);
+  return openOverleafEditor(window, elementById(document, 'editor'), text);
 }
 
 beforeEach(() => {

@@ -42,13 +42,13 @@ let repository: LocalStorageConversationRepository;
 beforeEach(() => {
   const { window } = new JSDOM('', { url: 'http://overleaf.test/' });
   storage = window.localStorage;
-  repository = new LocalStorageConversationRepository(window as unknown as Window, SCOPE);
+  repository = new LocalStorageConversationRepository(window, SCOPE);
 });
 
 describe('LocalStorageConversationRepository', () => {
   it('keeps one conversation per user and project', () => {
     repository.save(messages);
-    const window = { localStorage: storage } as unknown as Window;
+    const window = { localStorage: storage };
     const otherProject = new LocalStorageConversationRepository(window, {
       ...SCOPE,
       projectId: 'project-2',
@@ -158,7 +158,7 @@ describe('LocalStorageConversationRepository', () => {
         throw new DOMException('denied', 'SecurityError');
       },
     };
-    const blocked = new LocalStorageConversationRepository(hardened as Window, SCOPE);
+    const blocked = new LocalStorageConversationRepository(hardened, SCOPE);
     expect(() => blocked.load()).toThrow(PersistenceError);
     expect(() => {
       blocked.save(messages);
@@ -172,7 +172,7 @@ describe('LocalStorageConversationRepository', () => {
         throw defect;
       },
     };
-    const repository = new LocalStorageConversationRepository(broken as Window, SCOPE);
+    const repository = new LocalStorageConversationRepository(broken, SCOPE);
     expect(() => repository.load()).toThrow(defect);
   });
 });
