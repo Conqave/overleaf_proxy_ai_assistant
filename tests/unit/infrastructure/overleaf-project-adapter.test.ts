@@ -5,11 +5,12 @@ import { OverleafEditorBridge } from '../../../src/infrastructure/overleaf/overl
 import {
   OverleafFileTreeContractError,
   OverleafProjectAdapter,
-  OverleafToolbarContractError,
 } from '../../../src/infrastructure/overleaf/overleaf-project-adapter';
+import { OverleafToolbarContractError } from '../../../src/infrastructure/overleaf/overleaf-compiler';
 import { OverleafStore, StoreKey } from '../../../src/infrastructure/overleaf/overleaf-store';
 import {
   CompileTimeoutError,
+  CompileWithoutResultError,
   FileOpenTimeoutError,
   NoOpenTextFileError,
   ProjectFileReadError,
@@ -17,11 +18,12 @@ import {
   ProjectTreeOutdatedError,
   ProjectUnavailableError,
 } from '../../../src/ports/errors';
-import { FakeOverleafIde } from '../../support/fake-overleaf';
+import { EMPTY_LOG_ENTRIES, FakeOverleafIde } from '../../support/fake-overleaf';
 import { rejectOnAbort } from '../../support/fakes';
 import { TestFixtureError } from '../../support/test-errors';
 
 const TIMEOUT_MS = 50;
+const COMPILE_TIMEOUT_MS = 1_000;
 
 class RequestCancelledForTest extends NamedError {}
 
@@ -55,7 +57,12 @@ beforeEach(() => {
       return answer(signal);
     },
     projectId: 'project-1',
-    timeouts: { fileOpenMs: TIMEOUT_MS, fileReadMs: TIMEOUT_MS, compileMs: TIMEOUT_MS },
+    timeouts: {
+      fileOpenMs: TIMEOUT_MS,
+      fileReadMs: TIMEOUT_MS,
+      compileMs: COMPILE_TIMEOUT_MS,
+      compileLogMs: TIMEOUT_MS,
+    },
   });
   return () => {
     uninstall();
@@ -231,9 +238,38 @@ describe('OverleafProjectAdapter.compile', () => {
     expect(ide.store.watcherCount).toBe(0);
   });
 
-  it('times out when no new log arrives and stops watching', async () => {
+  it('times out when Overleaf never runs the compile and stops watching', async () => {
     ide.compiles = false;
     await expect(adapter.compile(cancel.signal)).rejects.toThrow(CompileTimeoutError);
     expect(ide.store.watcherCount).toBe(0);
+  });
+
+  it('reports a compile that ends without any log long before the compile timeout', async () => {
+    ide.compileOutcome = 'http-error';
+    const started = performance.now();
+    await expect(adapter.compile(cancel.signal)).rejects.toThrow(CompileWithoutResultError);
+    expect(performance.now() - started).toBeLessThan(COMPILE_TIMEOUT_MS);
+    expect(ide.store.watcherCount).toBe(0);
+  });
+
+  it('reports a compile that ends with an empty log and no new PDF', async () => {
+    ide.compileOutcome = 'no-output';
+    await expect(adapter.compile(cancel.signal)).rejects.toThrow(CompileWithoutResultError);
+  });
+
+  it('ignores the log of an earlier compile that arrives while it compiles', async () => {
+    const late = {
+      ...EMPTY_LOG_ENTRIES,
+      errors: [{ level: 'error', message: 'Stale error.', file: './main.tex', line: 1 }],
+    };
+    const publishLateLog = (): void => {
+      ide.store.set('pdf.logEntries', late);
+    };
+    window.addEventListener('pdf:recompile', publishLateLog);
+    try {
+      await expect(adapter.compile(cancel.signal)).resolves.toEqual([]);
+    } finally {
+      window.removeEventListener('pdf:recompile', publishLateLog);
+    }
   });
 });

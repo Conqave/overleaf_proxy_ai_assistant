@@ -30,6 +30,8 @@ export class FileOpenTimeoutError extends OperationalError {}
 
 export class CompileTimeoutError extends OperationalError {}
 
+export class CompileWithoutResultError extends OperationalError {}
+
 export class NoOpenTextFileError extends OperationalError {}
 
 export class ProjectTreeOutdatedError extends OperationalError {}

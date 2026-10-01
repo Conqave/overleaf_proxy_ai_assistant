@@ -3,7 +3,6 @@ import { createDocumentSnapshot, type DocumentSnapshot } from '../../domain/docu
 import { NamedError, ProjectFileNotFoundError } from '../../domain/errors';
 import { ProjectFileKind, type ProjectFile, type TextFile } from '../../domain/project-file';
 import {
-  CompileTimeoutError,
   FileOpenTimeoutError,
   NoOpenTextFileError,
   ProjectFileReadError,
@@ -15,29 +14,26 @@ import type { CancellationSignal } from '../../ports/cancellation';
 import type { ProjectPort } from '../../ports/project-port';
 import { throwAbortReason, withDeadline } from '../deadline';
 import { formatDuration } from '../duration';
-import { readCompileDiagnostics } from './compile-log';
+import { OverleafCompiler, type OverleafCompileTimeouts } from './overleaf-compiler';
 import type { OpenEditor, OverleafEditorBridge } from './overleaf-editor-bridge';
 import { OverleafStoreContractError, StoreKey, type OverleafStore } from './overleaf-store';
 import { readProjectTree } from './project-tree';
 
-export const RECOMPILE_EVENT = 'pdf:recompile';
 const FILE_TREE_SELECTOR = '.file-tree';
 const ENTITY_SELECTOR = '.entity[data-file-id]';
-const RECOMPILE_BUTTON_SELECTOR = '.toolbar-pdf-left .split-menu-button[data-ol-loading]';
-const LOADING_ATTRIBUTE = 'data-ol-loading';
 const HTTP_NOT_FOUND = 404;
 const EXPAND_ICON_SELECTOR = '.file-tree-expand-icon';
 
-export interface OverleafProjectTimeouts {
+export interface OverleafProjectTimeouts extends OverleafCompileTimeouts {
   readonly fileOpenMs: number;
   readonly fileReadMs: number;
-  readonly compileMs: number;
 }
 
 export const OVERLEAF_PROJECT_TIMEOUTS: OverleafProjectTimeouts = {
   fileOpenMs: 20_000,
   fileReadMs: 20_000,
   compileMs: 240_000,
+  compileLogMs: 15_000,
 };
 
 export interface OverleafProjectDependencies {
@@ -55,14 +51,12 @@ export class OverleafFileTreeContractError extends NamedError {
   }
 }
 
-export class OverleafToolbarContractError extends NamedError {
-  constructor(problem: string) {
-    super(`Overleaf's PDF toolbar does not match the expected contract: ${problem}.`);
-  }
-}
-
 export class OverleafProjectAdapter implements ProjectPort {
-  constructor(private readonly deps: OverleafProjectDependencies) {}
+  private readonly compiler: OverleafCompiler;
+
+  constructor(private readonly deps: OverleafProjectDependencies) {
+    this.compiler = new OverleafCompiler(deps.window, deps.store, deps.timeouts);
+  }
 
   listFiles(): readonly ProjectFile[] {
     return readProjectTree(this.deps.store.get(StoreKey.Project)).files;
@@ -139,59 +133,7 @@ export class OverleafProjectAdapter implements ProjectPort {
   }
 
   compile(cancel: CancellationSignal): Promise<readonly CompileDiagnostic[]> {
-    return withDeadline(
-      this.deps.timeouts.compileMs,
-      () =>
-        new CompileTimeoutError(
-          `The project did not compile within ${formatDuration(this.deps.timeouts.compileMs)}.`,
-        ),
-      [cancel],
-      (signal) => this.recompile(signal),
-    );
-  }
-
-  private async recompile(signal: AbortSignal): Promise<readonly CompileDiagnostic[]> {
-    const { store, window } = this.deps;
-    if (!(await this.whenCompilerIdle(signal))) throwAbortReason(signal);
-    const previous = store.get(StoreKey.LogEntries);
-    window.dispatchEvent(new window.CustomEvent(RECOMPILE_EVENT));
-    const compiled = await store.waitUntil(
-      [StoreKey.LogEntries],
-      () => {
-        const current = store.get(StoreKey.LogEntries);
-        return current !== previous && current !== null;
-      },
-      signal,
-    );
-    if (!compiled) throwAbortReason(signal);
-    return readCompileDiagnostics(store.get(StoreKey.LogEntries));
-  }
-
-  private async whenCompilerIdle(signal: AbortSignal): Promise<boolean> {
-    const button = this.recompileButton();
-    if (!isCompiling(button)) return true;
-    const idle = Promise.withResolvers<boolean>();
-    const observer = new this.deps.window.MutationObserver(() => {
-      if (!isCompiling(button)) idle.resolve(true);
-    });
-    const abort = (): void => {
-      idle.resolve(false);
-    };
-    observer.observe(button, { attributeFilter: [LOADING_ATTRIBUTE] });
-    signal.addEventListener('abort', abort);
-    try {
-      if (signal.aborted) abort();
-      return await idle.promise;
-    } finally {
-      observer.disconnect();
-      signal.removeEventListener('abort', abort);
-    }
-  }
-
-  private recompileButton(): HTMLElement {
-    const button = this.deps.window.document.querySelector<HTMLElement>(RECOMPILE_BUTTON_SELECTOR);
-    if (button === null) throw new OverleafToolbarContractError('it has no Recompile button');
-    return button;
+    return this.compiler.compile(cancel);
   }
 
   private withFileOpenDeadline<T>(
@@ -294,14 +236,4 @@ export class OverleafProjectAdapter implements ProjectPort {
     }
     return entity;
   }
-}
-
-function isCompiling(button: HTMLElement): boolean {
-  const loading = button.getAttribute(LOADING_ATTRIBUTE);
-  if (loading !== 'true' && loading !== 'false') {
-    throw new OverleafToolbarContractError(
-      `the Recompile button has ${LOADING_ATTRIBUTE}=${String(loading)}`,
-    );
-  }
-  return loading === 'true';
 }

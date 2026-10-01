@@ -6,6 +6,7 @@ export const StoreKey = {
   Opening: 'editor.opening',
   OpenFile: 'openFile',
   LogEntries: 'pdf.logEntries',
+  PdfUrl: 'pdf.url',
 } as const;
 export type StoreKey = (typeof StoreKey)[keyof typeof StoreKey];
 

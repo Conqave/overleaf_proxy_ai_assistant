@@ -83,6 +83,7 @@ export class FakeOverleafIde {
   editor: EditorView;
   opensDocs = true;
   compiles = true;
+  compileOutcome: 'pdf' | 'http-error' | 'no-output' = 'pdf';
   logEntries: unknown = EMPTY_LOG_ENTRIES;
   compileLog: () => unknown = () => this.logEntries;
   compileCount = 0;
@@ -105,6 +106,7 @@ export class FakeOverleafIde {
       'editor.opening': false,
       openFile: null,
       'pdf.logEntries': EMPTY_LOG_ENTRIES,
+      'pdf.url': 'build-0',
     });
     Object.assign(window, { overleaf: { unstable: { store: this.store } } });
     window.addEventListener('pdf:recompile', this.recompile);
@@ -168,12 +170,32 @@ export class FakeOverleafIde {
     if (!this.compiles || button.dataset.olLoading === 'true') return;
     this.compileCount += 1;
     button.dataset.olLoading = 'true';
-    this.store.set('pdf.logEntries', null);
     setTimeout(() => {
-      this.store.set('pdf.logEntries', structuredClone(this.compileLog()));
       button.dataset.olLoading = 'false';
+      setTimeout(() => {
+        this.publishCompileResult();
+      });
     });
   };
+
+  private publishCompileResult(): void {
+    switch (this.compileOutcome) {
+      case 'pdf':
+        this.store.set('pdf.url', `build-${String(this.compileCount)}`);
+        this.store.set('pdf.logEntries', null);
+        setTimeout(() => {
+          this.store.set('pdf.logEntries', structuredClone(this.compileLog()));
+        });
+        break;
+      case 'http-error':
+        this.store.set('pdf.url', null);
+        this.store.set('pdf.logEntries', null);
+        break;
+      case 'no-output':
+        this.store.set('pdf.logEntries', structuredClone(EMPTY_LOG_ENTRIES));
+        break;
+    }
+  }
 
   private async openDoc(id: string): Promise<void> {
     if (!this.opensDocs) return;
