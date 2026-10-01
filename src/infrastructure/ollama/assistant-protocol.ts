@@ -56,7 +56,7 @@ export interface ProtocolExchange<T> {
 }
 
 export const LANGUAGE_RULE =
-  'Write every user-facing text in the language of the user message (Polish message → Polish text). Text that goes into a file keeps the language of that file unless the user asks for a translation, and names the user gives are used exactly as given.';
+  'Write every user-facing text in the language of the user message (Polish message → Polish text). Text that goes into a file keeps the language of that file unless the user asks for a translation, and names and titles the user gives are used exactly as given, untranslated ("dodaj sekcję Conclusions" → \\section{Conclusions}).';
 const JSON_RULE =
   'Output exactly one JSON object and nothing else: no markdown fences, no text before or after it.';
 
