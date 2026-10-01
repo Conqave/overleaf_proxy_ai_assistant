@@ -35,7 +35,11 @@ const plan = (value: unknown) => ({ response: JSON.stringify(value) });
 describe('OllamaClient', () => {
   it('posts the request in the harmony format of the model and returns its final message', async () => {
     const ollama = new FakeOllama().reply({ response: 'raw' });
-    await expect(make(ollama).client.generate({ system: 'S', prompt: 'P' })).resolves.toBe('raw');
+    await expect(make(ollama).client.generate({ system: 'S', prompt: 'P' })).resolves.toMatchObject(
+      {
+        text: 'raw',
+      },
+    );
     const [call] = ollama.calls;
     expect(call!.url).toBe('/ollama/main/api/generate');
     expect(call!.harmonyPrompt).toMatch(
@@ -57,7 +61,11 @@ describe('OllamaClient', () => {
       completion:
         '<|channel|>analysis<|message|>Think.<|end|><|start|>assistant<|channel|>final<|message|>Done.',
     });
-    await expect(make(ollama).client.generate({ system: 'S', prompt: 'P' })).resolves.toBe('Done.');
+    await expect(make(ollama).client.generate({ system: 'S', prompt: 'P' })).resolves.toMatchObject(
+      {
+        text: 'Done.',
+      },
+    );
     expect(ollama.promptCalls).toHaveLength(1);
   });
 
@@ -69,10 +77,12 @@ describe('OllamaClient', () => {
       },
       { completion: 'ACTION: read_file' },
     );
-    await expect(make(ollama).client.generate({ system: 'S', prompt: 'P' })).resolves.toBe(
-      'ACTION: read_file',
-    );
+    const completion = await make(ollama).client.generate({ system: 'S', prompt: 'P' });
     const [first, second] = ollama.promptCalls;
+    expect(completion).toEqual({
+      text: 'ACTION: read_file',
+      promptTokens: second!.harmonyPrompt.length,
+    });
     expect(second!.harmonyPrompt).toBe(
       `${first!.harmonyPrompt}<|channel|>analysis<|message|>Read it.<|end|><|start|>assistant<|channel|>final<|message|>`,
     );
@@ -110,6 +120,20 @@ describe('OllamaClient', () => {
       AssistantUnreachableError,
     );
     await expect(client.loadModel()).rejects.toThrow(AssistantUnreachableError);
+  });
+
+  it.each([
+    ['no token count', '{"response": "r"}', 'Ollama returned no "prompt_eval_count" field.'],
+    [
+      'a token count that is not a count',
+      '{"response": "r", "prompt_eval_count": -1}',
+      'Ollama returned a "prompt_eval_count" that is not a token count.',
+    ],
+  ])('reports a body with %s as a broken response contract', async (_name, body, message) => {
+    const client = new OllamaClient(config, () => Promise.resolve(new Response(body)));
+    await expect(client.generate({ system: 'S', prompt: 'P' })).rejects.toThrow(
+      new AssistantResponseContractError(message),
+    );
   });
 
   it('reports a body without a response as a broken response contract', async () => {
@@ -285,11 +309,21 @@ describe('OllamaAgent', () => {
 
   it('decides on a tool call from one model call', async () => {
     const ollama = new FakeOllama().reply({ response: 'ACTION: read_file\nPATH: refs.bib' });
-    await expect(agent(ollama).decide(step)).resolves.toEqual({
-      kind: 'tool',
-      call: { tool: 'read_file', path: 'refs.bib' },
-    });
+    const { decision } = await agent(ollama).decide(step);
+    expect(decision).toEqual({ kind: 'tool', call: { tool: 'read_file', path: 'refs.bib' } });
     expect(ollama.promptCalls).toHaveLength(1);
+  });
+
+  it('reports the context window, the estimated and the counted size of its prompt', async () => {
+    const ollama = new FakeOllama().reply({ response: 'ACTION: compile' });
+    const { contextUsage } = await agent(ollama).decide(step);
+    const [call] = ollama.promptCalls;
+    const sent = call!.body.system!.length + call!.body.prompt.length;
+    expect(contextUsage).toEqual({
+      contextTokens: MIN_CONTEXT_TOKENS,
+      estimatedPromptTokens: Math.ceil(sent / 3),
+      promptTokens: call!.harmonyPrompt.length,
+    });
   });
 
   it('sends an invalid action back to the model once', async () => {
@@ -297,10 +331,12 @@ describe('OllamaAgent', () => {
       { response: 'ACTION: read_file\nPATH: missing.tex' },
       { response: 'ACTION: answer\nTEXT:\nThe file is not in the project.' },
     );
-    await expect(agent(ollama).decide(step)).resolves.toEqual({
+    const { decision, contextUsage } = await agent(ollama).decide(step);
+    expect(decision).toEqual({
       kind: 'reply',
       reply: { kind: 'answer', text: 'The file is not in the project.' },
     });
+    expect(contextUsage.promptTokens).toBe(ollama.promptCalls[1]!.harmonyPrompt.length);
     expect(ollama.promptCalls[1]!.body.prompt).toContain('missing.tex');
     expect(ollama.promptCalls[1]!.body.prompt).toContain('Reply again with exactly one action');
   });

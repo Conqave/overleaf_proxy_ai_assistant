@@ -13,10 +13,16 @@ export class OllamaAssistant implements AssistantPort {
   }
 
   async plan(request: PlanningRequest): Promise<AssistantPlan> {
-    return await runExchange(this.client, createPlanExchange(request, this.promptBudget));
+    const { value } = await runExchange(
+      this.client,
+      createPlanExchange(request, this.promptBudget),
+    );
+    return value;
   }
 
   async reply(request: ReplyRequest): Promise<AssistantReply> {
-    return await runExchange(this.client, createReplyExchange(request, this.promptBudget));
+    const exchange = createReplyExchange(request, this.promptBudget);
+    const { value } = await runExchange(this.client, exchange);
+    return value;
   }
 }

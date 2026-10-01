@@ -1,5 +1,4 @@
-import type { AgentDecision } from '../../domain/agent-action';
-import type { AgentPort, AgentStepRequest } from '../../ports/agent-port';
+import type { AgentPort, AgentStep, AgentStepRequest } from '../../ports/agent-port';
 import { createAgentExchange } from './agent-protocol';
 import { getPromptBudget } from './assistant-protocol';
 import { runExchange } from './correction-exchange';
@@ -12,7 +11,9 @@ export class OllamaAgent implements AgentPort {
     this.promptBudget = getPromptBudget(client.contextTokens);
   }
 
-  async decide(request: AgentStepRequest): Promise<AgentDecision> {
-    return await runExchange(this.client, createAgentExchange(request, this.promptBudget));
+  async decide(request: AgentStepRequest): Promise<AgentStep> {
+    const exchange = createAgentExchange(request, this.promptBudget);
+    const { value, contextUsage } = await runExchange(this.client, exchange);
+    return { decision: value, contextUsage };
   }
 }

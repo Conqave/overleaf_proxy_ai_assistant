@@ -8,7 +8,7 @@ import { ProjectFileKind, type ProjectFile } from '../../src/domain/project-file
 import { searchProject } from '../../src/domain/project-search';
 import { OllamaAgent } from '../../src/infrastructure/ollama/ollama-agent';
 import { OllamaClient } from '../../src/infrastructure/ollama/ollama-client';
-import type { AgentWorkspace } from '../../src/ports/agent-port';
+import type { AgentWorkspace, ContextUsage } from '../../src/ports/agent-port';
 import { TestFixtureError } from '../support/test-errors';
 
 const OLLAMA_URL = process.env.OLLAMA_CONTRACT_URL;
@@ -305,6 +305,7 @@ function runTool(c: Case, call: ToolCall): ToolResult {
 interface AgentRun {
   readonly reply: AgentReply;
   readonly tools: readonly ToolCall['tool'][];
+  readonly usages: readonly ContextUsage[];
 }
 
 async function runAgent(agent: OllamaAgent, c: Case): Promise<AgentRun> {
@@ -317,14 +318,16 @@ async function runAgent(agent: OllamaAgent, c: Case): Promise<AgentRun> {
   };
   const transcript: AgentTurn[] = [...c.transcript];
   const tools: ToolCall['tool'][] = [];
+  const usages: ContextUsage[] = [];
   for (let step = 0; step <= AGENT_POLICY.maxToolCalls; step += 1) {
-    const decision = await agent.decide({
+    const { decision, contextUsage } = await agent.decide({
       message: c.request,
       conversation: [],
       workspace,
       transcript,
     });
-    if (decision.kind === 'reply') return { reply: decision.reply, tools };
+    usages.push(contextUsage);
+    if (decision.kind === 'reply') return { reply: decision.reply, tools, usages };
     tools.push(decision.call.tool);
     transcript.push({ call: decision.call, result: runTool(c, decision.call) });
   }
@@ -361,7 +364,11 @@ describe.runIf(OLLAMA_URL)('Ollama agent contract', () => {
   it.each(CASES)(
     '$name',
     async (c) => {
-      const { reply, tools } = await runAgent(agent, c);
+      const { reply, tools, usages } = await runAgent(agent, c);
+      for (const usage of usages) {
+        expect(usage.promptTokens).toBeGreaterThan(0);
+        expect(usage.promptTokens).toBeLessThanOrEqual(usage.contextTokens);
+      }
       if (c.tools) expect(c.tools).toContainEqual(tools);
       if (c.answer) {
         expect(reply.kind).toBe('answer');

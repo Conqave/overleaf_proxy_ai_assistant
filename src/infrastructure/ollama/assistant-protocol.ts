@@ -175,6 +175,10 @@ export function getPromptBudget(contextTokens: number): number {
   return (contextTokens - REPLY_RESERVE_TOKENS) * CHARS_PER_TOKEN - CORRECTION_RESERVE_CHARS;
 }
 
+export function estimatePromptTokens(request: GenerateRequest): number {
+  return Math.ceil((request.system.length + request.prompt.length) / CHARS_PER_TOKEN);
+}
+
 export function createPlanExchange(
   request: PlanningRequest,
   budget: number,

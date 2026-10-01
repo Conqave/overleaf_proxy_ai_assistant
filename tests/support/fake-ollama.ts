@@ -87,6 +87,9 @@ export class FakeOllama {
       });
     }
     if ('status' in reply) return new Response('error', { status: reply.status });
-    return new Response(JSON.stringify({ response: completionOf(reply) }), { status: 200 });
+    return new Response(
+      JSON.stringify({ response: completionOf(reply), prompt_eval_count: sent.prompt.length }),
+      { status: 200 },
+    );
   };
 }

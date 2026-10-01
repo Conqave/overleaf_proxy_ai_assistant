@@ -22,6 +22,11 @@ export interface GenerateRequest {
   readonly prompt: string;
 }
 
+export interface Completion {
+  readonly text: string;
+  readonly promptTokens: number;
+}
+
 const TEMPERATURE = 0.2;
 
 export const MAX_COMPLETION_TOKENS = 4_096;
@@ -36,14 +41,15 @@ export class OllamaClient {
     return this.config.contextTokens;
   }
 
-  async generate(request: GenerateRequest): Promise<string> {
+  async generate(request: GenerateRequest): Promise<Completion> {
     const prompt = renderHarmonyPrompt(request);
-    const completion = parseHarmonyCompletion(await this.complete(prompt));
-    if (completion.kind === 'final') return completion.text;
-    return await this.complete(renderFinalContinuation(prompt, completion.analysis));
+    const first = await this.complete(prompt);
+    const harmony = parseHarmonyCompletion(first.text);
+    if (harmony.kind === 'final') return { text: harmony.text, promptTokens: first.promptTokens };
+    return await this.complete(renderFinalContinuation(prompt, harmony.analysis));
   }
 
-  private complete(prompt: string): Promise<string> {
+  private complete(prompt: string): Promise<Completion> {
     return this.withTimeout(async (signal) => {
       const response = await this.post({ prompt, raw: true, options: this.getOptions() }, signal);
       if (!response.ok) {
@@ -52,7 +58,7 @@ export class OllamaClient {
           `Ollama answered HTTP ${String(response.status)} ${response.statusText}`.trim(),
         );
       }
-      return getResponseText(await this.readJson(response, signal));
+      return getCompletion(await this.readJson(response, signal));
     });
   }
 
@@ -127,14 +133,23 @@ export class OllamaClient {
   }
 }
 
-function getResponseText(data: unknown): string {
+function getCompletion(data: unknown): Completion {
   if (typeof data !== 'object' || data === null || !('response' in data)) {
     throw new AssistantResponseContractError('Ollama returned no "response" field.');
   }
   if (typeof data.response !== 'string') {
     throw new AssistantResponseContractError('Ollama returned a non-text "response" field.');
   }
-  return data.response;
+  if (!('prompt_eval_count' in data)) {
+    throw new AssistantResponseContractError('Ollama returned no "prompt_eval_count" field.');
+  }
+  const promptTokens = data.prompt_eval_count;
+  if (typeof promptTokens !== 'number' || !Number.isInteger(promptTokens) || promptTokens < 0) {
+    throw new AssistantResponseContractError(
+      'Ollama returned a "prompt_eval_count" that is not a token count.',
+    );
+  }
+  return { text: data.response, promptTokens };
 }
 
 const MS_PER_SECOND = 1_000;

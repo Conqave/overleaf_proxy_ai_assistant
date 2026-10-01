@@ -17,6 +17,17 @@ export interface AgentStepRequest {
   readonly transcript: readonly AgentTurn[];
 }
 
+export interface ContextUsage {
+  readonly contextTokens: number;
+  readonly estimatedPromptTokens: number;
+  readonly promptTokens: number;
+}
+
+export interface AgentStep {
+  readonly decision: AgentDecision;
+  readonly contextUsage: ContextUsage;
+}
+
 export interface AgentPort {
-  decide(request: AgentStepRequest): Promise<AgentDecision>;
+  decide(request: AgentStepRequest): Promise<AgentStep>;
 }
