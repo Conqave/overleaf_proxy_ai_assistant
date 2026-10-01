@@ -52,6 +52,12 @@ function getCut(trigger: CompactionTrigger, estimate: TokenEstimate): Cut | null
         keptFrom: conversation.messages.length,
       };
     }
+    case 'overflow':
+      return {
+        conversation: trigger.step.conversation,
+        keptTokens: PRESERVED_RECENT_TOKENS,
+        keptFrom: trigger.step.conversation.messages.length,
+      };
     case 'manual': {
       const { conversation } = trigger;
       const lastRequest = conversation.messages.findLastIndex(isRequestMessage);

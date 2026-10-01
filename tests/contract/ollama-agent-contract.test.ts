@@ -455,6 +455,11 @@ async function runApplication(
       usages.push(step.contextUsage);
       return step;
     },
+    async decideShortened(request) {
+      const step = await agent.decideShortened(request);
+      usages.push(step.contextUsage);
+      return step;
+    },
   };
   const conversation = new ConversationLog({
     sessions: new InMemorySessionRepository(),

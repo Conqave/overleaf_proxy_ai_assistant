@@ -53,6 +53,7 @@ export interface AgentStep {
 
 export type CompactionTrigger =
   | { readonly kind: 'auto'; readonly step: AgentStepRequest }
+  | { readonly kind: 'overflow'; readonly step: AgentStepRequest }
   | { readonly kind: 'manual'; readonly conversation: ConversationView };
 
 export interface CompactionPlan {
@@ -62,6 +63,7 @@ export interface CompactionPlan {
 export interface AgentPort {
   readonly idleUsage: ContextUsage;
   decide(request: AgentStepRequest): Promise<AgentStep>;
+  decideShortened(request: AgentStepRequest): Promise<AgentStep>;
   planCompaction(trigger: CompactionTrigger): CompactionPlan | null;
   measureConversation(conversation: ConversationView): number;
 }

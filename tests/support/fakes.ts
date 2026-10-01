@@ -122,6 +122,7 @@ export class FakeAgent implements AgentPort {
     pressure: 'low',
   } as const;
   requests: AgentStepRequest[] = [];
+  shortened: boolean[] = [];
   triggers: CompactionTrigger[] = [];
   plan: (trigger: CompactionTrigger) => CompactionPlan | null = () => null;
   onDecide: (request: AgentStepRequest) => void = () => undefined;
@@ -132,6 +133,14 @@ export class FakeAgent implements AgentPort {
     return this;
   }
   async decide(request: AgentStepRequest): Promise<AgentStep> {
+    this.shortened.push(false);
+    return await this.step(request);
+  }
+  async decideShortened(request: AgentStepRequest): Promise<AgentStep> {
+    this.shortened.push(true);
+    return await this.step(request);
+  }
+  private async step(request: AgentStepRequest): Promise<AgentStep> {
     this.requests.push(request);
     this.onDecide(request);
     const decision = await next(this.decisions, 'decide', request.signal);

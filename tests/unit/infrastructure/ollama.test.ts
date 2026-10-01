@@ -11,6 +11,7 @@ import {
 } from '../../../src/infrastructure/ollama/context-budget';
 import { preloadOllamaModel } from '../../../src/infrastructure/ollama/ollama-preload';
 import {
+  AssistantContextOverflowError,
   AssistantHttpError,
   AssistantProtocolError,
   AssistantReplyTruncatedError,
@@ -523,12 +524,18 @@ describe('OllamaAgent', () => {
     });
   });
 
-  it('rebuilds the prompt once to the size the model measured when it overflows', async () => {
+  it('reports an overflow to the caller without shortening the prompt', async () => {
+    const ollama = new FakeOllama().reply({ contextOverflow: true });
+    await expect(agent(ollama).decide(large)).rejects.toThrow(AssistantContextOverflowError);
+    expect(ollama.prompts).toHaveLength(1);
+  });
+
+  it('rebuilds a shortened prompt once to the size the model measured when it overflows', async () => {
     const ollama = new FakeOllama().reply(
       { contextOverflow: true },
       { response: 'ACTION: answer\nTEXT:\nDone.' },
     );
-    const { decision } = await agent(ollama).decide(large);
+    const { decision } = await agent(ollama).decideShortened(large);
     expect(decision).toMatchObject({ reply: { kind: 'answer', text: 'Done.' } });
     const first = itemAt(ollama.prompts, 0, 'prompt').body.prompt.length;
     const second = itemAt(ollama.prompts, 1, 'prompt');
@@ -541,7 +548,7 @@ describe('OllamaAgent', () => {
 
   it('names the context window when even the rebuilt prompt overflows', async () => {
     const ollama = new FakeOllama().reply({ contextOverflow: true }, { contextOverflow: true });
-    await expect(agent(ollama).decide(large)).rejects.toThrow(
+    await expect(agent(ollama).decideShortened(large)).rejects.toThrow(
       new AssistantRequestTooLargeError(
         `Even with the documents, results and conversation shortened, the request took ${String(FAKE_OVERFLOW_PROMPT_TOKENS)} tokens of the model's context window of 98304; please start a new chat and try again.`,
       ),

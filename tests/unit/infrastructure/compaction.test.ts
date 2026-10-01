@@ -92,6 +92,23 @@ describe('planCompaction before a model call', () => {
   });
 });
 
+describe('planCompaction after an overflow', () => {
+  it('summarises all but the most recent turns whatever the estimate says', () => {
+    const messages = turns(30, 2_000);
+    const conversation = { summary: null, messages };
+    expect(
+      planCompaction({ kind: 'auto', step: step(conversation) }, new TokenEstimate()),
+    ).toBeNull();
+    const plan = planCompaction(
+      { kind: 'overflow', step: step(conversation) },
+      new TokenEstimate(),
+    );
+    if (plan === null) throw new TestFixtureError('nothing was planned');
+    expect(plan.covered.length).toBeGreaterThan(0);
+    expect(messages[plan.covered.length]).toMatchObject({ role: 'user' });
+  });
+});
+
 describe('planCompaction on demand', () => {
   it('keeps about half of the conversation and the latest turn', () => {
     const messages = turns(10, 1_000);

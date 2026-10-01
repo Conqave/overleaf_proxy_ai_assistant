@@ -60,6 +60,7 @@ export class ConversationCompactor {
 function getView(trigger: CompactionTrigger): ConversationView {
   switch (trigger.kind) {
     case 'auto':
+    case 'overflow':
       return trigger.step.conversation;
     case 'manual':
       return trigger.conversation;

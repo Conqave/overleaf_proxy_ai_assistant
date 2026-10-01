@@ -37,6 +37,7 @@ import { createDocumentCommand } from '../../../src/domain/document-command';
 import { DocumentConflictError, InvariantViolation } from '../../../src/domain/errors';
 import type { ConversationSession } from '../../../src/domain/session';
 import {
+  AssistantContextOverflowError,
   AssistantProtocolError,
   AssistantUnreachableError,
   CompileTimeoutError,
@@ -771,6 +772,48 @@ describe('automatic compaction', () => {
     summarizer.will(new AssistantProtocolError('no note'));
     await expect(send('third')).rejects.toThrow(AssistantProtocolError);
     expect(conversation.messages().some((message) => message.role === 'summary')).toBe(false);
+  });
+});
+
+describe('context overflow', () => {
+  async function talk(...questions: string[]): Promise<void> {
+    for (const question of questions) {
+      agent.will(answer(`About ${question}.`));
+      await send(question);
+    }
+  }
+
+  it('compacts and retries once with a shortened prompt when the model overflows', async () => {
+    await talk('first', 'second');
+    agent.shortened = [];
+    agent.plan = (trigger) => (trigger.kind === 'overflow' ? coverAllButLastTurn(trigger) : null);
+    summarizer.will('## Goal\nShort.');
+    agent.will(new AssistantContextOverflowError('too long'), answer('It fits now.'));
+    progress = [];
+    const result = await send('third');
+    expect(result.message).toMatchObject({ text: 'It fits now.' });
+    expect(agent.shortened).toEqual([false, true]);
+    expect(requestAt(-1).conversation.summary).toMatchObject({ text: '## Goal\nShort.' });
+    expect(progress.map((p) => p.stage)).toEqual([
+      'received',
+      'thinking',
+      'compacting',
+      'compacted',
+      'thinking',
+    ]);
+  });
+
+  it('retries with a shortened prompt when there is nothing to compact', async () => {
+    agent.will(new AssistantContextOverflowError('too long'), answer('Shortened.'));
+    await expect(send('only')).resolves.toMatchObject({ message: { text: 'Shortened.' } });
+    expect(agent.shortened).toEqual([false, true]);
+    expect(summarizer.requests).toEqual([]);
+  });
+
+  it('does not retry other failures of the model', async () => {
+    agent.will(new AssistantUnreachableError('down'));
+    await expect(send('hi')).rejects.toThrow(AssistantUnreachableError);
+    expect(agent.shortened).toEqual([false]);
   });
 });
 

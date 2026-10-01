@@ -19,11 +19,13 @@ import { viewConversation, type ConversationView } from '../domain/conversation-
 import type {
   AgentPort,
   AgentRequest,
+  AgentStep,
   AgentStepRequest,
   AgentWorkspace,
   ContextUsage,
 } from '../ports/agent-port';
 import type { CancellationController, CancellationSignal } from '../ports/cancellation';
+import { AssistantContextOverflowError } from '../ports/errors';
 import type { EditorPort } from '../ports/editor-port';
 import type { ProjectPort } from '../ports/project-port';
 import {
@@ -131,7 +133,7 @@ export class HandleAssistantRequest {
   }
 
   private async runAgent(request: AgentRequest, run: RequestRun): Promise<AgentResult> {
-    const { agent, conversation, compactor } = this.deps;
+    const { conversation, compactor } = this.deps;
     const { epoch, signal, onProgress } = run;
     const workspace = await this.readWorkspace(signal);
     conversation.ensureCurrent(epoch);
@@ -155,7 +157,7 @@ export class HandleAssistantRequest {
         isCompacted = summary !== null;
       }
       onProgress({ stage: 'thinking', step });
-      const { decision, contextUsage } = await agent.decide(stepRequest());
+      const { decision, contextUsage } = await this.decide(stepRequest, step, run);
       conversation.ensureCurrent(epoch);
       let accepted: AcceptedDecision;
       try {
@@ -187,6 +189,22 @@ export class HandleAssistantRequest {
       turnIds.add(record.id);
       conversation.append(record);
     }
+  }
+
+  private async decide(
+    stepRequest: () => AgentStepRequest,
+    step: number,
+    run: RequestRun,
+  ): Promise<AgentStep> {
+    const { agent, compactor } = this.deps;
+    try {
+      return await agent.decide(stepRequest());
+    } catch (error) {
+      if (!(error instanceof AssistantContextOverflowError)) throw error;
+    }
+    await compactor.compact({ kind: 'overflow', step: stepRequest() }, run.onProgress, run.signal);
+    run.onProgress({ stage: 'thinking', step });
+    return await agent.decideShortened(stepRequest());
   }
 
   private viewHistory(turnIds: ReadonlySet<string>): ConversationView {
