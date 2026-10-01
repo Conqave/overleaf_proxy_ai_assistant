@@ -278,11 +278,17 @@ describe('preloadOllamaModel', () => {
     await expect(preloadOllamaModel(client)).resolves.toBeUndefined();
   });
 
-  it('lets an HTTP error of the model load through', async () => {
+  it('gives up quietly when the model load answers with an HTTP error', async () => {
     const client = new OllamaClient(config, () =>
       Promise.resolve(new Response('error', { status: 500 })),
     );
-    await expect(preloadOllamaModel(client)).rejects.toThrow(AssistantHttpError);
+    await expect(preloadOllamaModel(client)).resolves.toBeUndefined();
+  });
+
+  it('lets a defect of the model load through', async () => {
+    const defect = new RangeError('bug');
+    const client = new OllamaClient(config, () => Promise.reject(defect));
+    await expect(preloadOllamaModel(client)).rejects.toBe(defect);
   });
 });
 
