@@ -64,6 +64,17 @@ describe('OllamaClient', () => {
     expect(ollama.prompts).toHaveLength(1);
   });
 
+  it('returns a final message whose header carries a constraint', async () => {
+    const ollama = new FakeOllama().reply({
+      completion:
+        '<|channel|>analysis<|message|>Edit it.<|end|><|start|>assistant<|channel|>final <|constrain|>commentary<|message|>ACTION: compile',
+    });
+    await expect(generate(make(ollama).client)).resolves.toMatchObject({
+      text: 'ACTION: compile',
+    });
+    expect(ollama.prompts).toHaveLength(1);
+  });
+
   it('asks for the final message, keeping the analysis, when the model addresses a function', async () => {
     const ollama = new FakeOllama().reply(
       {

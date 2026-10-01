@@ -12,6 +12,8 @@ const CONTROL_TOKEN = /<\|[^|\s]*\|>/;
 const ASSISTANT_START = `${START}assistant`;
 const ANALYSIS_START = `${CHANNEL}analysis${MESSAGE}`;
 const FINAL_START = `${CHANNEL}final${MESSAGE}`;
+const FINAL_HEADER =
+  /<\|channel\|>final(?=\s|<\|)(?:(?!<\|(?:message|start|end)\|>)[^])*<\|message\|>/g;
 
 const SYSTEM_HEADER = [
   'Reasoning: medium',
@@ -47,9 +49,10 @@ export function renderHarmonyPrompt(request: GenerateRequest): string {
 }
 
 export function parseHarmonyCompletion(raw: string): HarmonyCompletion {
-  const finalStart = raw.lastIndexOf(FINAL_START);
-  if (finalStart !== -1) {
-    return { kind: 'final', text: parseFinalText(raw.slice(finalStart + FINAL_START.length), raw) };
+  const finalHeader = [...raw.matchAll(FINAL_HEADER)].at(-1);
+  if (finalHeader !== undefined) {
+    const finalStart = finalHeader.index + finalHeader[0].length;
+    return { kind: 'final', text: parseFinalText(raw.slice(finalStart), raw) };
   }
   const analysisStart = raw.indexOf(ANALYSIS_START);
   if (analysisStart === -1) {
