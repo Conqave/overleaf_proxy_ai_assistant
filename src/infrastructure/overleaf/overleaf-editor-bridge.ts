@@ -14,10 +14,13 @@ export interface OpenEditor {
   readonly preview: ChangePreview;
 }
 
+type BridgeFailure = OverleafHookContractError | OverleafStoreContractError;
+
 export class OverleafEditorBridge {
   private current: OpenEditor | null = null;
+  private failure: BridgeFailure | null = null;
   private readonly ready = Promise.withResolvers<undefined>();
-  private next = Promise.withResolvers<OpenEditor>();
+  private changed = Promise.withResolvers<undefined>();
 
   constructor(private readonly readOpenDocId: () => string) {}
 
@@ -47,9 +50,10 @@ export class OverleafEditorBridge {
     signal.addEventListener('abort', abort);
     try {
       while (!signal.aborted) {
+        if (this.failure !== null) throw this.failure;
         const editor = this.current;
         if (editor?.docId === docId) return editor;
-        await Promise.race([this.next.promise, aborted.promise]);
+        await Promise.race([this.changed.promise, aborted.promise]);
       }
       return null;
     } finally {
@@ -62,7 +66,7 @@ export class OverleafEditorBridge {
       return getExtensionsEventDetail(event);
     } catch (error) {
       if (!(error instanceof OverleafHookContractError)) throw error;
-      this.ready.reject(error);
+      this.fail(error);
       throw error;
     }
   }
@@ -80,16 +84,26 @@ export class OverleafEditorBridge {
       return this.readOpenDocId();
     } catch (error) {
       if (!(error instanceof OverleafStoreContractError)) throw error;
-      this.ready.reject(error);
+      this.fail(error);
       throw error;
     }
+  }
+
+  private fail(error: BridgeFailure): void {
+    this.failure ??= error;
+    this.ready.reject(error);
+    this.notifyChange();
+  }
+
+  private notifyChange(): void {
+    this.changed.resolve(undefined);
+    this.changed = Promise.withResolvers<undefined>();
   }
 
   private track(editor: OpenEditor): PluginValue {
     this.current = editor;
     this.ready.resolve(undefined);
-    this.next.resolve(editor);
-    this.next = Promise.withResolvers<OpenEditor>();
+    this.notifyChange();
     return {
       destroy: () => {
         if (this.current === editor) this.current = null;

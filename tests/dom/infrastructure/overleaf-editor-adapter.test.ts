@@ -114,6 +114,24 @@ describe('OverleafEditorBridge', () => {
     expect(other?.view).toBe(editor);
   });
 
+  it('stops waiting for a document once the bridge fails after start-up', async () => {
+    const failure = new OverleafStoreContractError('editor.open_doc_id is not a string');
+    let readOpenDocId = (): string => shownDocId;
+    const failing = new OverleafEditorBridge(() => readOpenDocId());
+    const uninstall = failing.install(window);
+    editor.destroy();
+    editor = open();
+    await failing.whenReady();
+    const shown = failing.whenShowing('doc-other', new AbortController().signal);
+    readOpenDocId = () => {
+      throw failure;
+    };
+    editor.destroy();
+    editor = open('\\section{Other file}');
+    uninstall();
+    await expect(shown).rejects.toBe(failure);
+  });
+
   it('stops waiting for a document when the signal aborts', async () => {
     const controller = new AbortController();
     const shown = bridge.whenShowing('doc-other', controller.signal);
