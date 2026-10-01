@@ -28,7 +28,7 @@ import {
   minBlockChars,
   SELECTION_LABEL,
   SMALL_BLOCK_SHARE,
-  userMessage,
+  requestBlock,
 } from './prompt-blocks';
 
 const OPEN_FILE_SHARE = 2;
@@ -43,8 +43,7 @@ const REJECTED = 'rejected';
 const A = AgentAction;
 const F = EditField;
 
-const LANGUAGE_RULE =
-  'Write every user-facing text in the language of the user message (Polish message → Polish text). Text that goes into a file keeps the language of that file unless the user asks for a translation, and names and titles the user gives are used exactly as given, untranslated ("dodaj sekcję Conclusions" → \\section{Conclusions}).';
+const LANGUAGE_RULE = `Write every user-facing text in the language of the user's latest message: the User message, or for a System request the user's last message shown with it (Polish message → Polish text). Text that goes into a file keeps the language of that file unless the user asks for a translation, and names and titles the user gives are used exactly as given, untranslated ("dodaj sekcję Conclusions" → \\section{Conclusions}).`;
 
 const EDIT_FORMAT = lines(
   fieldLine(F.Operation, Object.values(DocumentOperation).join('|')),
@@ -184,13 +183,13 @@ interface RenderedBlocks {
 
 function buildPrompt(request: AgentStepRequest, budget: number): string {
   const { workspace, transcript } = request;
-  const requestBlock = userMessage(request.message);
-  const smallBlock = Math.floor((budget - requestBlock.length) / SMALL_BLOCK_SHARE);
+  const requested = requestBlock(request.request, request.conversation);
+  const smallBlock = Math.floor((budget - requested.length) / SMALL_BLOCK_SHARE);
   if (SMALL_BLOCK_LABELS.some((label) => smallBlock < minBlockChars(label))) {
     throw createMessageTooLargeError();
   }
   const before = [
-    requestBlock,
+    requested,
     ...conversationBlock(request.conversation, smallBlock),
     block(FILES_LABEL, fileList(workspace.files, workspace.openFile.path), smallBlock),
   ];

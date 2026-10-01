@@ -82,7 +82,7 @@ export class HandleAssistantRequest {
       const message: UserMessage = { id: this.deps.newId(), role: 'user', text: request };
       const { history, epoch } = this.receive(message, onProgress);
       if (isGreetingOnly(request)) return { kind: 'greeting', message: this.greet() };
-      return await this.runAgent(request, history, [], { epoch, signal, onProgress });
+      return await this.runAgent(message, history, [], { epoch, signal, onProgress });
     });
   }
 
@@ -103,7 +103,7 @@ export class HandleAssistantRequest {
       call: { tool: AgentTool.Compile },
       result: { tool: AgentTool.Compile, diagnostics },
     };
-    return await this.runAgent(COMPILE_FIX_REQUEST, history, [compiled], {
+    return await this.runAgent(message, history, [compiled], {
       epoch,
       signal,
       onProgress,
@@ -124,7 +124,7 @@ export class HandleAssistantRequest {
   }
 
   private async runAgent(
-    request: string,
+    request: UserMessage | SystemRequestMessage,
     history: readonly ConversationMessage[],
     initialTranscript: readonly AgentTurn[],
     run: RequestRun,
@@ -137,7 +137,7 @@ export class HandleAssistantRequest {
     for (let step = 1; ; step += 1) {
       onProgress({ stage: 'thinking', step });
       const { decision, contextUsage } = await agent.decide({
-        message: request,
+        request,
         conversation: history,
         workspace,
         transcript: [...transcript],

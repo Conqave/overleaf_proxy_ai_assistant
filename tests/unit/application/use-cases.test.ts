@@ -162,7 +162,7 @@ describe('HandleAssistantRequest', () => {
     expect(result.kind).toBe('reply');
     expect(result.message).toMatchObject({ kind: 'explanation', text: 'A short paper.' });
     expect(agent.requests[0]).toEqual({
-      message: 'What is this document about?',
+      request: { id: anInstanceOf(String), role: 'user', text: 'What is this document about?' },
       conversation: [],
       workspace: {
         files: project.files,
@@ -686,7 +686,7 @@ describe('ReviewAppliedChange', () => {
     const outcome = await reviewApplied();
     expect(outcome).toMatchObject({ kind: 'fix', result: { message: { kind: 'proposal' } } });
     expect(agent.requests[0]).toMatchObject({
-      message: COMPILE_FIX_REQUEST,
+      request: { role: 'system', text: COMPILE_FIX_REQUEST },
       transcript: [
         { kind: 'tool', call: { tool: 'compile' }, result: { tool: 'compile', diagnostics } },
       ],

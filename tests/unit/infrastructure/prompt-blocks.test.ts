@@ -14,7 +14,7 @@ const conversation = Array.from({ length: 15 }, (_, i) => ({
 }));
 
 const request = (overrides: Partial<AgentStepRequest> = {}): AgentStepRequest => ({
-  message: 'm',
+  request: { id: 'r', role: 'user', text: 'm' },
   conversation: [],
   signal: new AbortController().signal,
   workspace: {
@@ -35,8 +35,25 @@ const withSelection = (selection: string): Partial<AgentStepRequest> => ({
 });
 
 describe('conversation history', () => {
+  it('labels a request of the editor as a system request in the language of the user', () => {
+    const prompt = promptOf({
+      request: { id: 'r', role: 'system', text: 'Fix the first error.' },
+      conversation: [
+        { id: '1', role: 'user', text: 'Dodaj tabelę wyników' },
+        { id: '2', role: 'assistant', kind: 'explanation', text: 'Gotowe.' },
+      ],
+    });
+    expect(prompt).toContain(
+      "System request (sent by the editor, not typed by the user):\nFix the first error.\n\nThe user's last message, whose language your texts use:\nDodaj tabelę wyników",
+    );
+    expect(prompt).not.toContain('User message:');
+  });
+
   it('carries the message and the last 12 turns', () => {
-    const prompt = promptOf({ message: 'Add a table', conversation });
+    const prompt = promptOf({
+      request: { id: 'r', role: 'user', text: 'Add a table' },
+      conversation,
+    });
     expect(prompt).toContain('User message:\nAdd a table');
     expect(prompt).toContain('[user] message 14');
     expect(prompt).toContain('[user] message 3');

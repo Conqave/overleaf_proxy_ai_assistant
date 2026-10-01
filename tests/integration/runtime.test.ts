@@ -462,7 +462,9 @@ describe('assistant agent', () => {
       expect(texts('.ola-system')).toContain(COMPILE_FIX_REQUEST);
       expect(texts('.ola-user')).toEqual(['Make the word experiment bold.']);
       const fixPrompt = itemAt(ollama.prompts, 1, 'prompt').userMessage;
-      expect(fixPrompt).toContain(`User message:\n${COMPILE_FIX_REQUEST}`);
+      expect(fixPrompt).toContain(
+        `System request (sent by the editor, not typed by the user):\n${COMPILE_FIX_REQUEST}\n\nThe user's last message, whose language your texts use:\nMake the word experiment bold.`,
+      );
       expect(fixPrompt).toContain(
         'Result 1 (compile):\nerror main.tex:4: Undefined control sequence.',
       );

@@ -455,7 +455,11 @@ describe('Ollama agent contract', () => {
     async () => {
       const project = createProject(new FakeEditor([]), TEXTS);
       const { decision } = await agent.decide({
-        message: 'jaki tytuł ma praca cytowana w dokumencie jako greenwade93?',
+        request: {
+          id: 'r',
+          role: 'user',
+          text: 'jaki tytuł ma praca cytowana w dokumencie jako greenwade93?',
+        },
         conversation: [],
         workspace: {
           files: project.files,

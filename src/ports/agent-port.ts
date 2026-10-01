@@ -1,6 +1,10 @@
 import type { AgentDecision } from '../domain/agent-action';
 import type { AgentTurn, OpenFileView } from '../domain/agent-transcript';
-import type { ConversationMessage } from '../domain/conversation';
+import type {
+  ConversationMessage,
+  SystemRequestMessage,
+  UserMessage,
+} from '../domain/conversation';
 import type { ProjectFile } from '../domain/project-file';
 import type { CancellationSignal } from './cancellation';
 
@@ -12,7 +16,7 @@ export interface AgentWorkspace {
 }
 
 export interface AgentStepRequest {
-  readonly message: string;
+  readonly request: UserMessage | SystemRequestMessage;
   readonly conversation: readonly ConversationMessage[];
   readonly workspace: AgentWorkspace;
   readonly transcript: readonly AgentTurn[];
