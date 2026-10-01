@@ -4,9 +4,11 @@ import { ApplyDocumentChange } from '../../../src/application/apply-document-cha
 import { ConversationLog } from '../../../src/application/conversation-log';
 import { StartNewConversation } from '../../../src/application/conversation-session';
 import { HandleAssistantRequest } from '../../../src/application/handle-assistant-request';
+import { OperationLock } from '../../../src/application/operation-lock';
 import { PendingChanges } from '../../../src/application/pending-change';
 import { RejectDocumentChange } from '../../../src/application/reject-document-change';
 import { ReviewAppliedChange } from '../../../src/application/review-applied-change';
+import type { CompileDiagnostic } from '../../../src/domain/agent-transcript';
 import { createDocumentCommand } from '../../../src/domain/document-command';
 import { InvariantViolation } from '../../../src/domain/errors';
 import { AssistantController } from '../../../src/presentation/assistant-controller';
@@ -45,18 +47,21 @@ async function proposeBibEdit() {
   );
   const conversation = new ConversationLog(new InMemoryConversationRepository());
   const pendingChanges = new PendingChanges();
+  const lock = new OperationLock();
   const handleRequest = new HandleAssistantRequest({
     agent,
     project,
     editor,
     conversation,
     pendingChanges,
+    lock,
     newId: sequentialIds(),
   });
+  const review = new ReviewAppliedChange({ project, conversation, handleRequest });
   const controller = new AssistantController({
     handleRequest,
-    reviewChange: new ReviewAppliedChange({ project, conversation, handleRequest }),
-    applyChange: new ApplyDocumentChange({ editor, project, pendingChanges }),
+    lock,
+    applyChange: new ApplyDocumentChange({ editor, project, pendingChanges, lock, review }),
     rejectChange: new RejectDocumentChange({ editor, pendingChanges, conversation }),
     startNewConversation: new StartNewConversation({ conversation, pendingChanges, editor }),
     conversation,
@@ -69,7 +74,16 @@ async function proposeBibEdit() {
   }
   const texts = (selector: string) =>
     Array.from(window.document.querySelectorAll(selector)).map((n) => n.textContent);
-  return { controller, editor, project, agent, documents, changeId: proposal.id, texts };
+  return {
+    window,
+    controller,
+    editor,
+    project,
+    agent,
+    documents,
+    changeId: proposal.id,
+    texts,
+  };
 }
 
 describe('AssistantController context usage', () => {
@@ -126,5 +140,25 @@ describe('AssistantController apply', () => {
     expect(texts('.ola-error')).toEqual([
       'Unexpected internal error. Details are in the browser console.',
     ]);
+  });
+});
+
+describe('AssistantView while an operation runs', () => {
+  it('shows the busy state of the operation lock and ignores Enter until it ends', async () => {
+    const { window, controller, project, changeId, texts } = await proposeBibEdit();
+    const compiled = Promise.withResolvers<readonly CompileDiagnostic[]>();
+    project.compile = () => compiled.promise;
+    const applying = controller.apply(changeId);
+    const input = window.document.querySelector('textarea');
+    if (input === null) throw new TestFixtureError('the view has no input');
+    expect(window.document.querySelector('#ola-root')?.classList.contains('is-busy')).toBe(true);
+    input.value = 'second request';
+    input.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    expect(input.value).toBe('second request');
+    compiled.resolve([]);
+    await applying;
+    expect(texts('.ola-error')).toEqual([]);
+    expect(texts('.ola-user')).toEqual(['add the knuth84 entry']);
+    expect(window.document.querySelector('#ola-root')?.classList.contains('is-busy')).toBe(false);
   });
 });

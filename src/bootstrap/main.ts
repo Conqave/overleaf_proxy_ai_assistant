@@ -2,6 +2,7 @@ import { ApplyDocumentChange } from '../application/apply-document-change';
 import { ConversationLog } from '../application/conversation-log';
 import { StartNewConversation } from '../application/conversation-session';
 import { HandleAssistantRequest } from '../application/handle-assistant-request';
+import { OperationLock } from '../application/operation-lock';
 import { PendingChanges } from '../application/pending-change';
 import { RejectDocumentChange } from '../application/reject-document-change';
 import { ReviewAppliedChange } from '../application/review-applied-change';
@@ -58,6 +59,7 @@ function compose(
     new LocalStorageConversationRepository(window, identity),
   );
   const pendingChanges = new PendingChanges();
+  const lock = new OperationLock();
 
   const handleRequest = new HandleAssistantRequest({
     agent,
@@ -65,13 +67,15 @@ function compose(
     editor,
     conversation,
     pendingChanges,
+    lock,
     newId: () => createUuid(window.crypto),
   });
+  const review = new ReviewAppliedChange({ project, conversation, handleRequest });
 
   const controller = new AssistantController({
     handleRequest,
-    applyChange: new ApplyDocumentChange({ editor, project, pendingChanges }),
-    reviewChange: new ReviewAppliedChange({ project, conversation, handleRequest }),
+    applyChange: new ApplyDocumentChange({ editor, project, pendingChanges, lock, review }),
+    lock,
     rejectChange: new RejectDocumentChange({ editor, pendingChanges, conversation }),
     startNewConversation: new StartNewConversation({ conversation, pendingChanges, editor }),
     conversation,

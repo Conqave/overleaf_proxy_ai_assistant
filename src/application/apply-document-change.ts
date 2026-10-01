@@ -1,8 +1,9 @@
-import type { ProjectEdit } from '../domain/agent-action';
 import type { EditorPort } from '../ports/editor-port';
 import type { ProjectPort } from '../ports/project-port';
 import type { AgentProgress } from './agent-progress';
+import type { OperationLock } from './operation-lock';
 import type { PendingChanges } from './pending-change';
+import type { ReviewAppliedChange, ReviewOutcome } from './review-applied-change';
 import { showProjectFile } from './show-project-file';
 
 export class ApplyDocumentChange {
@@ -11,13 +12,22 @@ export class ApplyDocumentChange {
       editor: EditorPort;
       project: ProjectPort;
       pendingChanges: PendingChanges;
+      lock: OperationLock;
+      review: ReviewAppliedChange;
     },
   ) {}
 
-  async execute(
+  execute(changeId: string, onProgress: (progress: AgentProgress) => void): Promise<ReviewOutcome> {
+    return this.deps.lock.run(async () => {
+      await this.apply(changeId, onProgress);
+      return await this.deps.review.execute(onProgress);
+    });
+  }
+
+  private async apply(
     changeId: string,
     onProgress: (progress: AgentProgress) => void,
-  ): Promise<ProjectEdit> {
+  ): Promise<void> {
     const { editor, project } = this.deps;
     const change = this.deps.pendingChanges.get(changeId);
     const { file, edit } = change.change;
@@ -32,6 +42,6 @@ export class ApplyDocumentChange {
       throw error;
     }
     change.markApplied();
-    return change.change;
+    onProgress({ stage: 'applied', change: change.change });
   }
 }

@@ -106,5 +106,7 @@ export function progressStatus(progress: AgentProgress): string {
       return 'Hans is compiling the project';
     case 'opening':
       return `Hans is opening ${progress.path}`;
+    case 'applied':
+      return 'Hans applied the change';
   }
 }

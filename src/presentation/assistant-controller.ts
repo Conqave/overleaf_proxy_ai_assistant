@@ -6,8 +6,8 @@ import type {
   HandleAssistantRequest,
 } from '../application/handle-assistant-request';
 import type { AgentProgress } from '../application/agent-progress';
+import type { OperationLock } from '../application/operation-lock';
 import type { RejectDocumentChange } from '../application/reject-document-change';
-import type { ReviewAppliedChange } from '../application/review-applied-change';
 import { InvariantViolation, OperationalError } from '../domain/errors';
 import type { AssistantView, ViewEvents } from './assistant-view';
 import {
@@ -23,7 +23,7 @@ import {
 export interface UseCases {
   handleRequest: HandleAssistantRequest;
   applyChange: ApplyDocumentChange;
-  reviewChange: ReviewAppliedChange;
+  lock: Pick<OperationLock, 'onChange'>;
   rejectChange: RejectDocumentChange;
   startNewConversation: StartNewConversation;
   conversation: Pick<ConversationLog, 'restore' | 'takePersistenceFailure'>;
@@ -36,6 +36,9 @@ export class AssistantController implements ViewEvents {
 
   attach(view: AssistantView): Promise<void> {
     this.view = view;
+    this.useCases.lock.onChange((busy) => {
+      view.setBusy(busy);
+    });
     return this.guard(() => {
       view.showConversation(this.useCases.conversation.restore());
     });
@@ -43,26 +46,17 @@ export class AssistantController implements ViewEvents {
 
   send(text: string): Promise<void> {
     const view = this.requireView();
-    let accepted = false;
-    const run = async (): Promise<void> => {
+    return this.guard(async () => {
       try {
         const result = await this.useCases.handleRequest.execute(text, (progress) => {
-          if (progress.stage === 'received') {
-            accepted = true;
-            view.setBusy(true);
-            view.clearInput();
-          }
+          if (progress.stage === 'received') view.clearInput();
           this.showProgress(view, progress);
         });
         this.showResult(view, result);
       } finally {
-        if (accepted) {
-          view.setBusy(false);
-          view.setStatus('');
-        }
+        view.setStatus('');
       }
-    };
-    return this.guard(run);
+    });
   }
 
   apply(changeId: string): Promise<void> {
@@ -72,11 +66,8 @@ export class AssistantController implements ViewEvents {
       this.showProgress(view, progress);
     };
     return this.guard(async () => {
-      view.setBusy(true);
       try {
-        const change = await this.useCases.applyChange.execute(changeId, onProgress);
-        view.showNotice(appliedNotice(change), 'info');
-        const outcome = await this.useCases.reviewChange.execute(onProgress);
+        const outcome = await this.useCases.applyChange.execute(changeId, onProgress);
         switch (outcome.kind) {
           case 'compiled':
             view.showNotice(COMPILED, 'info');
@@ -85,7 +76,6 @@ export class AssistantController implements ViewEvents {
             this.showResult(view, outcome.result);
         }
       } finally {
-        view.setBusy(false);
         view.setStatus('');
       }
     });
@@ -127,9 +117,20 @@ export class AssistantController implements ViewEvents {
   }
 
   private showProgress(view: AssistantView, progress: AgentProgress): void {
-    if (progress.stage === 'received') {
-      view.closeAllChangeActions();
-      view.appendMessage(progress.message);
+    switch (progress.stage) {
+      case 'received':
+        view.closeAllChangeActions();
+        view.appendMessage(progress.message);
+        break;
+      case 'applied':
+        view.showNotice(appliedNotice(progress.change), 'info');
+        break;
+      case 'thinking':
+      case 'reading':
+      case 'searching':
+      case 'compiling':
+      case 'opening':
+        break;
     }
     view.setStatus(progressStatus(progress));
   }

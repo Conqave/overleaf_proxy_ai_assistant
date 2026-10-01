@@ -16,10 +16,12 @@ import {
   HandleAssistantRequest,
   type AssistantRequestResult,
 } from '../../../src/application/handle-assistant-request';
+import { OperationLock } from '../../../src/application/operation-lock';
 import { PendingChanges, PendingDocumentChange } from '../../../src/application/pending-change';
 import { RejectDocumentChange } from '../../../src/application/reject-document-change';
 import { ReviewAppliedChange } from '../../../src/application/review-applied-change';
 import type { AgentDecision, ToolCall } from '../../../src/domain/agent-action';
+import type { CompileDiagnostic } from '../../../src/domain/agent-transcript';
 import { AGENT_POLICY } from '../../../src/domain/agent-policy';
 import { createDocumentSnapshot } from '../../../src/domain/document';
 import { createDocumentCommand } from '../../../src/domain/document-command';
@@ -58,6 +60,7 @@ let handle: HandleAssistantRequest;
 let apply: ApplyDocumentChange;
 let reject: RejectDocumentChange;
 let review: ReviewAppliedChange;
+let lock: OperationLock;
 let progress: AgentProgress[];
 
 const record = (p: AgentProgress) => {
@@ -116,6 +119,7 @@ beforeEach(() => {
   repository = new InMemoryConversationRepository();
   conversation = new ConversationLog(repository);
   pendingChanges = new PendingChanges();
+  lock = new OperationLock();
   const newId = sequentialIds();
   handle = new HandleAssistantRequest({
     agent,
@@ -123,11 +127,12 @@ beforeEach(() => {
     editor,
     conversation,
     pendingChanges,
+    lock,
     newId,
   });
-  apply = new ApplyDocumentChange({ editor, project, pendingChanges });
-  reject = new RejectDocumentChange({ editor, pendingChanges, conversation });
   review = new ReviewAppliedChange({ project, conversation, handleRequest: handle });
+  apply = new ApplyDocumentChange({ editor, project, pendingChanges, lock, review });
+  reject = new RejectDocumentChange({ editor, pendingChanges, conversation });
   progress = [];
 });
 
@@ -473,13 +478,32 @@ describe('conversation reset during a request', () => {
 });
 
 describe('preview / apply / reject', () => {
-  it('applies an approved change and returns it', async () => {
+  beforeEach(() => {
+    project.willCompile([], []);
+  });
+
+  it('applies an approved change and then compiles the project', async () => {
     const changeId = await proposeEdit();
-    await expect(apply.execute(changeId, record)).resolves.toBe(
-      pendingChanges.get(changeId).change,
-    );
+    progress = [];
+    await expect(apply.execute(changeId, record)).resolves.toEqual({ kind: 'compiled' });
     expect(editor.lines).toEqual([...MAIN, 'Added.']);
     expect(editor.preview).toBeNull();
+    expect(progress).toEqual([
+      { stage: 'applied', change: pendingChanges.get(changeId).change },
+      { stage: 'compiling' },
+    ]);
+  });
+
+  it('refuses a request while an applied change is being reviewed', async () => {
+    const changeId = await proposeEdit();
+    const compiled = Promise.withResolvers<readonly CompileDiagnostic[]>();
+    project.compile = () => compiled.promise;
+    const applying = apply.execute(changeId, record);
+    expect(lock.isBusy).toBe(true);
+    await expect(send('what next?')).rejects.toThrow(RequestInProgressError);
+    compiled.resolve([]);
+    await expect(applying).resolves.toEqual({ kind: 'compiled' });
+    expect(lock.isBusy).toBe(false);
   });
 
   it('opens the file of the change when the user switched away before Apply', async () => {
@@ -488,7 +512,7 @@ describe('preview / apply / reject', () => {
     progress = [];
     await apply.execute(changeId, record);
     expect(project.opened).toEqual(['refs.bib', 'refs.bib']);
-    expect(progress).toEqual([{ stage: 'opening', path: 'refs.bib' }]);
+    expect(progress[0]).toEqual({ stage: 'opening', path: 'refs.bib' });
     expect(editor.lines).toEqual([...BIB, 'Added.']);
   });
 
@@ -564,9 +588,15 @@ describe('preview / apply / reject', () => {
 });
 
 describe('ReviewAppliedChange', () => {
+  const reviewApplied = () => lock.run(() => review.execute(record));
+
+  it('fixes compile errors only inside a running operation', async () => {
+    await expect(handle.fixCompileErrors([], record)).rejects.toThrow(InvariantViolation);
+  });
+
   it('reports a clean compilation without asking the agent', async () => {
     project.willCompile([{ level: 'warning', message: 'Overfull \\hbox.' }]);
-    await expect(review.execute(record)).resolves.toEqual({ kind: 'compiled' });
+    await expect(reviewApplied()).resolves.toEqual({ kind: 'compiled' });
     expect(agent.requests).toHaveLength(0);
     expect(progress).toEqual([{ stage: 'compiling' }]);
   });
@@ -574,7 +604,7 @@ describe('ReviewAppliedChange', () => {
   it('records the fix request as a system request, not as a user message', async () => {
     project.willCompile([{ level: 'error' as const, message: 'x' }]);
     agent.will(answer('Fixed nothing.'));
-    await review.execute(record);
+    await reviewApplied();
     expect(conversation.messages()[0]).toEqual({
       id: expect.any(String) as unknown,
       role: 'system',
@@ -589,7 +619,7 @@ describe('ReviewAppliedChange', () => {
     ];
     project.willCompile(diagnostics);
     agent.will(mainEdit());
-    const outcome = await review.execute(record);
+    const outcome = await reviewApplied();
     expect(outcome).toMatchObject({ kind: 'fix', result: { message: { kind: 'proposal' } } });
     expect(agent.requests[0]).toMatchObject({
       message: COMPILE_FIX_REQUEST,
@@ -605,7 +635,7 @@ describe('ReviewAppliedChange', () => {
       new StartNewConversation({ conversation, pendingChanges, editor }).execute();
       return Promise.resolve([{ level: 'error' as const, message: 'x' }]);
     };
-    await expect(review.execute(record)).rejects.toThrow(RequestSupersededError);
+    await expect(reviewApplied()).rejects.toThrow(RequestSupersededError);
     expect(agent.requests).toHaveLength(0);
   });
 });

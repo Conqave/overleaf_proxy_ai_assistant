@@ -15,8 +15,9 @@ import type { ProjectPort } from '../ports/project-port';
 import { acceptDecision, isAgentMistake, type AcceptedDecision } from './agent-decision';
 import type { AgentProgress } from './agent-progress';
 import type { ConversationLog } from './conversation-log';
-import { AgentMistakeLimitError, EmptyRequestError, RequestInProgressError } from './errors';
+import { AgentMistakeLimitError, EmptyRequestError } from './errors';
 import { isGreetingOnly } from './greeting-policy';
+import type { OperationLock } from './operation-lock';
 import { PendingDocumentChange, type PendingChanges } from './pending-change';
 import { ProjectTools } from './project-tools';
 import { showProjectFile } from './show-project-file';
@@ -43,7 +44,6 @@ export type AgentResult =
     };
 
 export class HandleAssistantRequest {
-  private running = false;
   private readonly tools: ProjectTools;
 
   constructor(
@@ -53,6 +53,7 @@ export class HandleAssistantRequest {
       editor: EditorPort;
       conversation: ConversationLog;
       pendingChanges: PendingChanges;
+      lock: OperationLock;
       newId: () => string;
     },
   ) {
@@ -65,7 +66,7 @@ export class HandleAssistantRequest {
   ): Promise<AssistantRequestResult> {
     const request = text.trim();
     if (!request) throw new EmptyRequestError();
-    return await this.exclusively(async () => {
+    return await this.deps.lock.run(async () => {
       const message: UserMessage = { id: this.deps.newId(), role: 'user', text: request };
       const { history, epoch } = this.receive(message, onProgress);
       if (isGreetingOnly(request)) return { kind: 'greeting', message: this.greet() };
@@ -77,30 +78,19 @@ export class HandleAssistantRequest {
     diagnostics: readonly CompileDiagnostic[],
     onProgress: (progress: AgentProgress) => void,
   ): Promise<AgentResult> {
-    return await this.exclusively(async () => {
-      const message: SystemRequestMessage = {
-        id: this.deps.newId(),
-        role: 'system',
-        text: COMPILE_FIX_REQUEST,
-      };
-      const { history, epoch } = this.receive(message, onProgress);
-      const compiled: AgentTurn = {
-        kind: 'tool',
-        call: { tool: AgentTool.Compile },
-        result: { tool: AgentTool.Compile, diagnostics },
-      };
-      return await this.runAgent(COMPILE_FIX_REQUEST, history, [compiled], epoch, onProgress);
-    });
-  }
-
-  private async exclusively<T>(operation: () => Promise<T>): Promise<T> {
-    if (this.running) throw new RequestInProgressError();
-    this.running = true;
-    try {
-      return await operation();
-    } finally {
-      this.running = false;
-    }
+    this.deps.lock.assertHeld();
+    const message: SystemRequestMessage = {
+      id: this.deps.newId(),
+      role: 'system',
+      text: COMPILE_FIX_REQUEST,
+    };
+    const { history, epoch } = this.receive(message, onProgress);
+    const compiled: AgentTurn = {
+      kind: 'tool',
+      call: { tool: AgentTool.Compile },
+      result: { tool: AgentTool.Compile, diagnostics },
+    };
+    return await this.runAgent(COMPILE_FIX_REQUEST, history, [compiled], epoch, onProgress);
   }
 
   private receive(

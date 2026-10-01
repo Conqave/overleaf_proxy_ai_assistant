@@ -26,6 +26,7 @@ export class AssistantView {
   private readonly status: HTMLElement;
   private readonly contextUsage: HTMLElement;
   private readonly messageNodes = new Map<string, HTMLElement>();
+  private busy = false;
   private readonly actionNodes = new Map<string, HTMLElement>();
 
   static isMounted(document: Document): boolean {
@@ -122,6 +123,7 @@ export class AssistantView {
   }
 
   setBusy(busy: boolean): void {
+    this.busy = busy;
     this.root.classList.toggle('is-busy', busy);
     this.sendButton.disabled = busy;
   }
@@ -141,6 +143,7 @@ export class AssistantView {
   }
 
   private submit(): void {
+    if (this.busy) return;
     void this.events.send(this.input.value);
   }
 
