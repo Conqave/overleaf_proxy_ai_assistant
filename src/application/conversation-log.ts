@@ -1,6 +1,8 @@
 import {
   AssistantMessageKind,
   decideProposal,
+  isUndecidedProposal,
+  ProposalStatus,
   type ConversationMessage,
   type ProposalDecision,
   type ProposalMessage,
@@ -30,6 +32,7 @@ export class ConversationLog {
       this.storedConversationUnreadable = true;
       this.items = [];
     }
+    this.discardUndecidedProposals();
     return this.messages();
   }
 
@@ -77,6 +80,14 @@ export class ConversationLog {
     const failure = this.persistenceFailure;
     this.persistenceFailure = null;
     return failure;
+  }
+
+  private discardUndecidedProposals(): void {
+    if (!this.items.some(isUndecidedProposal)) return;
+    this.items = this.items.map((message) =>
+      isUndecidedProposal(message) ? decideProposal(message, ProposalStatus.Discarded) : message,
+    );
+    this.persist();
   }
 
   private recordFailure(failure: PersistenceError | UnreadableConversationError): void {

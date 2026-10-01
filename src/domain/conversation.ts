@@ -75,3 +75,11 @@ export function decideProposal(
 export type AssistantMessage = ReplyMessage | ProposalMessage;
 
 export type ConversationMessage = UserMessage | SystemRequestMessage | AssistantMessage;
+
+export function isUndecidedProposal(message: ConversationMessage): message is ProposalMessage {
+  return (
+    message.role === 'assistant' &&
+    message.kind === AssistantMessageKind.Proposal &&
+    message.status === ProposalStatus.Proposed
+  );
+}

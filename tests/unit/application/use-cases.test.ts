@@ -825,6 +825,27 @@ describe('conversation', () => {
     await expect(apply.execute(changeId, record)).rejects.toThrow(ChangeNoLongerPendingError);
   });
 
+  it('discards the proposals a reload left undecided', () => {
+    const undecided = {
+      id: 'p',
+      role: 'assistant' as const,
+      kind: 'proposal' as const,
+      path: 'main.tex',
+      command: createDocumentCommand({
+        operation: 'delete',
+        target: { lineNumber: 1, lineText: itemAt(MAIN, 0, 'line') },
+      }),
+      status: 'proposed' as const,
+    };
+    repository.stored = [{ id: 'u', role: 'user', text: 'delete it' }, undecided];
+    const discarded = { ...undecided, status: 'discarded' };
+    expect(conversation.restore()).toEqual([
+      { id: 'u', role: 'user', text: 'delete it' },
+      discarded,
+    ]);
+    expect(repository.stored.at(-1)).toEqual(discarded);
+  });
+
   it('keeps working when storage fails and reports it once', async () => {
     repository.failing = true;
     agent.will(answer('Hi.'));
