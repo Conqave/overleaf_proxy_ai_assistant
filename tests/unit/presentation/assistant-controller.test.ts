@@ -87,6 +87,7 @@ async function openAssistant() {
     rejectChange: new RejectDocumentChange({ editor, pendingChanges, lock }),
     restoreSession: new RestoreLatestSession({ sessions, conversation, lock }),
     startNewConversation: new StartNewConversation({
+      sessions,
       conversation,
       pendingChanges,
       editor,

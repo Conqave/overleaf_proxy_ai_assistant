@@ -3,6 +3,9 @@ import type { AgentProgress } from '../../../src/application/agent-progress';
 import { ApplyDocumentChange } from '../../../src/application/apply-document-change';
 import { ConversationLog } from '../../../src/application/conversation-log';
 import {
+  DeleteSession,
+  ListSessions,
+  OpenSession,
   RestoreLatestSession,
   StartNewConversation,
 } from '../../../src/application/conversation-session';
@@ -39,7 +42,9 @@ import {
   FileOpenTimeoutError,
   ProjectFileReadError,
   ProjectUnavailableError,
+  SessionNotFoundError,
   SessionStorageError,
+  UnreadableSessionError,
 } from '../../../src/ports/errors';
 import {
   FAKE_CONTEXT_TOKENS,
@@ -54,6 +59,7 @@ import {
   ticking,
 } from '../../support/fakes';
 import { anInstanceOf, itemAt, textContaining } from '../../support/guards';
+import { TestFixtureError } from '../../support/test-errors';
 
 const MAIN = ['\\section{Intro}', 'Hello world.', '\\section{Results}', 'Numbers \\cite{knuth84}.'];
 const BIB = ['@article{smith20,', '  title = {Smith},', '}'];
@@ -81,8 +87,14 @@ const storedMessages = () => repository.only().messages;
 const seed = (session: ConversationSession) => {
   repository.stored.set(session.id, session);
 };
-const restore = () =>
-  new RestoreLatestSession({ sessions: repository, conversation, lock }).execute();
+const sessionDeps = () => ({ sessions: repository, conversation, pendingChanges, editor, lock });
+const restore = () => new RestoreLatestSession(sessionDeps()).execute();
+const startNew = () => {
+  new StartNewConversation(sessionDeps()).execute();
+};
+const listSessions = () => new ListSessions(sessionDeps()).execute();
+const openSession = (id: string) => new OpenSession(sessionDeps()).execute(id);
+const deleteSession = (id: string) => new DeleteSession(sessionDeps()).execute(id);
 const requestAt = (index: number) => itemAt(agent.requests, index, 'agent request');
 const tool = (call: ToolCall): AgentDecision => ({ kind: 'tool', call });
 const answer = (text: string): AgentDecision => ({
@@ -327,7 +339,7 @@ describe('HandleAssistantRequest', () => {
     });
     await new Promise((resolve) => setTimeout(resolve, 10));
     expect(project.reads).toHaveLength(PARALLEL_SEARCH_READS);
-    new StartNewConversation({ conversation, pendingChanges, editor, lock }).execute();
+    startNew();
     await expect(sending).rejects.toThrow(RequestSupersededError);
   });
 
@@ -545,7 +557,7 @@ describe('conversation reset during a request', () => {
     await vi.waitFor(() => {
       expect(agent.requests).toHaveLength(1);
     });
-    new StartNewConversation({ conversation, pendingChanges, editor, lock }).execute();
+    startNew();
     await expect(running).rejects.toThrow(RequestSupersededError);
     expect(isBusy()).toBe(false);
     agent.will(answer('Fresh.'));
@@ -564,7 +576,7 @@ describe('conversation reset during a request', () => {
       }),
     );
     const running = send('add');
-    new StartNewConversation({ conversation, pendingChanges, editor, lock }).execute();
+    startNew();
     release();
     await expect(running).rejects.toThrow(RequestSupersededError);
     expect(conversation.messages()).toHaveLength(0);
@@ -575,7 +587,7 @@ describe('conversation reset during a request', () => {
     agent.will(tool({ tool: 'compile' }));
     project.willCompile(
       new PendingStep(() => {
-        new StartNewConversation({ conversation, pendingChanges, editor, lock }).execute();
+        startNew();
         return Promise.resolve([]);
       }),
     );
@@ -605,7 +617,7 @@ describe('preview / apply / reject', () => {
     await vi.waitFor(() => {
       expect(project.compileCalls).toBe(1);
     });
-    new StartNewConversation({ conversation, pendingChanges, editor, lock }).execute();
+    startNew();
     await expect(applying).rejects.toThrow(RequestSupersededError);
     expect(editor.lines).toEqual([...MAIN, 'Added.']);
     expect(isBusy()).toBe(false);
@@ -618,7 +630,7 @@ describe('preview / apply / reject', () => {
     await vi.waitFor(() => {
       expect(project.reads).toEqual(['refs.bib']);
     });
-    new StartNewConversation({ conversation, pendingChanges, editor, lock }).execute();
+    startNew();
     await expect(running).rejects.toThrow(RequestSupersededError);
   });
 
@@ -698,7 +710,7 @@ describe('preview / apply / reject', () => {
     const changeId = await proposeEdit(readBib(), bibEdit());
     project.switchTo('main.tex');
     project.onOpen = () => {
-      new StartNewConversation({ conversation, pendingChanges, editor, lock }).execute();
+      startNew();
     };
     await expect(apply.execute(changeId, record)).rejects.toThrow(RequestSupersededError);
     expect(editor.applied).toHaveLength(0);
@@ -825,7 +837,7 @@ describe('ReviewAppliedChange', () => {
   it('drops the review when the conversation was reset during compilation', async () => {
     project.willCompile(
       new PendingStep(() => {
-        new StartNewConversation({ conversation, pendingChanges, editor, lock }).execute();
+        startNew();
         return Promise.resolve([{ level: 'error' as const, message: 'x' }]);
       }),
     );
@@ -838,10 +850,11 @@ describe('conversation', () => {
   it('restores the latest session and starts a new one without deleting it', async () => {
     seed(storedSession('old', [{ id: 'a', role: 'user', text: 'older' }], 1));
     seed(storedSession('latest', [{ id: 'b', role: 'user', text: 'latest' }], 2));
-    await expect(restore()).resolves.toEqual([{ id: 'b', role: 'user', text: 'latest' }]);
+    await restore();
+    expect(conversation.messages()).toEqual([{ id: 'b', role: 'user', text: 'latest' }]);
     expect(conversation.sessionId).toBe('latest');
     const changeId = await proposeEdit();
-    new StartNewConversation({ conversation, pendingChanges, editor, lock }).execute();
+    startNew();
     expect(conversation.messages()).toHaveLength(0);
     expect(conversation.sessionId).toBeNull();
     expect(repository.stored.get('latest')?.messages.at(-1)).toMatchObject({
@@ -860,7 +873,8 @@ describe('conversation', () => {
   });
 
   it('starts with a new session when none is stored', async () => {
-    await expect(restore()).resolves.toEqual([]);
+    await restore();
+    expect(conversation.messages()).toEqual([]);
     expect(conversation.sessionId).toBeNull();
     expect(repository.stored.size).toBe(0);
   });
@@ -887,7 +901,8 @@ describe('conversation', () => {
     };
     seed(storedSession('s', [{ id: 'u', role: 'user', text: 'delete it' }, undecided]));
     const discarded = { ...undecided, status: 'discarded' };
-    await expect(restore()).resolves.toEqual([
+    await restore();
+    expect(conversation.messages()).toEqual([
       { id: 'u', role: 'user', text: 'delete it' },
       discarded,
     ]);
@@ -935,5 +950,162 @@ describe('conversation', () => {
       await send('hi');
     }
     expect(storedMessages()).toHaveLength(80);
+  });
+});
+
+describe('sessions', () => {
+  const older = storedSession('older', [{ id: 'o', role: 'user', text: 'older' }], 1);
+  const proposalOf = (id: string, status: 'proposed' | 'applied') => ({
+    id,
+    role: 'assistant' as const,
+    kind: 'proposal' as const,
+    path: 'main.tex',
+    command: createDocumentCommand({
+      operation: 'delete',
+      target: { lineNumber: 1, lineText: itemAt(MAIN, 0, 'line') },
+    }),
+    status,
+  });
+  const decided = storedSession(
+    'decided',
+    [{ id: 'd', role: 'user', text: 'delete it' }, proposalOf('applied', 'applied')],
+    5,
+  );
+
+  beforeEach(() => {
+    seed(older);
+    seed(decided);
+  });
+
+  it('lists the sessions newest first with the current and the unreadable ones', async () => {
+    repository.unreadableIds = ['broken'];
+    await openSession('older');
+    await expect(listSessions()).resolves.toEqual({
+      sessions: [
+        { id: 'decided', title: 'Session decided', createdAt: 0, updatedAt: 5, messageCount: 2 },
+        { id: 'older', title: 'Session older', createdAt: 0, updatedAt: 1, messageCount: 1 },
+      ],
+      unreadableIds: ['broken'],
+      currentId: 'older',
+    });
+  });
+
+  it('opens a session with its decisions and continues it', async () => {
+    await openSession('decided');
+    expect(conversation.sessionId).toBe('decided');
+    expect(conversation.messages()).toEqual(decided.messages);
+    agent.will(answer('Done before.'));
+    await send('was it applied?');
+    expect(repository.stored.get('decided')).toMatchObject({
+      title: 'Session decided',
+      messages: [
+        { id: 'd' },
+        { id: 'applied' },
+        { text: 'was it applied?' },
+        { kind: 'explanation' },
+      ],
+    });
+    expect(repository.stored.get('older')).toEqual(older);
+  });
+
+  it('discards the proposals left undecided in the opened session', async () => {
+    seed(
+      storedSession('open', [{ id: 'u', role: 'user', text: 'x' }, proposalOf('p', 'proposed')]),
+    );
+    await openSession('open');
+    expect(conversation.messages().at(-1)).toMatchObject({ id: 'p', status: 'discarded' });
+    expect(repository.stored.get('open')?.messages.at(-1)).toMatchObject({ status: 'discarded' });
+  });
+
+  it('discards the pending change of the session it leaves', async () => {
+    const changeId = await proposeEdit();
+    const left = conversation.sessionId;
+    if (left === null) throw new TestFixtureError('the request started no session');
+    await openSession('older');
+    expect(editor.preview).toBeNull();
+    expect(conversation.messages()).toEqual(older.messages);
+    expect(repository.stored.get(left)?.messages.at(-1)).toMatchObject({
+      id: changeId,
+      status: 'discarded',
+    });
+    await expect(apply.execute(changeId, record)).rejects.toThrow(ChangeNoLongerPendingError);
+  });
+
+  it('keeps the current session when the opened one cannot be loaded', async () => {
+    await openSession('older');
+    repository.unreadableIds = ['decided'];
+    await expect(openSession('decided')).rejects.toThrow(UnreadableSessionError);
+    await expect(openSession('gone')).rejects.toThrow(SessionNotFoundError);
+    expect(conversation.sessionId).toBe('older');
+    expect(isBusy()).toBe(false);
+  });
+
+  it('refuses to open or delete a session while an operation runs', async () => {
+    agent.will(new PendingStep(rejectOnAbort));
+    const running = send('summarize');
+    await vi.waitFor(() => {
+      expect(agent.requests).toHaveLength(1);
+    });
+    const current = conversation.sessionId;
+    await expect(openSession('older')).rejects.toThrow(RequestInProgressError);
+    await expect(deleteSession('older')).rejects.toThrow(RequestInProgressError);
+    expect(conversation.sessionId).toBe(current);
+    expect(repository.stored.has('older')).toBe(true);
+    startNew();
+    await expect(running).rejects.toThrow(RequestSupersededError);
+  });
+
+  it('holds the operation lock while it opens a session', async () => {
+    const loaded = Promise.withResolvers<undefined>();
+    repository.loadsHeldUntil = loaded.promise;
+    const opening = openSession('older');
+    expect(isBusy()).toBe(true);
+    await expect(send('too early')).rejects.toThrow(RequestInProgressError);
+    loaded.resolve(undefined);
+    await opening;
+    expect(conversation.sessionId).toBe('older');
+  });
+
+  it('drops a session that finishes loading after a new conversation started', async () => {
+    const loaded = Promise.withResolvers<undefined>();
+    repository.loadsHeldUntil = loaded.promise;
+    const opening = openSession('older');
+    startNew();
+    loaded.resolve(undefined);
+    await expect(opening).rejects.toThrow(RequestSupersededError);
+    expect(conversation.sessionId).toBeNull();
+    expect(conversation.messages()).toEqual([]);
+  });
+
+  it('deletes another session and keeps the current one', async () => {
+    await openSession('decided');
+    await deleteSession('older');
+    expect(repository.stored.has('older')).toBe(false);
+    expect(conversation.sessionId).toBe('decided');
+  });
+
+  it('deletes the current session and starts a new conversation', async () => {
+    const changeId = await proposeEdit();
+    const current = conversation.sessionId;
+    if (current === null) throw new TestFixtureError('the request started no session');
+    await deleteSession(current);
+    expect(repository.stored.has(current)).toBe(false);
+    expect(conversation.sessionId).toBeNull();
+    expect(conversation.messages()).toEqual([]);
+    expect(editor.preview).toBeNull();
+    await expect(apply.execute(changeId, record)).rejects.toThrow(ChangeNoLongerPendingError);
+    await expect(conversation.takePersistenceFailure()).resolves.toBeNull();
+    expect(repository.stored.has(current)).toBe(false);
+  });
+
+  it('reports a session it could not delete and leaves it listed', async () => {
+    await openSession('decided');
+    repository.failing = true;
+    await expect(deleteSession('decided')).rejects.toThrow(SessionStorageError);
+    repository.failing = false;
+    expect(conversation.sessionId).toBeNull();
+    await expect(listSessions()).resolves.toMatchObject({
+      sessions: [{ id: 'decided' }, { id: 'older' }],
+    });
   });
 });

@@ -28,7 +28,7 @@ export interface UseCases {
   rejectChange: RejectDocumentChange;
   restoreSession: RestoreLatestSession;
   startNewConversation: StartNewConversation;
-  conversation: Pick<ConversationLog, 'takePersistenceFailure'>;
+  conversation: Pick<ConversationLog, 'messages' | 'takePersistenceFailure'>;
 }
 
 export class AssistantController implements ViewEvents {
@@ -43,7 +43,11 @@ export class AssistantController implements ViewEvents {
       view.setBusy(busy);
     });
     return this.guard(async () => {
-      view.showConversation(await this.useCases.restoreSession.execute());
+      try {
+        await this.useCases.restoreSession.execute();
+      } finally {
+        view.showConversation(this.useCases.conversation.messages());
+      }
     });
   }
 

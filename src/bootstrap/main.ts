@@ -70,6 +70,7 @@ function compose(
     createController,
   });
   const review = new ReviewAppliedChange({ project, conversation, handleRequest });
+  const sessionDeps = { sessions, conversation, pendingChanges, editor, lock };
 
   const controller = new AssistantController({
     handleRequest,
@@ -84,12 +85,7 @@ function compose(
     lock,
     rejectChange: new RejectDocumentChange({ editor, pendingChanges, lock }),
     restoreSession: new RestoreLatestSession({ sessions, conversation, lock }),
-    startNewConversation: new StartNewConversation({
-      conversation,
-      pendingChanges,
-      editor,
-      lock,
-    }),
+    startNewConversation: new StartNewConversation(sessionDeps),
     conversation,
   });
 

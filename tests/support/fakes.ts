@@ -235,6 +235,7 @@ function next<T>(queue: Step<T>[], what: string, signal: CancellationSignal): Pr
 export class InMemorySessionRepository implements SessionRepository {
   failing = false;
   unreadableIds: string[] = [];
+  loadsHeldUntil: Promise<void> = Promise.resolve();
   readonly stored = new Map<string, ConversationSession>();
 
   constructor(...sessions: ConversationSession[]) {
@@ -245,7 +246,11 @@ export class InMemorySessionRepository implements SessionRepository {
     const sessions = [...this.stored.values()].map(summarizeSession);
     return Promise.resolve({ sessions, unreadableIds: [...this.unreadableIds] });
   }
-  load(id: string): Promise<ConversationSession> {
+  async load(id: string): Promise<ConversationSession> {
+    await this.loadsHeldUntil;
+    return await this.find(id);
+  }
+  private find(id: string): Promise<ConversationSession> {
     if (this.failing) return Promise.reject(storageOff());
     if (this.unreadableIds.includes(id)) {
       return Promise.reject(new UnreadableSessionError('The saved session is corrupted.'));

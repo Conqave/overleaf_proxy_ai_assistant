@@ -49,11 +49,10 @@ export class ConversationLog {
     return [...this.current.messages];
   }
 
-  show(session: ConversationSession): readonly ConversationMessage[] {
+  show(session: ConversationSession): void {
     this.currentEpoch += 1;
     this.current = session;
     if (session.messages.some(isUndecidedProposal)) this.discardUndecidedProposals(session);
-    return this.messages();
   }
 
   startNew(): void {

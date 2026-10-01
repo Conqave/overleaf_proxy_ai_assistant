@@ -335,9 +335,13 @@ describe('assistant conversation', () => {
 
   it('reports a browser that denies session storage and stays usable', async () => {
     const { messages, send } = await start({ replies: [greetingReply], prepare: denyStorage });
-    expect(messages()).toEqual(['Error: Could not open the saved sessions of this browser.']);
+    expect(messages()).toEqual([
+      expect.stringContaining('Ready to help'),
+      'Error: Could not open the saved sessions of this browser.',
+    ]);
     await send('hi');
-    expect(messages().slice(1)).toEqual([
+    expect(messages()).toEqual([
+      'Error: Could not open the saved sessions of this browser.',
       'hi',
       expect.stringContaining(GREETING_ANSWER),
       'Could not open the saved sessions of this browser.',
