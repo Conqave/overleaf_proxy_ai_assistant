@@ -243,6 +243,17 @@ describe('OverleafProjectAdapter.compile', () => {
     await expect(adapter.compile(cancel.signal)).rejects.toThrow(OverleafToolbarContractError);
   });
 
+  it('rejects a Recompile button with an unknown state before watching it', async () => {
+    document.querySelector('.split-menu-button')?.setAttribute('data-ol-loading', 'busy');
+    await expect(adapter.compile(cancel.signal)).rejects.toThrow(OverleafToolbarContractError);
+    expect(ide.compileCount).toBe(0);
+  });
+
+  it('rejects a Recompile button that enters an unknown state while compiling', async () => {
+    ide.compilingLoadingValue = 'busy';
+    await expect(adapter.compile(cancel.signal)).rejects.toThrow(OverleafToolbarContractError);
+  });
+
   it('stops waiting for the compile when the request is cancelled', async () => {
     ide.compiles = false;
     const compiling = adapter.compile(cancel.signal);

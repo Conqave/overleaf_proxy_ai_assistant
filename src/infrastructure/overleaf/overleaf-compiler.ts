@@ -104,26 +104,33 @@ export class OverleafCompiler {
     return { log: this.store.get(StoreKey.LogEntries), pdf: this.store.get(StoreKey.PdfUrl) };
   }
 
-  private whenButton(
+  private async whenButton(
     button: HTMLElement,
     isReached: (records: readonly MutationRecord[], button: HTMLElement) => boolean,
     signal: AbortSignal,
   ): Promise<boolean> {
+    if (isReached([], button)) return true;
+    if (signal.aborted) return false;
     const reached = Promise.withResolvers<boolean>();
     const observer = new this.window.MutationObserver((records) => {
-      if (isReached(records, button)) reached.resolve(true);
+      try {
+        if (isReached(records, button)) reached.resolve(true);
+      } catch (error) {
+        if (!(error instanceof OverleafToolbarContractError)) throw error;
+        reached.reject(error);
+      }
     });
     const abort = (): void => {
       reached.resolve(false);
     };
     observer.observe(button, { attributeFilter: [LOADING_ATTRIBUTE], attributeOldValue: true });
     signal.addEventListener('abort', abort);
-    if (isReached([], button)) reached.resolve(true);
-    if (signal.aborted) abort();
-    return reached.promise.finally(() => {
+    try {
+      return await reached.promise;
+    } finally {
       observer.disconnect();
       signal.removeEventListener('abort', abort);
-    });
+    }
   }
 
   private recompileButton(): HTMLElement {

@@ -106,6 +106,7 @@ export class FakeOverleafIde {
   logEntries: unknown = EMPTY_LOG_ENTRIES;
   compileLog: () => unknown = () => this.logEntries;
   compileCount = 0;
+  compilingLoadingValue = 'true';
   private readonly treeRoot: HTMLElement;
   private readonly savedTexts = new Map(FIXTURE_TEXTS);
 
@@ -189,7 +190,7 @@ export class FakeOverleafIde {
     const button = this.element('.split-menu-button');
     if (!this.compiles || button.dataset.olLoading === 'true') return;
     this.compileCount += 1;
-    button.dataset.olLoading = 'true';
+    button.dataset.olLoading = this.compilingLoadingValue;
     setTimeout(() => {
       button.dataset.olLoading = 'false';
       if (this.compileOutcome === 'pdf-with-idle') {
