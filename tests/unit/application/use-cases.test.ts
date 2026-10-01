@@ -8,6 +8,7 @@ import {
   EmptyRequestError,
   RequestInProgressError,
   RequestSupersededError,
+  UnreadableConversationError,
 } from '../../../src/application/errors';
 import { HandleAssistantRequest } from '../../../src/application/handle-assistant-request';
 import { PendingChanges, PendingDocumentChange } from '../../../src/application/pending-change';
@@ -532,6 +533,20 @@ describe('conversation', () => {
     expect(conversation.messages()).toHaveLength(2);
     expect(conversation.takePersistenceFailure()?.message).toBe('storage off');
     expect(conversation.takePersistenceFailure()).toBeNull();
+  });
+
+  it('keeps an unreadable conversation stored until a new conversation starts', async () => {
+    const unreadable = [{ id: 'a', role: 'user' as const, text: 'old' }];
+    repository.stored = unreadable;
+    repository.unreadable = true;
+    expect(conversation.restore()).toEqual([]);
+    expect(conversation.takePersistenceFailure()).toBeInstanceOf(UnreadableConversationError);
+    await send('hello');
+    expect(conversation.messages()).toHaveLength(2);
+    expect(repository.stored).toBe(unreadable);
+    new StartNewConversation({ conversation, pendingChanges, editor }).execute();
+    await send('hello');
+    expect(repository.stored.map((m) => m.role)).toEqual(['user', 'assistant']);
   });
 
   it('keeps only the last 80 messages', async () => {

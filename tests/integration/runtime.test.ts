@@ -249,11 +249,12 @@ describe('assistant conversation', () => {
     expect(second.browser.window.localStorage.getItem(HISTORY_KEY)).toBeNull();
   });
 
-  it('reports corrupted history and continues', async () => {
-    const { messages, send } = await start({ storage: { [HISTORY_KEY]: '{oops' } });
+  it('reports corrupted history, continues and keeps it stored until a new chat', async () => {
+    const { browser, messages, send } = await start({ storage: { [HISTORY_KEY]: '{oops' } });
     expect(messages().at(-1)).toContain('The saved conversation is corrupted');
     await send('hi');
     expect(messages().at(-1)).toContain('Hi, I am here');
+    expect(browser.window.localStorage.getItem(HISTORY_KEY)).toBe('{oops');
   });
 
   it('sends with Enter, not with Shift+Enter, and leaves page shortcuts alone', async () => {

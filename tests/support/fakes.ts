@@ -171,9 +171,11 @@ function next<T>(queue: Step<T>[], what: string): Promise<T> {
 
 export class InMemoryConversationRepository implements ConversationRepository {
   failing = false;
+  unreadable = false;
   constructor(public stored: ConversationMessage[] = []) {}
   load(): ConversationMessage[] {
     if (this.failing) throw new PersistenceError('storage off');
+    if (this.unreadable) throw new PersistenceError('The saved conversation is corrupted.');
     return [...this.stored];
   }
   save(messages: readonly ConversationMessage[]): void {
