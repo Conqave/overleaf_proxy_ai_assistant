@@ -73,7 +73,7 @@ const AGENT_SYSTEM = lines(
   `- Any other file must be read with ${A.ReadFile} before you edit it or quote it.`,
   `- ${AgentField.Path} is always a path exactly as listed under Project files; files marked (binary) cannot be read or edited. If a file the user names is not listed, say so in an ${A.Answer}.`,
   `- Use ${A.Search} to find labels, citations, commands or text when you do not know which file has them.`,
-  `- When the user says the project does not compile or reports errors or warnings, start with ${A.Compile}, then read the file it names.`,
+  `- When the user says the project does not compile or reports errors or warnings, your first action is ${A.Compile}, before any ${A.ReadFile}; then read the file it names and fix the error it reports.`,
   `- Verbs such as translate, fix, change, add, remove, rewrite (przetłumacz, popraw, zmień, dodaj, usuń, przepisz) applied to text of a file ask for an ${A.Edit} of that file.`,
   '- Reply as soon as you know enough. Never repeat a lookup; use the result you already have.',
   '- When "Lookups left" is 0, reply now with answer, question or edit.',
