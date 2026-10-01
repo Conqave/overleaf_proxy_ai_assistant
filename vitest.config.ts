@@ -1,11 +1,5 @@
 import { defineConfig } from 'vitest/config';
 
-const DOM_TESTS = [
-  'tests/unit/infrastructure/overleaf-editor-adapter.test.ts',
-  'tests/unit/infrastructure/overleaf-project-adapter.test.ts',
-  'tests/unit/infrastructure/overleaf-store.test.ts',
-];
-
 export default defineConfig({
   test: {
     projects: [
@@ -13,13 +7,12 @@ export default defineConfig({
         test: {
           name: 'unit',
           include: ['tests/unit/**/*.test.ts'],
-          exclude: DOM_TESTS,
         },
       },
       {
         test: {
           name: 'dom',
-          include: DOM_TESTS,
+          include: ['tests/dom/**/*.test.ts'],
           environment: 'jsdom',
         },
       },
