@@ -28,6 +28,11 @@ let requests: string[];
 let answer: () => Promise<Response>;
 
 const file = (path: string): ProjectFile => findTextFile(adapter.listFiles(), path);
+const binaryFile = (path: string): ProjectFile => {
+  const found = adapter.listFiles().find((candidate) => candidate.path === path);
+  if (found === undefined) throw new TestFixtureError(`the fixture project has no ${path}`);
+  return found;
+};
 
 beforeEach(() => {
   bridge = new OverleafEditorBridge(() =>
@@ -110,7 +115,7 @@ describe('OverleafProjectAdapter files', () => {
   });
 
   it('refuses to read or open a binary file', async () => {
-    const frog = adapter.listFiles().find(({ path }) => path === 'frog.jpg')!;
+    const frog = binaryFile('frog.jpg');
     await expect(adapter.readFile(frog)).rejects.toThrow(NotATextFileError);
     await expect(adapter.openFile(frog)).rejects.toThrow(NotATextFileError);
   });
@@ -184,7 +189,7 @@ describe('OverleafProjectAdapter.compile', () => {
   });
 
   it('rejects a toolbar without the Recompile button', async () => {
-    document.querySelector('.toolbar-pdf-left')?.remove();
+    ide.removeToolbar();
     await expect(adapter.compile()).rejects.toThrow(OverleafToolbarContractError);
   });
 

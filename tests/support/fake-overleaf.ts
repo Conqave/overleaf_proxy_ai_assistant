@@ -141,6 +141,10 @@ export class FakeOverleafIde {
     this.treeRoot.remove();
   }
 
+  removeToolbar(): void {
+    this.element('.toolbar-pdf-left').remove();
+  }
+
   private readonly recompile = (): void => {
     const button = this.element('.split-menu-button');
     if (!this.compiles || button.dataset.olLoading === 'true') return;
