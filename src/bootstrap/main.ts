@@ -6,6 +6,7 @@ import { PendingChanges } from '../application/pending-change';
 import { RejectDocumentChange } from '../application/reject-document-change';
 import { ReviewAppliedChange } from '../application/review-applied-change';
 import { createUuid } from '../infrastructure/browser/uuid';
+import { OllamaAgent } from '../infrastructure/ollama/ollama-agent';
 import { OllamaClient } from '../infrastructure/ollama/ollama-client';
 import { preloadOllamaModel } from '../infrastructure/ollama/ollama-preload';
 import { OverleafEditorAdapter } from '../infrastructure/overleaf/overleaf-editor-adapter';
@@ -14,12 +15,19 @@ import {
   getPageIdentity,
   MissingPageIdentityError,
 } from '../infrastructure/overleaf/overleaf-page';
-import { OverleafStore, StoreKey } from '../infrastructure/overleaf/overleaf-store';
+import { OverleafProjectAdapter } from '../infrastructure/overleaf/overleaf-project-adapter';
+import {
+  OverleafStore,
+  OverleafStoreContractError,
+  StoreKey,
+} from '../infrastructure/overleaf/overleaf-store';
 import { LocalStorageConversationRepository } from '../infrastructure/persistence/local-storage-conversation-repository';
 import { AssistantController } from '../presentation/assistant-controller';
 import { AssistantView } from '../presentation/assistant-view';
 import { ConfigurationError, loadConfig, type AssistantConfig } from './config';
-import { UnwiredAgent, UnwiredProject } from './unwired-ports';
+
+const FILE_OPEN_TIMEOUT_MS = 20_000;
+const COMPILE_TIMEOUT_MS = 240_000;
 
 function compose(
   window: Window & typeof globalThis,
@@ -37,8 +45,15 @@ function compose(
     },
     window.fetch.bind(window),
   );
-  const agent = new UnwiredAgent();
-  const project = new UnwiredProject();
+  const agent = new OllamaAgent(client);
+  const project = new OverleafProjectAdapter({
+    window,
+    store: OverleafStore.fromWindow(window),
+    bridge,
+    fetch: window.fetch.bind(window),
+    projectId: identity.projectId,
+    timeouts: { fileOpenMs: FILE_OPEN_TIMEOUT_MS, compileMs: COMPILE_TIMEOUT_MS },
+  });
   const conversation = new ConversationLog(
     new LocalStorageConversationRepository(window, identity),
   );
@@ -82,12 +97,20 @@ function start(window: Window & typeof globalThis): void {
       compose(window, config, bridge);
     })
     .catch((error: unknown) => {
-      if (!(error instanceof ConfigurationError || error instanceof MissingPageIdentityError)) {
-        throw error;
-      }
+      if (!isStartupFailure(error)) throw error;
       uninstall();
       console.error('[overleaf-ai-assistant] not started:', error.message);
     });
+}
+
+function isStartupFailure(
+  error: unknown,
+): error is ConfigurationError | MissingPageIdentityError | OverleafStoreContractError {
+  return (
+    error instanceof ConfigurationError ||
+    error instanceof MissingPageIdentityError ||
+    error instanceof OverleafStoreContractError
+  );
 }
 
 start(window);

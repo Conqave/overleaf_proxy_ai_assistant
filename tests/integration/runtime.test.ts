@@ -123,6 +123,16 @@ describe('assistant runtime', () => {
     expect(browser.ollama.calls).toHaveLength(0);
   });
 
+  it('does not start without the Overleaf store', async () => {
+    const browser = open(new FakeOllama());
+    browser.inject(BUNDLE);
+    browser.openEditor();
+    Reflect.deleteProperty(browser.window, 'overleaf');
+    await waitForStartupFailure(browser);
+    expect(browser.consoleErrors[0]).toContain('window.overleaf.unstable.store');
+    expect(browser.document.getElementById('ola-root')).toBeNull();
+  });
+
   it('asks for a command when the input is empty', async () => {
     const { send, messages, ollama } = await start({ ollama: new FakeOllama() });
     await send('  ');
