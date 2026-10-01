@@ -5,6 +5,7 @@ import { AGENT_POLICY } from '../../src/domain/agent-policy';
 import { OVERLEAF_PROJECT_TIMEOUTS } from '../../src/infrastructure/overleaf/overleaf-project-adapter';
 import { type Browser, openBrowser } from '../support/browser';
 import {
+  FAKE_REQUEST_TIMEOUT_MS,
   FakeOllama,
   type OllamaPrompt,
   type OllamaReply,
@@ -123,17 +124,22 @@ function session(browser: Browser, ide: FakeOverleafIde) {
 
 type Session = ReturnType<typeof session>;
 
+function isCompiling({ texts }: Session): () => void {
+  return () => {
+    expect(texts('.ola-status')).toEqual(['Hans is compiling the project']);
+  };
+}
+
 async function sendPastTimeouts(
-  { doc, texts, isIdle }: Session,
+  { doc, isIdle }: Session,
   request: string,
+  waiting: () => void,
   waitedMs: number,
 ): Promise<void> {
   vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
   commandInput(doc).value = request;
   button(doc, '.ola-send').click();
-  await vi.waitFor(() => {
-    expect(texts('.ola-status')).toEqual(['Hans is compiling the project']);
-  }, PAGE_WAIT);
+  await vi.waitFor(waiting, PAGE_WAIT);
   await vi.advanceTimersByTimeAsync(waitedMs);
   vi.useRealTimers();
   await vi.waitFor(() => {
@@ -143,14 +149,11 @@ async function sendPastTimeouts(
 
 interface StartOptions {
   readonly replies?: readonly OllamaReply[];
-  readonly requestTimeoutMs?: number;
   readonly storage?: Readonly<Record<string, string>>;
 }
 
-async function start({ replies = [], requestTimeoutMs, storage = {} }: StartOptions) {
-  const ollama = new FakeOllama().reply(...replies);
-  if (requestTimeoutMs !== undefined) ollama.config = { ...ollama.config, requestTimeoutMs };
-  const browser = open(ollama);
+async function start({ replies = [], storage = {} }: StartOptions) {
+  const browser = open(new FakeOllama().reply(...replies));
   for (const [key, value] of Object.entries(storage)) {
     browser.window.localStorage.setItem(key, value);
   }
@@ -477,13 +480,18 @@ describe('assistant agent', () => {
   });
 
   it('reports a model that does not answer in time and stays usable', async () => {
-    const { send, texts, messages } = await start({
-      replies: [{ hang: true }],
-      requestTimeoutMs: 200,
-    });
-    await send('What is this document about?');
+    const assistant = await start({ replies: [{ hang: true }] });
+    const { send, texts, messages, ollama } = assistant;
+    await sendPastTimeouts(
+      assistant,
+      'What is this document about?',
+      () => {
+        expect(ollama.prompts).toHaveLength(1);
+      },
+      FAKE_REQUEST_TIMEOUT_MS,
+    );
     expect(texts('.ola-error')).toEqual([
-      expect.stringContaining('Ollama did not finish within 200 milliseconds'),
+      expect.stringContaining('Ollama did not finish within 10 seconds'),
     ]);
     await send('hi');
     expect(messages().at(-1)).toContain('Hi, I am here');
@@ -574,7 +582,12 @@ describe('assistant under interference', () => {
   it('reports a compile that ends without a result', async () => {
     const assistant = await start({ replies: [reply('ACTION: compile')] });
     assistant.ide.compileOutcome = 'http-error';
-    await sendPastTimeouts(assistant, 'Does it compile?', OVERLEAF_PROJECT_TIMEOUTS.compileLogMs);
+    await sendPastTimeouts(
+      assistant,
+      'Does it compile?',
+      isCompiling(assistant),
+      OVERLEAF_PROJECT_TIMEOUTS.compileLogMs,
+    );
     expect(assistant.texts('.ola-error')).toEqual([
       expect.stringContaining('Overleaf finished the compile without a new PDF or log'),
     ]);
@@ -583,7 +596,12 @@ describe('assistant under interference', () => {
   it('reports a compile that does not finish in time', async () => {
     const assistant = await start({ replies: [reply('ACTION: compile')] });
     assistant.ide.compiles = false;
-    await sendPastTimeouts(assistant, 'Does it compile?', OVERLEAF_PROJECT_TIMEOUTS.compileMs);
+    await sendPastTimeouts(
+      assistant,
+      'Does it compile?',
+      isCompiling(assistant),
+      OVERLEAF_PROJECT_TIMEOUTS.compileMs,
+    );
     expect(assistant.texts('.ola-error')).toEqual([
       expect.stringContaining('The project did not compile within 4 minutes.'),
     ]);
