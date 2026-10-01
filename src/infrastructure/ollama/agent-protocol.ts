@@ -102,6 +102,14 @@ const AGENT_SYSTEM = lines(
   '  title = {The TeXbook},',
   '  year = {1984}',
   '}',
+  'Example of a deletion of a whole subsection (heading, blank line and paragraph):',
+  actionLine(A.Edit),
+  fieldLine(AgentField.Path, 'main.tex'),
+  fieldLine(F.Operation, DocumentOperation.Delete),
+  fieldLine(F.Line, '30'),
+  fieldLine(F.EndLine, '33'),
+  fieldLine(F.LineText, '\\subsection{Wyniki pomocnicze}'),
+  fieldLine(F.Reason, 'Usuwam podsekcję z wynikami pomocniczymi.'),
 );
 
 const RETRY = `Reply again with exactly one action: the first line ${fieldLine(AgentField.Action, AGENT_ACTIONS.join('|'))}, then only the lines that action takes. No JSON.`;
