@@ -44,7 +44,7 @@ const VALID_ENV = {
   OLLAMA_UPSTREAM: '127.0.0.1:11434',
   OLLAMA_MODEL: 'gpt-oss:20b',
   OLLAMA_REQUEST_TIMEOUT_MS: '900000',
-  OLLAMA_CONTEXT_TOKENS: '128000',
+  OLLAMA_CONTEXT_TOKENS: '98304',
 };
 
 function validate(env: Record<string, string>) {
@@ -137,7 +137,7 @@ describe('deployment configuration', () => {
       ollamaEndpoint: '/ollama/main/api/generate',
       model: 'gpt-oss:20b',
       requestTimeoutMs: 900000,
-      contextTokens: 128000,
+      contextTokens: 98304,
     });
   });
 
