@@ -8,6 +8,7 @@ import { preloadOllamaModel } from '../../../src/infrastructure/ollama/ollama-pr
 import {
   AssistantHttpError,
   AssistantProtocolError,
+  AssistantReplyTruncatedError,
   AssistantRequestTooLargeError,
   AssistantResponseContractError,
   AssistantTimeoutError,
@@ -111,6 +112,53 @@ describe('OllamaClient', () => {
     );
   });
 
+  const cutOff = (response: string, promptTokens = 100) => ({
+    body: { response, prompt_eval_count: promptTokens, done_reason: 'length' },
+  });
+
+  it('asks for the final message when the model was cut off while reasoning', async () => {
+    const ollama = new FakeOllama().reply(cutOff('<|channel|>analysis<|message|>Long thou'), {
+      completion: 'ACTION: compile',
+    });
+    await expect(make(ollama).client.generate({ system: 'S', prompt: 'P' })).resolves.toMatchObject(
+      { text: 'ACTION: compile' },
+    );
+    expect(ollama.promptCalls[1]!.harmonyPrompt).toContain(
+      '<|channel|>analysis<|message|>Long thou<|end|><|start|>assistant<|channel|>final<|message|>',
+    );
+  });
+
+  it.each([
+    ['first', [cutOff('<|channel|>final<|message|>ACTION: edit\nPATH: a.tex')]],
+    [
+      'continued',
+      [cutOff('<|channel|>analysis<|message|>Think'), cutOff('ACTION: edit\nPATH: a.tex')],
+    ],
+  ])('rejects a %s final message cut off at the length limit', async (_name, replies) => {
+    const ollama = new FakeOllama().reply(...replies);
+    await expect(make(ollama).client.generate({ system: 'S', prompt: 'P' })).rejects.toThrow(
+      AssistantReplyTruncatedError,
+    );
+  });
+
+  it('reports a reply cut off by a full context window as a request too large', async () => {
+    const ollama = new FakeOllama().reply(
+      cutOff('<|channel|>final<|message|>ACTION: ans', CONTEXT_TOKENS - 100),
+    );
+    await expect(make(ollama).client.generate({ system: 'S', prompt: 'P' })).rejects.toThrow(
+      AssistantRequestTooLargeError,
+    );
+  });
+
+  it('reports an unknown done reason as a broken response contract', async () => {
+    const ollama = new FakeOllama().reply({
+      body: { response: 'r', prompt_eval_count: 1, done_reason: 'load' },
+    });
+    await expect(make(ollama).client.generate({ system: 'S', prompt: 'P' })).rejects.toThrow(
+      new AssistantResponseContractError('Ollama returned the unexpected "done_reason" "load".'),
+    );
+  });
+
   it('reports HTTP errors with their status', async () => {
     const ollama = new FakeOllama().reply({ status: 502 });
     await expect(make(ollama).client.generate({ system: 'S', prompt: 'P' })).rejects.toThrow(
@@ -142,6 +190,11 @@ describe('OllamaClient', () => {
 
   it.each([
     ['no token count', '{"response": "r"}', 'Ollama returned no "prompt_eval_count" field.'],
+    [
+      'no done reason',
+      '{"response": "r", "prompt_eval_count": 1}',
+      'Ollama returned no "done_reason" field.',
+    ],
     [
       'a token count that is not a count',
       '{"response": "r", "prompt_eval_count": -1}',

@@ -21,6 +21,7 @@ export type OllamaReply =
   | { completion: string }
   | { status: number }
   | { contextOverflow: true }
+  | { body: Record<string, unknown> }
   | { hang: true };
 
 const CONTEXT_OVERFLOW_BODY = JSON.stringify({
@@ -103,8 +104,13 @@ export class FakeOllama {
     }
     if ('status' in reply) return new Response('error', { status: reply.status });
     if ('contextOverflow' in reply) return new Response(CONTEXT_OVERFLOW_BODY, { status: 400 });
+    if ('body' in reply) return new Response(JSON.stringify(reply.body), { status: 200 });
     return new Response(
-      JSON.stringify({ response: completionOf(reply), prompt_eval_count: sent.prompt.length }),
+      JSON.stringify({
+        response: completionOf(reply),
+        prompt_eval_count: sent.prompt.length,
+        done_reason: 'stop',
+      }),
       { status: 200 },
     );
   };

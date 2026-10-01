@@ -1,5 +1,6 @@
 import {
   AssistantHttpError,
+  AssistantReplyTruncatedError,
   AssistantRequestTooLargeError,
   AssistantResponseContractError,
   AssistantTimeoutError,
@@ -29,9 +30,15 @@ export interface Completion {
   readonly promptTokens: number;
 }
 
+interface ModelOutput extends Completion {
+  readonly stoppedAtLimit: boolean;
+}
+
 const TEMPERATURE = 0.2;
 const HTTP_BAD_REQUEST = 400;
 const CONTEXT_OVERFLOW_ERROR = 'exceed_context_size_error';
+const DONE_STOP = 'stop';
+const DONE_LENGTH = 'length';
 
 export class OllamaClient {
   constructor(
@@ -43,12 +50,12 @@ export class OllamaClient {
     const prompt = renderHarmonyPrompt(request);
     const first = await this.complete(prompt);
     const harmony = parseHarmonyCompletion(first.text);
-    if (harmony.kind === 'final') return { text: harmony.text, promptTokens: first.promptTokens };
+    if (harmony.kind === 'final') return finish(first, harmony.text);
     const second = await this.complete(renderFinalContinuation(prompt, harmony.analysis));
-    return { text: parseFinalContinuation(second.text), promptTokens: second.promptTokens };
+    return finish(second, parseFinalContinuation(second.text));
   }
 
-  private complete(prompt: string): Promise<Completion> {
+  private complete(prompt: string): Promise<ModelOutput> {
     return this.withTimeout(async (signal) => {
       const response = await this.post(
         { prompt, raw: true, truncate: false, options: this.getOptions() },
@@ -148,7 +155,15 @@ function parseJson(body: string): unknown {
   }
 }
 
-function getCompletion(data: unknown): Completion {
+function finish(output: ModelOutput, text: string): Completion {
+  if (!output.stoppedAtLimit) return { text, promptTokens: output.promptTokens };
+  if (output.promptTokens + MAX_COMPLETION_TOKENS > CONTEXT_TOKENS) throw createTooLargeError();
+  throw new AssistantReplyTruncatedError(
+    "The assistant's reply hit its length limit and was cut off; ask for a smaller change.",
+  );
+}
+
+function getCompletion(data: unknown): ModelOutput {
   if (typeof data !== 'object' || data === null || !('response' in data)) {
     throw new AssistantResponseContractError('Ollama returned no "response" field.');
   }
@@ -164,7 +179,18 @@ function getCompletion(data: unknown): Completion {
       'Ollama returned a "prompt_eval_count" that is not a token count.',
     );
   }
-  return { text: data.response, promptTokens };
+  if (!('done_reason' in data)) {
+    throw new AssistantResponseContractError('Ollama returned no "done_reason" field.');
+  }
+  return { text: data.response, promptTokens, stoppedAtLimit: isStoppedAtLimit(data.done_reason) };
+}
+
+function isStoppedAtLimit(doneReason: unknown): boolean {
+  if (doneReason === DONE_STOP) return false;
+  if (doneReason === DONE_LENGTH) return true;
+  throw new AssistantResponseContractError(
+    `Ollama returned the unexpected "done_reason" ${JSON.stringify(doneReason)}.`,
+  );
 }
 
 const MS_PER_SECOND = 1_000;

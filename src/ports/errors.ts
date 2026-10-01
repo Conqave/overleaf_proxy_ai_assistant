@@ -12,6 +12,8 @@ export class AssistantProtocolError extends OperationalError {}
 
 export class AssistantRequestTooLargeError extends OperationalError {}
 
+export class AssistantReplyTruncatedError extends OperationalError {}
+
 export class EditorUnavailableError extends OperationalError {}
 
 export class PersistenceError extends OperationalError {}
