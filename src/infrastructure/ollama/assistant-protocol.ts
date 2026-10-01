@@ -122,6 +122,7 @@ export const EDIT_RULES = lines(
   'Content:',
   `- Everything after ${CONTENT_MARKER} is inserted verbatim: plain LaTeX source, one source line per line, no escaping, no fences.`,
   '- It must be valid LaTeX: close every environment you open.',
+  '- When the user asks for new text without giving it (for example a section with one sentence), write suitable text yourself instead of asking.',
   '- Only the new or changed lines; never repeat unchanged surrounding lines and never rewrite the whole document.',
 );
 
