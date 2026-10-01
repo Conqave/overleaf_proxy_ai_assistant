@@ -750,6 +750,15 @@ describe('conversation', () => {
     expect(repository.stored.map((m) => m.role)).toEqual(['user', 'assistant']);
   });
 
+  it('reports the unreadable conversation before a later storage failure', () => {
+    repository.unreadable = true;
+    conversation.restore();
+    repository.failing = true;
+    new StartNewConversation({ conversation, pendingChanges, editor, lock }).execute();
+    expect(conversation.takePersistenceFailure()).toBeInstanceOf(UnreadableConversationError);
+    expect(conversation.takePersistenceFailure()).toBeNull();
+  });
+
   it('keeps only the last 80 messages', async () => {
     for (let i = 0; i < 45; i += 1) {
       agent.will(answer('Hi.'));

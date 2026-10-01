@@ -26,7 +26,7 @@ export class ConversationLog {
       this.items = this.repository.load();
     } catch (error) {
       if (!(error instanceof PersistenceError)) throw error;
-      this.persistenceFailure = new UnreadableConversationError(error);
+      this.recordFailure(new UnreadableConversationError(error));
       this.storedConversationUnreadable = true;
       this.items = [];
     }
@@ -69,7 +69,7 @@ export class ConversationLog {
       this.storedConversationUnreadable = false;
     } catch (error) {
       if (!(error instanceof PersistenceError)) throw error;
-      this.persistenceFailure = error;
+      this.recordFailure(error);
     }
   }
 
@@ -79,13 +79,17 @@ export class ConversationLog {
     return failure;
   }
 
+  private recordFailure(failure: PersistenceError | UnreadableConversationError): void {
+    this.persistenceFailure ??= failure;
+  }
+
   private persist(): void {
     if (this.storedConversationUnreadable) return;
     try {
       this.repository.save(this.items);
     } catch (error) {
       if (!(error instanceof PersistenceError)) throw error;
-      this.persistenceFailure = error;
+      this.recordFailure(error);
     }
   }
 }
