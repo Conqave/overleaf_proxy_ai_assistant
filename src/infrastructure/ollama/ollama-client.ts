@@ -15,7 +15,12 @@ import {
 } from './harmony-format';
 import { withDeadline } from '../deadline';
 import { formatDuration } from '../duration';
-import { CONTEXT_TOKENS, createTooLargeError, MAX_COMPLETION_TOKENS } from './context-budget';
+import {
+  CONTEXT_TOKENS,
+  createTooLargeError,
+  MAX_COMPLETION_TOKENS,
+  PROMPT_TOKENS,
+} from './context-budget';
 
 export interface OllamaClientConfig {
   readonly endpoint: string;
@@ -53,8 +58,23 @@ export class OllamaClient {
     const prompt = renderHarmonyPrompt(request);
     const first = await this.complete(prompt, signal);
     const harmony = parseHarmonyCompletion(first.text);
-    if (harmony.kind === 'final') return finish(first, harmony.text);
-    const second = await this.complete(renderFinalContinuation(prompt, harmony.analysis), signal);
+    switch (harmony.kind) {
+      case 'final':
+        if (!first.stoppedAtLimit || harmony.analysis === null) return finish(first, harmony.text);
+        return await this.completeFinal(prompt, first, harmony.analysis, signal);
+      case 'unfinished':
+        return await this.completeFinal(prompt, first, harmony.analysis, signal);
+    }
+  }
+
+  private async completeFinal(
+    prompt: string,
+    first: ModelOutput,
+    analysis: string,
+    signal: AbortSignal,
+  ): Promise<Completion> {
+    if (first.promptTokens > PROMPT_TOKENS) throw createTooLargeError();
+    const second = await this.complete(renderFinalContinuation(prompt, analysis), signal);
     return finish(second, parseFinalContinuation(second.text));
   }
 
@@ -157,10 +177,14 @@ function parseJson(body: string): unknown {
 
 function finish(output: ModelOutput, text: string): Completion {
   if (!output.stoppedAtLimit) return { text, promptTokens: output.promptTokens };
-  if (output.promptTokens + MAX_COMPLETION_TOKENS > CONTEXT_TOKENS) throw createTooLargeError();
+  checkContextLeft(output);
   throw new AssistantReplyTruncatedError(
-    "The assistant's reply hit its length limit and was cut off; ask for a smaller change.",
+    `The assistant's reply was longer than the ${MAX_COMPLETION_TOKENS.toLocaleString('en-US')} tokens one reply may have and was cut off; ask for the change in smaller parts.`,
   );
+}
+
+function checkContextLeft(output: ModelOutput): void {
+  if (output.promptTokens + MAX_COMPLETION_TOKENS > CONTEXT_TOKENS) throw createTooLargeError();
 }
 
 function getCompletion(data: unknown): ModelOutput {

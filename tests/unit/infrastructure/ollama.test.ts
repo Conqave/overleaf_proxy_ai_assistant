@@ -3,7 +3,7 @@ import { HarmonyFormatError } from '../../../src/infrastructure/ollama/harmony-f
 import { OllamaAgent } from '../../../src/infrastructure/ollama/ollama-agent';
 import { OllamaClient, type Completion } from '../../../src/infrastructure/ollama/ollama-client';
 import { AGENT_PROMPT_BUDGET } from '../../../src/infrastructure/ollama/agent-protocol';
-import { CONTEXT_TOKENS } from '../../../src/infrastructure/ollama/context-budget';
+import { CONTEXT_TOKENS, PROMPT_TOKENS } from '../../../src/infrastructure/ollama/context-budget';
 import { preloadOllamaModel } from '../../../src/infrastructure/ollama/ollama-preload';
 import {
   AssistantHttpError,
@@ -135,15 +135,40 @@ describe('OllamaClient', () => {
     );
   });
 
+  it('continues from the analysis when the final message is cut off at the length limit', async () => {
+    const ollama = new FakeOllama().reply(
+      cutOff(
+        '<|channel|>analysis<|message|>Long plan.<|end|><|start|>assistant<|channel|>final<|message|>ACTION: ed',
+      ),
+      { completion: 'ACTION: compile' },
+    );
+    await expect(generate(make(ollama).client)).resolves.toMatchObject({ text: 'ACTION: compile' });
+    expect(itemAt(ollama.prompts, 1, 'prompt').assistantPrefill).toBe(
+      '<|channel|>analysis<|message|>Long plan.<|end|><|start|>assistant<|channel|>final<|message|>',
+    );
+  });
+
   it.each([
-    ['first', [cutOff('<|channel|>final<|message|>ACTION: edit\nPATH: a.tex')]],
+    ['without analysis', [cutOff('<|channel|>final<|message|>ACTION: edit\nPATH: a.tex')]],
     [
       'continued',
       [cutOff('<|channel|>analysis<|message|>Think'), cutOff('ACTION: edit\nPATH: a.tex')],
     ],
-  ])('rejects a %s final message cut off at the length limit', async (_name, replies) => {
+  ])('rejects a final message %s cut off at the length limit', async (_name, replies) => {
     const ollama = new FakeOllama().reply(...replies);
-    await expect(generate(make(ollama).client)).rejects.toThrow(AssistantReplyTruncatedError);
+    await expect(generate(make(ollama).client)).rejects.toThrow(
+      new AssistantReplyTruncatedError(
+        "The assistant's reply was longer than the 4,096 tokens one reply may have and was cut off; ask for the change in smaller parts.",
+      ),
+    );
+  });
+
+  it('does not continue when the continuation cannot fit into the context window', async () => {
+    const ollama = new FakeOllama().reply(
+      cutOff('<|channel|>analysis<|message|>Think', PROMPT_TOKENS + 1),
+    );
+    await expect(generate(make(ollama).client)).rejects.toThrow(AssistantRequestTooLargeError);
+    expect(ollama.prompts).toHaveLength(1);
   });
 
   it('reports a reply cut off by a full context window as a request too large', async () => {

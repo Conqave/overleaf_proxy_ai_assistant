@@ -36,7 +36,7 @@ export class HarmonyFormatError extends NamedError {
 }
 
 export type HarmonyCompletion =
-  | { readonly kind: 'final'; readonly text: string }
+  | { readonly kind: 'final'; readonly text: string; readonly analysis: string | null }
   | { readonly kind: 'unfinished'; readonly analysis: string };
 
 export function renderHarmonyPrompt(request: GenerateRequest): string {
@@ -49,21 +49,24 @@ export function renderHarmonyPrompt(request: GenerateRequest): string {
 }
 
 export function parseHarmonyCompletion(raw: string): HarmonyCompletion {
+  const analysis = parseAnalysis(raw);
   const finalHeader = [...raw.matchAll(FINAL_HEADER)].at(-1);
   if (finalHeader !== undefined) {
     const finalStart = finalHeader.index + finalHeader[0].length;
-    return { kind: 'final', text: parseFinalText(raw.slice(finalStart), raw) };
+    return { kind: 'final', text: parseFinalText(raw.slice(finalStart), raw), analysis };
   }
-  const analysisStart = raw.indexOf(ANALYSIS_START);
-  if (analysisStart === -1) {
+  if (analysis === null) {
     throw new HarmonyFormatError('the reply has no final message; write it as plain text', raw);
   }
+  return { kind: 'unfinished', analysis };
+}
+
+function parseAnalysis(raw: string): string | null {
+  const analysisStart = raw.indexOf(ANALYSIS_START);
+  if (analysisStart === -1) return null;
   const analysis = raw.slice(analysisStart + ANALYSIS_START.length);
   const analysisEnd = analysis.indexOf(END);
-  return {
-    kind: 'unfinished',
-    analysis: analysisEnd === -1 ? analysis : analysis.slice(0, analysisEnd),
-  };
+  return analysisEnd === -1 ? analysis : analysis.slice(0, analysisEnd);
 }
 
 export function parseFinalContinuation(raw: string): string {
