@@ -1,7 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { NotATextFileError } from '../../../src/domain/errors';
 import { findTextFile, type ProjectFile } from '../../../src/domain/project-file';
-import { OverleafEditorAdapter } from '../../../src/infrastructure/overleaf/overleaf-editor-adapter';
 import { OverleafEditorBridge } from '../../../src/infrastructure/overleaf/overleaf-editor-bridge';
 import {
   OverleafFileTreeContractError,
@@ -10,6 +9,7 @@ import {
 import {
   OverleafStore,
   OverleafStoreContractError,
+  StoreKey,
 } from '../../../src/infrastructure/overleaf/overleaf-store';
 import {
   CompileTimeoutError,
@@ -31,7 +31,9 @@ let answer: () => Promise<Response>;
 const file = (path: string): ProjectFile => findTextFile(adapter.listFiles(), path);
 
 beforeEach(() => {
-  bridge = new OverleafEditorBridge();
+  bridge = new OverleafEditorBridge(() =>
+    OverleafStore.fromWindow(window).getString(StoreKey.OpenDocId),
+  );
   const uninstall = bridge.install(window);
   ide = new FakeOverleafIde(window);
   requests = [];
@@ -39,7 +41,6 @@ beforeEach(() => {
   adapter = new OverleafProjectAdapter({
     window,
     store: OverleafStore.fromWindow(window),
-    editor: new OverleafEditorAdapter(bridge, document),
     bridge,
     fetch: (input) => {
       if (typeof input !== 'string') throw new TestFixtureError('the adapter fetches by URL text');
@@ -78,6 +79,14 @@ describe('OverleafProjectAdapter files', () => {
     ide.editor.dispatch({ changes: { from: 0, insert: '% draft\n' } });
     const snapshot = await adapter.readFile(file('main.tex'));
     expect(snapshot.lines[0]).toBe('% draft');
+    expect(requests).toEqual([]);
+  });
+
+  it('reads a file the user is switching to only once its editor shows it', async () => {
+    ide.click('doc-refs');
+    expect(ide.store.get(StoreKey.OpenDocId)).toBe('doc-refs');
+    const snapshot = await adapter.readFile(file('refs.bib'));
+    expect(snapshot.lines.join('\n')).toBe(ide.textOf('doc-refs'));
     expect(requests).toEqual([]);
   });
 

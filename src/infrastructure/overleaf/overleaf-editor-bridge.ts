@@ -7,6 +7,7 @@ import {
 } from './codemirror-api';
 
 export interface OpenEditor {
+  readonly docId: string;
   readonly view: EditorView;
   readonly preview: ChangePreview;
 }
@@ -15,6 +16,8 @@ export class OverleafEditorBridge {
   private current: OpenEditor | null = null;
   private readonly ready = Promise.withResolvers<undefined>();
   private next = Promise.withResolvers<OpenEditor>();
+
+  constructor(private readonly readOpenDocId: () => string) {}
 
   install(window: Window): () => void {
     const listener = (event: Event): void => {
@@ -34,15 +37,29 @@ export class OverleafEditorBridge {
     return this.ready.promise;
   }
 
-  nextEditor(): Promise<OpenEditor> {
-    return this.next.promise;
+  async whenShowing(docId: string, signal: AbortSignal): Promise<OpenEditor | null> {
+    const aborted = Promise.withResolvers<null>();
+    const abort = (): void => {
+      aborted.resolve(null);
+    };
+    signal.addEventListener('abort', abort);
+    try {
+      while (!signal.aborted) {
+        const editor = this.current;
+        if (editor?.docId === docId) return editor;
+        await Promise.race([this.next.promise, aborted.promise]);
+      }
+      return null;
+    } finally {
+      signal.removeEventListener('abort', abort);
+    }
   }
 
   private extend({ CodeMirror: cm, extensions }: ExtensionsEventDetail): void {
     const preview = createChangePreview(cm);
     extensions.push(
       preview.extension,
-      cm.ViewPlugin.define((view) => this.track({ view, preview })),
+      cm.ViewPlugin.define((view) => this.track({ docId: this.readOpenDocId(), view, preview })),
     );
   }
 

@@ -14,6 +14,7 @@ import {
   getPageIdentity,
   MissingPageIdentityError,
 } from '../infrastructure/overleaf/overleaf-page';
+import { OverleafStore, StoreKey } from '../infrastructure/overleaf/overleaf-store';
 import { LocalStorageConversationRepository } from '../infrastructure/persistence/local-storage-conversation-repository';
 import { AssistantController } from '../presentation/assistant-controller';
 import { AssistantView } from '../presentation/assistant-view';
@@ -60,7 +61,9 @@ function compose(
 }
 
 function start(window: Window & typeof globalThis): void {
-  const bridge = new OverleafEditorBridge();
+  const bridge = new OverleafEditorBridge(() =>
+    OverleafStore.fromWindow(window).getString(StoreKey.OpenDocId),
+  );
   const uninstall = bridge.install(window);
   bridge
     .whenReady()

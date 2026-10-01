@@ -2,7 +2,6 @@ import type { CompileDiagnostic } from '../../domain/agent-transcript';
 import { createDocumentSnapshot, type DocumentSnapshot } from '../../domain/document';
 import { NotATextFileError, ProjectFileNotFoundError } from '../../domain/errors';
 import { ProjectFileKind, type ProjectFile } from '../../domain/project-file';
-import type { EditorPort } from '../../ports/editor-port';
 import {
   CompileTimeoutError,
   FileOpenTimeoutError,
@@ -11,7 +10,7 @@ import {
 } from '../../ports/errors';
 import type { ProjectPort } from '../../ports/project-port';
 import { readCompileDiagnostics } from './compile-log';
-import type { OverleafEditorBridge } from './overleaf-editor-bridge';
+import type { OpenEditor, OverleafEditorBridge } from './overleaf-editor-bridge';
 import { OverleafStoreContractError, StoreKey, type OverleafStore } from './overleaf-store';
 import { readProjectTree } from './project-tree';
 
@@ -27,7 +26,6 @@ export interface OverleafProjectTimeouts {
 export interface OverleafProjectDependencies {
   readonly window: Window & typeof globalThis;
   readonly store: OverleafStore;
-  readonly editor: EditorPort;
   readonly bridge: OverleafEditorBridge;
   readonly fetch: typeof fetch;
   readonly projectId: string;
@@ -59,7 +57,13 @@ export class OverleafProjectAdapter implements ProjectPort {
 
   async readFile(file: ProjectFile): Promise<DocumentSnapshot> {
     requireTextFile(file);
-    if (file.id === this.openDocId()) return this.deps.editor.readDocument();
+    if (file.id === this.openDocId()) {
+      const { view } = await this.shownEditor(
+        file,
+        AbortSignal.timeout(this.deps.timeouts.fileOpenMs),
+      );
+      return createDocumentSnapshot(view.state.doc.toJSON());
+    }
     const response = await this.download(file);
     if (!response.ok) {
       throw new ProjectFileReadError(
@@ -71,26 +75,25 @@ export class OverleafProjectAdapter implements ProjectPort {
 
   async openFile(file: ProjectFile): Promise<void> {
     requireTextFile(file);
-    if (file.id === this.openDocId()) return;
+    const signal = AbortSignal.timeout(this.deps.timeouts.fileOpenMs);
+    if (file.id === this.openDocId()) {
+      await this.shownEditor(file, signal);
+      return;
+    }
     const folderIds = readProjectTree(this.deps.store.get(StoreKey.Project)).folderIds.get(file.id);
     if (folderIds === undefined) {
       throw new ProjectFileNotFoundError(`The project has no file ${file.path}.`);
     }
     for (const folderId of folderIds) this.expandFolder(folderId);
-    const { bridge, store, timeouts } = this.deps;
-    const signal = AbortSignal.timeout(timeouts.fileOpenMs);
-    const shown = bridge.nextEditor();
+    const { store } = this.deps;
     this.findEntity(file.id).click();
     const opened = await store.waitUntil(
       [StoreKey.OpenDocId, StoreKey.Opening],
       () => this.openDocId() === file.id && !store.getBoolean(StoreKey.Opening),
       signal,
     );
-    if (!opened || !(await settlesBefore(shown, signal))) {
-      throw new FileOpenTimeoutError(
-        `${file.path} did not open within ${String(timeouts.fileOpenMs)} ms.`,
-      );
-    }
+    if (!opened) throw this.openTimeout(file);
+    await this.shownEditor(file, signal);
   }
 
   async compile(): Promise<readonly CompileDiagnostic[]> {
@@ -111,6 +114,18 @@ export class OverleafProjectAdapter implements ProjectPort {
       );
     }
     return readCompileDiagnostics(store.get(StoreKey.LogEntries));
+  }
+
+  private async shownEditor(file: ProjectFile, signal: AbortSignal): Promise<OpenEditor> {
+    const editor = await this.deps.bridge.whenShowing(file.id, signal);
+    if (editor === null) throw this.openTimeout(file);
+    return editor;
+  }
+
+  private openTimeout(file: ProjectFile): FileOpenTimeoutError {
+    return new FileOpenTimeoutError(
+      `${file.path} did not open within ${String(this.deps.timeouts.fileOpenMs)} ms.`,
+    );
   }
 
   private openDocId(): string {
@@ -169,19 +184,5 @@ export class OverleafProjectAdapter implements ProjectPort {
 function requireTextFile(file: ProjectFile): void {
   if (file.kind !== ProjectFileKind.Text) {
     throw new NotATextFileError(`${file.path} is not a text file.`);
-  }
-}
-
-async function settlesBefore(promise: Promise<unknown>, signal: AbortSignal): Promise<boolean> {
-  if (signal.aborted) return false;
-  const aborted = Promise.withResolvers<boolean>();
-  const abort = (): void => {
-    aborted.resolve(false);
-  };
-  signal.addEventListener('abort', abort);
-  try {
-    return await Promise.race([promise.then(() => true), aborted.promise]);
-  } finally {
-    signal.removeEventListener('abort', abort);
   }
 }

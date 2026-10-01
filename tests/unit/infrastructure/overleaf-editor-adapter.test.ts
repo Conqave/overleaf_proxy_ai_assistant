@@ -11,9 +11,10 @@ import {
 import { OverleafEditorAdapter } from '../../../src/infrastructure/overleaf/overleaf-editor-adapter';
 import { OverleafEditorBridge } from '../../../src/infrastructure/overleaf/overleaf-editor-bridge';
 import { EditorUnavailableError } from '../../../src/ports/errors';
-import { FIXTURE_DOCUMENT, openOverleafEditor } from '../../support/fake-overleaf';
+import { FIXTURE_DOC_ID, FIXTURE_DOCUMENT, openOverleafEditor } from '../../support/fake-overleaf';
 
 let bridge: OverleafEditorBridge;
+let shownDocId: string;
 let adapter: OverleafEditorAdapter;
 let editor: EditorView;
 
@@ -28,7 +29,8 @@ function open(text: string = FIXTURE_DOCUMENT): EditorView {
 }
 
 beforeEach(() => {
-  bridge = new OverleafEditorBridge();
+  shownDocId = FIXTURE_DOC_ID;
+  bridge = new OverleafEditorBridge(() => shownDocId);
   const uninstall = bridge.install(window);
   adapter = new OverleafEditorAdapter(bridge, document);
   editor = open();
@@ -58,11 +60,21 @@ describe('OverleafEditorBridge', () => {
     expect(bridge.openEditor?.view).toBe(editor);
   });
 
-  it('announces the next editor it tracks', async () => {
-    const next = bridge.nextEditor();
+  it('waits until an editor shows the requested document', async () => {
+    const shown = bridge.whenShowing('doc-other', new AbortController().signal);
     editor.destroy();
+    shownDocId = 'doc-other';
     editor = open('\\section{Other file}');
-    expect((await next).view).toBe(editor);
+    const other = await shown;
+    expect(other?.docId).toBe('doc-other');
+    expect(other?.view).toBe(editor);
+  });
+
+  it('stops waiting for a document when the signal aborts', async () => {
+    const controller = new AbortController();
+    const shown = bridge.whenShowing('doc-other', controller.signal);
+    controller.abort();
+    await expect(shown).resolves.toBeNull();
   });
 });
 

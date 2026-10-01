@@ -13,6 +13,8 @@ export const FIXTURE_DOCUMENT = [
   '\\end{document}',
 ].join('\n');
 
+export const FIXTURE_DOC_ID = 'doc-main';
+
 export function openOverleafEditor(
   window: Window & typeof globalThis,
   parent: HTMLElement,
@@ -45,7 +47,7 @@ export const FIXTURE_ROOT_FOLDER: FakeFolder = {
   _id: 'folder-root',
   name: 'rootFolder',
   docs: [
-    { _id: 'doc-main', name: 'main.tex' },
+    { _id: FIXTURE_DOC_ID, name: 'main.tex' },
     { _id: 'doc-refs', name: 'refs.bib' },
   ],
   fileRefs: [{ _id: 'file-frog', name: 'frog.jpg' }],
@@ -69,7 +71,7 @@ export const FIXTURE_ROOT_FOLDER: FakeFolder = {
 };
 
 export const FIXTURE_TEXTS: ReadonlyMap<string, string> = new Map([
-  ['doc-main', FIXTURE_DOCUMENT],
+  [FIXTURE_DOC_ID, FIXTURE_DOCUMENT],
   ['doc-refs', '@book{knuth84,\n  title = {The TeXbook}\n}'],
   ['doc-intro', '\\section{Introduction}\nThe introduction.'],
 ]);
@@ -94,13 +96,13 @@ export class FakeOverleafIde {
     this.renderFolder(this.treeRoot, rootFolder);
     this.store = new FakeOverleafStore({
       project: { rootFolder: [rootFolder] },
-      'editor.open_doc_id': 'doc-main',
+      'editor.open_doc_id': FIXTURE_DOC_ID,
       'editor.opening': false,
       'pdf.logEntries': EMPTY_LOG_ENTRIES,
     });
     Object.assign(window, { overleaf: { unstable: { store: this.store } } });
     window.addEventListener('pdf:recompile', this.recompile);
-    this.editor = openOverleafEditor(window, this.element('#editor'), this.textOf('doc-main'));
+    this.editor = openOverleafEditor(window, this.element('#editor'), this.textOf(FIXTURE_DOC_ID));
   }
 
   destroy(): void {
@@ -121,6 +123,10 @@ export class FakeOverleafIde {
     );
   }
 
+  click(id: string): void {
+    this.entity(id).click();
+  }
+
   private readonly recompile = (): void => {
     if (!this.compiles) return;
     this.store.set('pdf.logEntries', null);
@@ -135,7 +141,7 @@ export class FakeOverleafIde {
     this.store.set('editor.opening', true);
     await Promise.resolve();
     this.store.set('editor.opening', false);
-    await Promise.resolve();
+    await new Promise((resolve) => setTimeout(resolve));
     this.editor.destroy();
     this.editor = openOverleafEditor(this.window, this.element('#editor'), this.textOf(id));
   }
