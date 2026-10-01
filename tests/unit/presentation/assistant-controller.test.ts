@@ -27,8 +27,11 @@ const BIB = ['@article{smith20}', '}'];
 async function proposeBibEdit() {
   const { window } = new JSDOM('<!doctype html><html><head></head><body></body></html>');
   const editor = new FakeEditor([]);
-  const documents = { 'main.tex': ['\\cite{knuth84}'], 'refs.bib': [...BIB] };
-  const project = new FakeProject(editor, documents, 'main.tex');
+  const project = new FakeProject(
+    editor,
+    { 'main.tex': ['\\cite{knuth84}'], 'refs.bib': BIB },
+    'main.tex',
+  );
   const agent = new FakeAgent().will(
     { kind: 'tool', call: { tool: 'read_file', path: 'refs.bib' } },
     {
@@ -80,7 +83,6 @@ async function proposeBibEdit() {
     editor,
     project,
     agent,
-    documents,
     changeId: proposal.id,
     texts,
   };
@@ -123,8 +125,8 @@ describe('AssistantController apply', () => {
   });
 
   it('shows expected failures and continues', async () => {
-    const { controller, documents, changeId, texts } = await proposeBibEdit();
-    documents['refs.bib'][1] = 'Edited meanwhile.';
+    const { controller, editor, changeId, texts } = await proposeBibEdit();
+    editor.lines[1] = 'Edited meanwhile.';
     await expect(controller.apply(changeId)).resolves.toBeUndefined();
     expect(texts('.ola-error')).toEqual([
       expect.stringContaining('The document changed after the suggestion was made.'),

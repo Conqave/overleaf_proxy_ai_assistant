@@ -116,7 +116,7 @@ beforeEach(() => {
   editor = new FakeEditor([]);
   project = new FakeProject(
     editor,
-    { 'main.tex': [...MAIN], 'refs.bib': [...BIB], 'chapters/intro.tex': ['Intro about knuth.'] },
+    { 'main.tex': MAIN, 'refs.bib': BIB, 'chapters/intro.tex': ['Intro about knuth.'] },
     'main.tex',
     ['figures/plot.png'],
   );

@@ -117,13 +117,18 @@ export class FakeProject implements ProjectPort {
   failure: Partial<Record<'listFiles' | 'readFile' | 'openFile', Error>> = {};
   onOpen: (path: string) => void = () => undefined;
   private compiles: Step<readonly CompileDiagnostic[]>[] = [];
+  private readonly savedDocuments: Map<string, readonly string[]>;
+  private openPath: string;
 
   constructor(
     private readonly editor: FakeEditor,
-    private readonly documents: Record<string, string[]>,
-    private openPath: string,
+    documents: Readonly<Record<string, readonly string[]>>,
+    openPath: string,
     binaryPaths: readonly string[] = [],
   ) {
+    this.savedDocuments = new Map(
+      Object.entries(documents).map(([path, lines]) => [path, [...lines]]),
+    );
     this.files = createProjectFiles([
       ...Object.keys(documents).map((path) => ({
         id: `doc:${path}`,
@@ -132,7 +137,8 @@ export class FakeProject implements ProjectPort {
       })),
       ...binaryPaths.map((path) => ({ id: `file:${path}`, path, kind: ProjectFileKind.Binary })),
     ]);
-    this.switchTo(openPath);
+    this.openPath = openPath;
+    this.show(openPath);
   }
 
   willCompile(...results: Step<readonly CompileDiagnostic[]>[]): this {
@@ -140,9 +146,14 @@ export class FakeProject implements ProjectPort {
     return this;
   }
   switchTo(path: string): void {
+    this.savedDocuments.set(this.openPath, [...this.editor.lines]);
     this.openPath = path;
-    this.editor.lines = this.document(path);
-    this.editor.shownFileId = findTextFile(this.files, path).id;
+    this.show(path);
+  }
+  savedDocument(path: string): readonly string[] {
+    const lines = this.savedDocuments.get(path);
+    if (lines === undefined) throw new TestFixtureError(`no document ${path}`);
+    return lines;
   }
   listFiles(): readonly ProjectFile[] {
     if (this.failure.listFiles) throw this.failure.listFiles;
@@ -158,8 +169,8 @@ export class FakeProject implements ProjectPort {
     this.reads.push(file.path);
     this.signals.push(signal);
     if (this.failure.readFile) return Promise.reject(this.failure.readFile);
-    const lines = file.path === this.openPath ? this.editor.lines : this.document(file.path);
-    return Promise.resolve(createDocumentSnapshot(lines));
+    const lines = file.path === this.openPath ? this.editor.lines : this.savedDocument(file.path);
+    return Promise.resolve(createDocumentSnapshot([...lines]));
   }
   openFile(file: TextFile, signal: CancellationSignal): Promise<void> {
     this.signals.push(signal);
@@ -175,10 +186,9 @@ export class FakeProject implements ProjectPort {
     this.signals.push(signal);
     return next(this.compiles, 'compile');
   }
-  private document(path: string): string[] {
-    const lines = this.documents[path];
-    if (lines === undefined) throw new TestFixtureError(`no document ${path}`);
-    return lines;
+  private show(path: string): void {
+    this.editor.lines = [...this.savedDocument(path)];
+    this.editor.shownFileId = findTextFile(this.files, path).id;
   }
 }
 
