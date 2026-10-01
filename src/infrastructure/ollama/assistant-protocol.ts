@@ -29,22 +29,22 @@ export const MIN_CONTEXT_TOKENS = 16_384;
 const REPLY_RESERVE_TOKENS = 8_192;
 const CHARS_PER_TOKEN = 3;
 const CONVERSATION_WINDOW = 12;
-const SMALL_BLOCK_SHARE = 8;
+export const SMALL_BLOCK_SHARE = 8;
 const REJECTED_REPLY_CHARS = 3_000;
 const CORRECTION_RESERVE_CHARS = 4_096;
 const MIN_DOCUMENT_CHARS = 1_024;
 const MIN_KEPT_CHARS = 32;
 
-const LINE_BREAK = '\n';
+export const LINE_BREAK = '\n';
 const COMPACT_GAP = LINE_BREAK.repeat(2);
 const COMPACT_MARKER_CHARS = compactMarker(Number.MAX_SAFE_INTEGER).length;
 const MIN_COMPACT_CHARS = COMPACT_MARKER_CHARS + 2 * MIN_KEPT_CHARS;
 
 const USER_MESSAGE_LABEL = 'User message:';
 const PLANNER_REASON_LABEL = 'Planner reason:';
-const CONVERSATION_LABEL = 'Conversation so far:';
+export const CONVERSATION_LABEL = 'Conversation so far:';
 const CARET_LABEL = 'Lines around the caret:';
-const SELECTION_LABEL = 'Selected text:';
+export const SELECTION_LABEL = 'Selected text:';
 const LOGS_LABEL = 'Compile logs:';
 const NUMBERED_DOCUMENT_LABEL = 'Numbered document lines:';
 const DOCUMENT_LABEL = 'Document text:';
@@ -55,7 +55,7 @@ export interface ProtocolExchange<T> {
   readonly parse: (raw: string) => T;
 }
 
-const LANGUAGE_RULE =
+export const LANGUAGE_RULE =
   'Write every user-facing text in the language of the user message (Polish message → Polish text).';
 const JSON_RULE =
   'Output exactly one JSON object and nothing else: no markdown fences, no text before or after it.';
@@ -65,7 +65,7 @@ const PLAN_SCHEMA =
 
 const F = EditField;
 
-const EDIT_FORMAT = lines(
+export const EDIT_FORMAT = lines(
   fieldLine(F.Operation, Object.values(DocumentOperation).join('|')),
   fieldLine(F.Line, '<line number>'),
   fieldLine(F.EndLine, '<last line number; only for a replace or delete that spans several lines>'),
@@ -105,14 +105,8 @@ const ANSWER_SYSTEM = lines(
   'Base the answer on the document; do not invent content it does not have.',
 );
 
-const EDIT_SYSTEM = lines(
-  'You are Hans, an assistant built into the Overleaf LaTeX editor. You propose exactly one change to the document: an insertion around a line, or a replacement or deletion of one line or a range of consecutive lines.',
-  LANGUAGE_RULE,
-  'Reply in exactly this format, nothing before or after it (no JSON, no markdown fences):',
-  EDIT_FORMAT,
-  'If the location or the wanted change is unclear, reply with a single line instead:',
-  fieldLine(F.Question, '<one short question>'),
-  'Operations — the lines are chosen from Numbered document lines:',
+export const EDIT_RULES = lines(
+  'Operations — the line numbers are those of the numbered lines of the file you edit:',
   `- insert_before / insert_after: ${CONTENT} is added before / after that line.`,
   `- replace: lines ${F.Line} to ${F.EndLine} (or just ${F.Line}) are swapped for ${CONTENT}. Keep everything that should stay, e.g. the \\label inside a \\caption.`,
   `- delete: lines ${F.Line} to ${F.EndLine} (or just ${F.Line}) are removed; ${CONTENT_MARKER} is left out or left empty.`,
@@ -129,6 +123,16 @@ const EDIT_SYSTEM = lines(
   `- Everything after ${CONTENT_MARKER} is inserted verbatim: plain LaTeX source, one source line per line, no escaping, no fences.`,
   '- It must be valid LaTeX: close every environment you open.',
   '- Only the new or changed lines; never repeat unchanged surrounding lines and never rewrite the whole document.',
+);
+
+const EDIT_SYSTEM = lines(
+  'You are Hans, an assistant built into the Overleaf LaTeX editor. You propose exactly one change to the document: an insertion around a line, or a replacement or deletion of one line or a range of consecutive lines.',
+  LANGUAGE_RULE,
+  'Reply in exactly this format, nothing before or after it (no JSON, no markdown fences):',
+  EDIT_FORMAT,
+  'If the location or the wanted change is unclear, reply with a single line instead:',
+  fieldLine(F.Question, '<one short question>'),
+  EDIT_RULES,
   'Example of an insertion:',
   fieldLine(F.Operation, DocumentOperation.InsertAfter),
   fieldLine(F.Line, '42'),
@@ -246,11 +250,11 @@ function buildReplyPrompt(request: ReplyRequest, numbered: boolean, budget: numb
   return lines(...before, documentBlock(evidence.document, numbered, documentBudget), ...after);
 }
 
-function userMessage(message: string): string {
+export function userMessage(message: string): string {
   return `${USER_MESSAGE_LABEL}${LINE_BREAK}${message}`;
 }
 
-function conversationBlock(
+export function conversationBlock(
   conversation: readonly ConversationMessage[],
   maxChars: number,
 ): string[] {
@@ -304,20 +308,20 @@ function optionalBlock(label: string, text: string | undefined, maxChars: number
   return text === undefined ? [] : [block(label, text, maxChars)];
 }
 
-function block(label: string, text: string, maxChars: number): string {
+export function block(label: string, text: string, maxChars: number): string {
   const heading = blockHeading(label);
   return `${heading}${compact(text, maxChars - heading.length)}`;
 }
 
-function blockHeading(label: string): string {
+export function blockHeading(label: string): string {
   return `${LINE_BREAK}${label}${LINE_BREAK}`;
 }
 
-function minBlockChars(label: string): number {
+export function minBlockChars(label: string): number {
   return blockHeading(label).length + MIN_COMPACT_CHARS;
 }
 
-function compact(text: string, maxChars: number): string {
+export function compact(text: string, maxChars: number): string {
   if (text.length <= maxChars) return text;
   if (maxChars < MIN_COMPACT_CHARS) {
     throw new InvariantViolation(`cannot compact text into ${String(maxChars)} characters`);
@@ -331,12 +335,12 @@ function compactMarker(omitted: number): string {
   return `${COMPACT_GAP}[AUTOCOMPACTED: omitted ${String(omitted)} chars]${COMPACT_GAP}`;
 }
 
-function createTooLargeError(): AssistantRequestTooLargeError {
+export function createTooLargeError(): AssistantRequestTooLargeError {
   return new AssistantRequestTooLargeError(
     "The message is too long for the model's context window; shorten it and try again.",
   );
 }
 
-function lines(...parts: readonly string[]): string {
+export function lines(...parts: readonly string[]): string {
   return parts.join(LINE_BREAK);
 }

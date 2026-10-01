@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { OllamaAgent } from '../../../src/infrastructure/ollama/ollama-agent';
 import { OllamaAssistant } from '../../../src/infrastructure/ollama/ollama-assistant';
 import { OllamaClient } from '../../../src/infrastructure/ollama/ollama-client';
 import {
@@ -16,6 +17,8 @@ import {
 } from '../../../src/ports/errors';
 import { FakeOllama } from '../../support/fake-ollama';
 import { createDocumentSnapshot } from '../../../src/domain/document';
+import { ProjectFileKind } from '../../../src/domain/project-file';
+import type { AgentStepRequest } from '../../../src/ports/agent-port';
 
 const config = {
   endpoint: '/ollama/main/api/generate',
@@ -260,5 +263,50 @@ describe('OllamaAssistant', () => {
     expect(reply).toMatchObject({ kind: 'edit', edit: { command: { target: { lineNumber: 2 } } } });
     expect(ollama.promptCalls[1]!.body.prompt).toContain('which reads: Body text. More.');
     expect(ollama.promptCalls[1]!.body.prompt).toContain('No JSON');
+  });
+});
+
+describe('OllamaAgent', () => {
+  const step: AgentStepRequest = {
+    message: 'Which title does the cited work have?',
+    conversation: [],
+    workspace: {
+      files: [
+        { id: '1', path: 'main.tex', kind: ProjectFileKind.Text },
+        { id: '2', path: 'refs.bib', kind: ProjectFileKind.Text },
+      ],
+      openFile: { path: 'main.tex', document: createDocumentSnapshot(['\\cite{a}']) },
+      cursorLine: 1,
+      selection: '',
+    },
+    transcript: [],
+  };
+  const agent = (ollama: FakeOllama) => new OllamaAgent(make(ollama).client);
+
+  it('decides on a tool call from one model call', async () => {
+    const ollama = new FakeOllama().reply({ response: 'ACTION: read_file\nPATH: refs.bib' });
+    await expect(agent(ollama).decide(step)).resolves.toEqual({
+      kind: 'tool',
+      call: { tool: 'read_file', path: 'refs.bib' },
+    });
+    expect(ollama.promptCalls).toHaveLength(1);
+  });
+
+  it('sends an invalid action back to the model once', async () => {
+    const ollama = new FakeOllama().reply(
+      { response: 'ACTION: read_file\nPATH: missing.tex' },
+      { response: 'ACTION: answer\nTEXT:\nThe file is not in the project.' },
+    );
+    await expect(agent(ollama).decide(step)).resolves.toEqual({
+      kind: 'reply',
+      reply: { kind: 'answer', text: 'The file is not in the project.' },
+    });
+    expect(ollama.promptCalls[1]!.body.prompt).toContain('missing.tex');
+    expect(ollama.promptCalls[1]!.body.prompt).toContain('Reply again with exactly one action');
+  });
+
+  it('fails with a protocol error after a second invalid reply', async () => {
+    const ollama = new FakeOllama().reply({ response: 'hello' }, { response: 'ACTION: dance' });
+    await expect(agent(ollama).decide(step)).rejects.toThrow(AssistantProtocolError);
   });
 });
