@@ -70,6 +70,10 @@ describe('contextUsageText', () => {
       }),
     ).toBe('Context 12.3k / 98.3k');
   });
+
+  it('shows an unused context window as zero', () => {
+    expect(contextUsageText({ contextTokens: 98_304, promptTokens: 0 })).toBe('Context 0 / 98.3k');
+  });
 });
 
 describe('progressStatus', () => {

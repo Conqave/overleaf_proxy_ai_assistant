@@ -18,6 +18,8 @@ const REFS_DOC_ID = 'doc-refs';
 const REFS_TEXT = '@book{knuth84,\n  title = {The TeXbook}\n}';
 const SMITH_ENTRY = '@article{smith20,\n  title = {Smith}\n}';
 
+const UNUSED_CONTEXT = 'Context 0 / 98.3k';
+
 const browsers: Browser[] = [];
 
 afterEach(() => {
@@ -162,7 +164,7 @@ describe('assistant startup', () => {
     }, PAGE_WAIT);
     expect(element(doc, '.ola-badge').textContent).toBe('Hans');
     expect(element(doc, '.ola-head').textContent).toContain('Hans AI Assistant');
-    expect(element(doc, '.ola-context').textContent).toBe('');
+    expect(element(doc, '.ola-context').textContent).toBe(UNUSED_CONTEXT);
     expect(messages()).toEqual([expect.stringContaining('Ready to help with this document')]);
     button(doc, '.ola-badge').click();
     expect(element(doc, '#ola-root').classList.contains('is-collapsed')).toBe(true);
@@ -253,6 +255,7 @@ describe('assistant conversation', () => {
     await second.click('.ola-new-chat', () => {
       expect(second.messages()).toEqual([expect.stringContaining('Ready to help')]);
     });
+    expect(second.texts('.ola-context')).toEqual([UNUSED_CONTEXT]);
     expect(second.browser.window.localStorage.getItem(HISTORY_KEY)).toBeNull();
   });
 
@@ -290,7 +293,7 @@ describe('assistant conversation', () => {
 
 describe('assistant agent', () => {
   it('answers from the open file and shows the context usage', async () => {
-    const { send, texts, ollama } = await start({
+    const { send, click, texts, ollama } = await start({
       replies: [reply('ACTION: answer', 'TEXT:', 'It describes an experiment.')],
     });
     await send('What is this document about?');
@@ -302,6 +305,11 @@ describe('assistant agent', () => {
     );
     expect(call.userMessage).toContain('3: \\section{Introduction}');
     expect(texts('.ola-context')).toEqual([contextText(call)]);
+    await send('hi');
+    expect(texts('.ola-context')).toEqual([contextText(call)]);
+    await click('.ola-new-chat', () => {
+      expect(texts('.ola-context')).toEqual([UNUSED_CONTEXT]);
+    });
   });
 
   it('searches every text file of the project', async () => {

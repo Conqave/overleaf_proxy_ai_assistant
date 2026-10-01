@@ -32,10 +32,14 @@ export interface UseCases {
 export class AssistantController implements ViewEvents {
   private view: AssistantView | null = null;
 
-  constructor(private readonly useCases: UseCases) {}
+  constructor(
+    private readonly useCases: UseCases,
+    private readonly contextTokens: number,
+  ) {}
 
   attach(view: AssistantView): Promise<void> {
     this.view = view;
+    this.showUnusedContext(view);
     this.useCases.lock.onChange((busy) => {
       view.setBusy(busy);
     });
@@ -96,9 +100,13 @@ export class AssistantController implements ViewEvents {
     return this.guard(() => {
       this.useCases.startNewConversation.execute();
       view.showConversation([]);
-      view.setContextUsage('');
+      this.showUnusedContext(view);
       view.clearInput();
     });
+  }
+
+  private showUnusedContext(view: AssistantView): void {
+    view.setContextUsage(contextUsageText({ promptTokens: 0, contextTokens: this.contextTokens }));
   }
 
   private showResult(view: AssistantView, result: AssistantRequestResult): void {

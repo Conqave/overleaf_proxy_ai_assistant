@@ -14,6 +14,7 @@ import { InvariantViolation } from '../../../src/domain/errors';
 import { AssistantController } from '../../../src/presentation/assistant-controller';
 import { AssistantView } from '../../../src/presentation/assistant-view';
 import {
+  FAKE_CONTEXT_TOKENS,
   FakeAgent,
   FakeEditor,
   FakeProject,
@@ -24,7 +25,7 @@ import { TestFixtureError } from '../../support/test-errors';
 
 const BIB = ['@article{smith20}', '}'];
 
-async function proposeBibEdit() {
+async function openAssistant() {
   const { window } = new JSDOM('<!doctype html><html><head></head><body></body></html>');
   const editor = new FakeEditor([]);
   const project = new FakeProject(
@@ -61,39 +62,55 @@ async function proposeBibEdit() {
     newId: sequentialIds(),
   });
   const review = new ReviewAppliedChange({ project, conversation, handleRequest });
-  const controller = new AssistantController({
-    handleRequest,
-    lock,
-    applyChange: new ApplyDocumentChange({ editor, project, pendingChanges, lock, review }),
-    rejectChange: new RejectDocumentChange({ editor, pendingChanges, conversation }),
-    startNewConversation: new StartNewConversation({ conversation, pendingChanges, editor, lock }),
-    conversation,
-  });
+  const controller = new AssistantController(
+    {
+      handleRequest,
+      lock,
+      applyChange: new ApplyDocumentChange({ editor, project, pendingChanges, lock, review }),
+      rejectChange: new RejectDocumentChange({ editor, pendingChanges, conversation }),
+      startNewConversation: new StartNewConversation({
+        conversation,
+        pendingChanges,
+        editor,
+        lock,
+      }),
+      conversation,
+    },
+    FAKE_CONTEXT_TOKENS,
+  );
   await controller.attach(new AssistantView(window.document, controller));
-  await controller.send('add the knuth84 entry');
-  const proposal = conversation.messages().at(-1);
+  const texts = (selector: string) =>
+    Array.from(window.document.querySelectorAll(selector)).map((n) => n.textContent);
+  return { window, controller, conversation, editor, project, agent, texts };
+}
+
+async function proposeBibEdit() {
+  const assistant = await openAssistant();
+  await assistant.controller.send('add the knuth84 entry');
+  const proposal = assistant.conversation.messages().at(-1);
   if (proposal?.role !== 'assistant' || proposal.kind !== 'proposal') {
     throw new TestFixtureError('the controller did not show a proposal');
   }
-  const texts = (selector: string) =>
-    Array.from(window.document.querySelectorAll(selector)).map((n) => n.textContent);
-  return {
-    window,
-    controller,
-    editor,
-    project,
-    agent,
-    changeId: proposal.id,
-    texts,
-  };
+  return { ...assistant, changeId: proposal.id };
 }
 
 describe('AssistantController context usage', () => {
-  it('shows the context usage of the last request and clears it for a new chat', async () => {
+  it('shows an unused context window before the first request', async () => {
+    const { texts } = await openAssistant();
+    expect(texts('.ola-context')).toEqual(['Context 0 / 98.3k']);
+  });
+
+  it('shows the context usage of the last request and an unused window for a new chat', async () => {
     const { controller, texts } = await proposeBibEdit();
     expect(texts('.ola-context')).toEqual(['Context 2.0k / 98.3k']);
     await controller.newConversation();
-    expect(texts('.ola-context')).toEqual(['']);
+    expect(texts('.ola-context')).toEqual(['Context 0 / 98.3k']);
+  });
+
+  it('keeps the context usage of the last request for a greeting', async () => {
+    const { controller, texts } = await proposeBibEdit();
+    await controller.send('hi');
+    expect(texts('.ola-context')).toEqual(['Context 2.0k / 98.3k']);
   });
 
   it('shows the context usage of the fix proposed after a failed compilation', async () => {

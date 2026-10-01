@@ -90,6 +90,7 @@ export function contextUsageText({ promptTokens, contextTokens }: ContextUsage):
 }
 
 function thousands(tokens: number): string {
+  if (tokens === 0) return '0';
   return `${(tokens / TOKENS_PER_THOUSAND).toFixed(1)}k`;
 }
 
