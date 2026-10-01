@@ -19,6 +19,7 @@ import {
   FakeEditor,
   FakeProject,
   InMemoryConversationRepository,
+  PendingStep,
   sequentialIds,
 } from '../../support/fakes';
 import { TestFixtureError } from '../../support/test-errors';
@@ -225,7 +226,7 @@ describe('AssistantView while an operation runs', () => {
   it('shows the busy state of the operation lock and ignores Enter until it ends', async () => {
     const { window, controller, project, changeId, texts } = await proposeBibEdit();
     const compiled = Promise.withResolvers<readonly CompileDiagnostic[]>();
-    project.compile = () => compiled.promise;
+    project.willCompile(new PendingStep(() => compiled.promise));
     const applying = controller.apply(changeId);
     const input = window.document.querySelector('textarea');
     if (input === null) throw new TestFixtureError('the view has no input');
