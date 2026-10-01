@@ -84,6 +84,12 @@ describe('agent exchange', () => {
     expect(sent.prompt.endsWith('Lookups left: 6')).toBe(true);
   });
 
+  it('allows Markdown in answers but not in the content of an edit', () => {
+    const { system } = createAgentExchange(request(), budget).request;
+    expect(system).toMatch(/- answer: [^\n]*may use Markdown/);
+    expect(system).toMatch(/- Everything after CONTENT: [^\n]*no Markdown\./);
+  });
+
   it('shows the selection', () => {
     const selected = request({ workspace: { ...request().workspace, selection: 'Bo' } });
     expect(createAgentExchange(selected, budget).request.prompt).toContain('Selected text:\nBo');
