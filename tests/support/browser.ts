@@ -21,7 +21,7 @@ export interface Browser {
   close(): void;
 }
 
-export function openBrowser(ollama: FakeOllama): Browser {
+export function openBrowser(ollama: FakeOllama, indexedDB: Pick<IDBFactory, 'open'>): Browser {
   const consoleErrors: string[] = [];
   const virtualConsole = new VirtualConsole();
   virtualConsole.on('error', (...args: unknown[]) => {
@@ -40,7 +40,7 @@ export function openBrowser(ollama: FakeOllama): Browser {
   });
   const window = dom.window;
   let ide: FakeOverleafIde | null = null;
-  Object.assign(window, { fetch: ollama.fetch, Response, structuredClone });
+  Object.assign(window, { fetch: ollama.fetch, Response, structuredClone, indexedDB });
   Object.assign(window.Range.prototype, {
     getClientRects: () => [],
   });

@@ -11,15 +11,18 @@ import {
   type TextFile,
 } from '../../src/domain/project-file';
 import type { ResolvedEdit } from '../../src/domain/resolved-edit';
+import { summarizeSession, type ConversationSession } from '../../src/domain/session';
 import type { AgentPort, AgentStep, AgentStepRequest } from '../../src/ports/agent-port';
 import type { CancellationSignal } from '../../src/ports/cancellation';
-import type { ConversationRepository } from '../../src/ports/conversation-repository';
+import type { SessionListing, SessionRepository } from '../../src/ports/session-repository';
 import type { EditorPort } from '../../src/ports/editor-port';
 import type { ProjectPort } from '../../src/ports/project-port';
 import {
   EditorShowsOtherFileError,
   EditorUnavailableError,
-  PersistenceError,
+  SessionNotFoundError,
+  SessionStorageError,
+  UnreadableSessionError,
 } from '../../src/ports/errors';
 import { TestFixtureError, UnexpectedFakeCallError } from './test-errors';
 
@@ -229,28 +232,68 @@ function next<T>(queue: Step<T>[], what: string, signal: CancellationSignal): Pr
   return Promise.resolve(step);
 }
 
-export class InMemoryConversationRepository implements ConversationRepository {
+export class InMemorySessionRepository implements SessionRepository {
   failing = false;
-  unreadable = false;
-  constructor(public stored: ConversationMessage[] = []) {}
-  load(): ConversationMessage[] {
-    if (this.failing) throw new PersistenceError('storage off');
-    if (this.unreadable) throw new PersistenceError('The saved conversation is corrupted.');
-    return [...this.stored];
+  unreadableIds: string[] = [];
+  readonly stored = new Map<string, ConversationSession>();
+
+  constructor(...sessions: ConversationSession[]) {
+    for (const session of sessions) this.stored.set(session.id, session);
   }
-  save(messages: readonly ConversationMessage[]): void {
-    if (this.failing) throw new PersistenceError('storage off');
-    this.stored = [...messages];
+  list(): Promise<SessionListing> {
+    if (this.failing) return Promise.reject(storageOff());
+    const sessions = [...this.stored.values()].map(summarizeSession);
+    return Promise.resolve({ sessions, unreadableIds: [...this.unreadableIds] });
   }
-  clear(): void {
-    if (this.failing) throw new PersistenceError('storage off');
-    this.stored = [];
+  load(id: string): Promise<ConversationSession> {
+    if (this.failing) return Promise.reject(storageOff());
+    if (this.unreadableIds.includes(id)) {
+      return Promise.reject(new UnreadableSessionError('The saved session is corrupted.'));
+    }
+    const session = this.stored.get(id);
+    if (session === undefined) return Promise.reject(new SessionNotFoundError(`no session ${id}`));
+    return Promise.resolve(session);
+  }
+  save(session: ConversationSession): Promise<void> {
+    if (this.failing) return Promise.reject(storageOff());
+    this.stored.set(session.id, session);
+    return Promise.resolve();
+  }
+  delete(id: string): Promise<void> {
+    if (this.failing) return Promise.reject(storageOff());
+    this.stored.delete(id);
+    this.unreadableIds = this.unreadableIds.filter((unreadable) => unreadable !== id);
+    return Promise.resolve();
+  }
+  only(): ConversationSession {
+    const [session, ...others] = this.stored.values();
+    if (session === undefined || others.length) {
+      throw new TestFixtureError(`${String(this.stored.size)} sessions are stored, not one`);
+    }
+    return session;
   }
 }
 
-export function sequentialIds(): () => string {
+function storageOff(): SessionStorageError {
+  return new SessionStorageError('storage off');
+}
+
+export function storedSession(
+  id: string,
+  messages: readonly ConversationMessage[],
+  updatedAt = 1,
+): ConversationSession {
+  return { id, title: `Session ${id}`, createdAt: 0, updatedAt, messages };
+}
+
+export function sequentialIds(prefix = 'id'): () => string {
   let next = 0;
-  return () => `id-${String((next += 1))}`;
+  return () => `${prefix}-${String((next += 1))}`;
+}
+
+export function ticking(): () => number {
+  let now = 0;
+  return () => (now += 1);
 }
 
 export function rejectOnAbort(signal: CancellationSignal): Promise<never> {

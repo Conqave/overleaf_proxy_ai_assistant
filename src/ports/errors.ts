@@ -18,7 +18,7 @@ export class EditorUnavailableError extends OperationalError {}
 
 export class EditorShowsOtherFileError extends OperationalError {}
 
-export class PersistenceError extends OperationalError {}
+export abstract class PersistenceError extends OperationalError {}
 
 export class SessionStorageError extends PersistenceError {}
 

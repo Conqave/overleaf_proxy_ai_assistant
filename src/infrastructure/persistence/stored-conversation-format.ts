@@ -16,7 +16,7 @@ import type { OverleafPageIdentity } from '../overleaf/overleaf-page';
 
 export class UnknownStoredFormatError extends NamedError {}
 
-export function parseStoredMessages(data: unknown): ConversationMessage[] {
+function parseStoredMessages(data: unknown): ConversationMessage[] {
   if (!Array.isArray(data)) throw new UnknownStoredFormatError('not an array');
   return data.map(parseMessage);
 }

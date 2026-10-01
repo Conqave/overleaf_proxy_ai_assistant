@@ -2,7 +2,10 @@ import { JSDOM } from 'jsdom';
 import { describe, expect, it, vi } from 'vitest';
 import { ApplyDocumentChange } from '../../../src/application/apply-document-change';
 import { ConversationLog } from '../../../src/application/conversation-log';
-import { StartNewConversation } from '../../../src/application/conversation-session';
+import {
+  RestoreLatestSession,
+  StartNewConversation,
+} from '../../../src/application/conversation-session';
 import { HandleAssistantRequest } from '../../../src/application/handle-assistant-request';
 import { OperationLock } from '../../../src/application/operation-lock';
 import { PendingChanges } from '../../../src/application/pending-change';
@@ -18,9 +21,10 @@ import {
   FakeAgent,
   FakeEditor,
   FakeProject,
-  InMemoryConversationRepository,
+  InMemorySessionRepository,
   PendingStep,
   sequentialIds,
+  ticking,
 } from '../../support/fakes';
 import { TestFixtureError } from '../../support/test-errors';
 
@@ -50,7 +54,12 @@ async function openAssistant() {
       },
     },
   );
-  const conversation = new ConversationLog(new InMemoryConversationRepository());
+  const sessions = new InMemorySessionRepository();
+  const conversation = new ConversationLog({
+    sessions,
+    newId: sequentialIds('session'),
+    now: ticking(),
+  });
   const pendingChanges = new PendingChanges(conversation);
   const lock = new OperationLock(() => new AbortController());
   const handleRequest = new HandleAssistantRequest({
@@ -76,6 +85,7 @@ async function openAssistant() {
       review,
     }),
     rejectChange: new RejectDocumentChange({ editor, pendingChanges, lock }),
+    restoreSession: new RestoreLatestSession({ sessions, conversation, lock }),
     startNewConversation: new StartNewConversation({
       conversation,
       pendingChanges,

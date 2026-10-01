@@ -2,14 +2,16 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AgentProgress } from '../../../src/application/agent-progress';
 import { ApplyDocumentChange } from '../../../src/application/apply-document-change';
 import { ConversationLog } from '../../../src/application/conversation-log';
-import { StartNewConversation } from '../../../src/application/conversation-session';
+import {
+  RestoreLatestSession,
+  StartNewConversation,
+} from '../../../src/application/conversation-session';
 import {
   AgentMistakeLimitError,
   ChangeNoLongerPendingError,
   EmptyRequestError,
   RequestInProgressError,
   RequestSupersededError,
-  UnreadableConversationError,
 } from '../../../src/application/errors';
 import {
   COMPILE_FIX_REQUEST,
@@ -27,6 +29,7 @@ import { AGENT_POLICY } from '../../../src/domain/agent-policy';
 import { createDocumentSnapshot, type DocumentSnapshot } from '../../../src/domain/document';
 import { createDocumentCommand } from '../../../src/domain/document-command';
 import { DocumentConflictError, InvariantViolation } from '../../../src/domain/errors';
+import type { ConversationSession } from '../../../src/domain/session';
 import {
   AssistantProtocolError,
   AssistantUnreachableError,
@@ -36,16 +39,19 @@ import {
   FileOpenTimeoutError,
   ProjectFileReadError,
   ProjectUnavailableError,
+  SessionStorageError,
 } from '../../../src/ports/errors';
 import {
   FAKE_CONTEXT_TOKENS,
   FakeAgent,
   FakeEditor,
   FakeProject,
-  InMemoryConversationRepository,
+  InMemorySessionRepository,
   PendingStep,
   rejectOnAbort,
   sequentialIds,
+  storedSession,
+  ticking,
 } from '../../support/fakes';
 import { anInstanceOf, itemAt, textContaining } from '../../support/guards';
 
@@ -55,7 +61,7 @@ const BIB = ['@article{smith20,', '  title = {Smith},', '}'];
 let editor: FakeEditor;
 let project: FakeProject;
 let agent: FakeAgent;
-let repository: InMemoryConversationRepository;
+let repository: InMemorySessionRepository;
 let conversation: ConversationLog;
 let pendingChanges: PendingChanges;
 let handle: HandleAssistantRequest;
@@ -71,6 +77,12 @@ const record = (p: AgentProgress) => {
   progress.push(p);
 };
 const send = (text: string) => handle.execute(text, record);
+const storedMessages = () => repository.only().messages;
+const seed = (session: ConversationSession) => {
+  repository.stored.set(session.id, session);
+};
+const restore = () =>
+  new RestoreLatestSession({ sessions: repository, conversation, lock }).execute();
 const requestAt = (index: number) => itemAt(agent.requests, index, 'agent request');
 const tool = (call: ToolCall): AgentDecision => ({ kind: 'tool', call });
 const answer = (text: string): AgentDecision => ({
@@ -121,8 +133,12 @@ beforeEach(() => {
     ['figures/plot.png'],
   );
   agent = new FakeAgent();
-  repository = new InMemoryConversationRepository();
-  conversation = new ConversationLog(repository);
+  repository = new InMemorySessionRepository();
+  conversation = new ConversationLog({
+    sessions: repository,
+    newId: sequentialIds('session'),
+    now: ticking(),
+  });
   pendingChanges = new PendingChanges(conversation);
   lock = new OperationLock(() => new AbortController());
   busy = [];
@@ -157,7 +173,7 @@ describe('HandleAssistantRequest', () => {
     const result = await send('Cześć!');
     expect(result.message).toMatchObject({ kind: 'explanation' });
     expect(requestAt(0).request).toMatchObject({ message: { role: 'user', text: 'Cześć!' } });
-    expect(repository.stored.map((m) => m.role)).toEqual(['user', 'assistant']);
+    expect(storedMessages().map((m) => m.role)).toEqual(['user', 'assistant']);
   });
 
   it('answers without tools and shows the agent the whole workspace', async () => {
@@ -515,7 +531,7 @@ describe('HandleAssistantRequest', () => {
     expect(editor.preview).toBeNull();
     const discarded = { id: changeId, kind: 'proposal', status: 'discarded' };
     expect(progress[0]).toMatchObject({ stage: 'decided', message: discarded });
-    expect(repository.stored).toContainEqual(expect.objectContaining(discarded));
+    expect(storedMessages()).toContainEqual(expect.objectContaining(discarded));
     expect(requestAt(-1).conversation).toContainEqual(expect.objectContaining(discarded));
     await expect(apply.execute(changeId, record)).rejects.toThrow(ChangeNoLongerPendingError);
     await expect(reject.execute(changeId)).rejects.toThrow(ChangeNoLongerPendingError);
@@ -578,7 +594,7 @@ describe('preview / apply / reject', () => {
     expect(editor.preview).toBeNull();
     const applied = conversation.messages().at(-1);
     expect(applied).toMatchObject({ id: changeId, kind: 'proposal', status: 'applied' });
-    expect(repository.stored.at(-1)).toEqual(applied);
+    expect(storedMessages().at(-1)).toEqual(applied);
     expect(progress).toEqual([{ stage: 'decided', message: applied }, { stage: 'compiling' }]);
   });
 
@@ -659,7 +675,7 @@ describe('preview / apply / reject', () => {
     const failed = { id: changeId, kind: 'proposal', status: 'failed' };
     expect(progress).toHaveLength(1);
     expect(progress[0]).toMatchObject({ stage: 'decided', message: failed });
-    expect(repository.stored.at(-1)).toMatchObject(failed);
+    expect(storedMessages().at(-1)).toMatchObject(failed);
     await expect(apply.execute(changeId, record)).rejects.toThrow(ChangeNoLongerPendingError);
   });
 
@@ -694,7 +710,7 @@ describe('preview / apply / reject', () => {
     const rejected = await reject.execute(changeId);
     expect(rejected).toMatchObject({ id: changeId, kind: 'proposal', status: 'rejected' });
     expect(conversation.messages().at(-1)).toEqual(rejected);
-    expect(repository.stored.at(-1)).toEqual(rejected);
+    expect(storedMessages().at(-1)).toEqual(rejected);
     expect(editor.preview).toBeNull();
     expect(editor.lines).toEqual(MAIN);
   });
@@ -758,6 +774,10 @@ describe('preview / apply / reject', () => {
 describe('ReviewAppliedChange', () => {
   const reviewApplied = () => lock.run((signal) => review.execute(record, signal));
 
+  beforeEach(() => {
+    conversation.append({ id: 'request', role: 'user', text: 'Make it bold.' });
+  });
+
   it('fixes compile errors only inside a running operation', async () => {
     await expect(handle.fixCompileErrors([], record, new AbortController().signal)).rejects.toThrow(
       InvariantViolation,
@@ -775,7 +795,7 @@ describe('ReviewAppliedChange', () => {
     project.willCompile([{ level: 'error' as const, message: 'x' }]);
     agent.will(answer('Fixed nothing.'));
     await reviewApplied();
-    expect(conversation.messages()[0]).toEqual({
+    expect(conversation.messages()[1]).toEqual({
       id: anInstanceOf(String),
       role: 'system',
       text: COMPILE_FIX_REQUEST,
@@ -815,17 +835,45 @@ describe('ReviewAppliedChange', () => {
 });
 
 describe('conversation', () => {
-  it('restores and starts a new conversation', async () => {
-    repository.stored = [{ id: 'a', role: 'user', text: 'old' }];
-    expect(conversation.restore()).toHaveLength(1);
+  it('restores the latest session and starts a new one without deleting it', async () => {
+    seed(storedSession('old', [{ id: 'a', role: 'user', text: 'older' }], 1));
+    seed(storedSession('latest', [{ id: 'b', role: 'user', text: 'latest' }], 2));
+    await expect(restore()).resolves.toEqual([{ id: 'b', role: 'user', text: 'latest' }]);
+    expect(conversation.sessionId).toBe('latest');
     const changeId = await proposeEdit();
     new StartNewConversation({ conversation, pendingChanges, editor, lock }).execute();
     expect(conversation.messages()).toHaveLength(0);
-    expect(repository.stored).toHaveLength(0);
+    expect(conversation.sessionId).toBeNull();
+    expect(repository.stored.get('latest')?.messages.at(-1)).toMatchObject({
+      id: changeId,
+      status: 'discarded',
+    });
     await expect(apply.execute(changeId, record)).rejects.toThrow(ChangeNoLongerPendingError);
+    agent.will(answer('Fresh.'));
+    await send('fresh start');
+    expect(conversation.sessionId).toBe('session-1');
+    expect(repository.stored.get('session-1')).toMatchObject({
+      title: 'fresh start',
+      messages: [{ role: 'user', text: 'fresh start' }, { text: 'Fresh.' }],
+    });
+    expect(repository.stored.size).toBe(3);
   });
 
-  it('discards the proposals a reload left undecided', () => {
+  it('starts with a new session when none is stored', async () => {
+    await expect(restore()).resolves.toEqual([]);
+    expect(conversation.sessionId).toBeNull();
+    expect(repository.stored.size).toBe(0);
+  });
+
+  it('restores while holding the operation lock', async () => {
+    const restoring = restore();
+    expect(isBusy()).toBe(true);
+    await expect(send('too early')).rejects.toThrow(RequestInProgressError);
+    await restoring;
+    expect(isBusy()).toBe(false);
+  });
+
+  it('discards the proposals a reload left undecided', async () => {
     const undecided = {
       id: 'p',
       role: 'assistant' as const,
@@ -837,13 +885,26 @@ describe('conversation', () => {
       }),
       status: 'proposed' as const,
     };
-    repository.stored = [{ id: 'u', role: 'user', text: 'delete it' }, undecided];
+    seed(storedSession('s', [{ id: 'u', role: 'user', text: 'delete it' }, undecided]));
     const discarded = { ...undecided, status: 'discarded' };
-    expect(conversation.restore()).toEqual([
+    await expect(restore()).resolves.toEqual([
       { id: 'u', role: 'user', text: 'delete it' },
       discarded,
     ]);
-    expect(repository.stored.at(-1)).toEqual(discarded);
+    expect(storedMessages().at(-1)).toEqual(discarded);
+    expect(repository.only().updatedAt).toBe(1);
+  });
+
+  it('records when a session started and last changed', async () => {
+    agent.will(answer('One.'), answer('Two.'));
+    await send('  first\n request ');
+    await send('second');
+    expect(repository.only()).toMatchObject({
+      id: 'session-1',
+      title: 'first request',
+      createdAt: 1,
+      updatedAt: 4,
+    });
   });
 
   it('keeps working when storage fails and reports it once', async () => {
@@ -852,32 +913,20 @@ describe('conversation', () => {
     const result = await send('hello');
     expect(result.message.kind).toBe('explanation');
     expect(conversation.messages()).toHaveLength(2);
-    expect(conversation.takePersistenceFailure()?.message).toBe('storage off');
-    expect(conversation.takePersistenceFailure()).toBeNull();
+    expect((await conversation.takePersistenceFailure())?.message).toBe('storage off');
+    await expect(conversation.takePersistenceFailure()).resolves.toBeNull();
   });
 
-  it('keeps an unreadable conversation stored until a new conversation starts', async () => {
-    const unreadable = [{ id: 'a', role: 'user' as const, text: 'old' }];
-    repository.stored = unreadable;
-    repository.unreadable = true;
-    expect(conversation.restore()).toEqual([]);
-    expect(conversation.takePersistenceFailure()).toBeInstanceOf(UnreadableConversationError);
-    agent.will(answer('Hi.'), answer('Hi again.'));
-    await send('hello');
-    expect(conversation.messages()).toHaveLength(2);
-    expect(repository.stored).toBe(unreadable);
-    new StartNewConversation({ conversation, pendingChanges, editor, lock }).execute();
-    await send('hello');
-    expect(repository.stored.map((m) => m.role)).toEqual(['user', 'assistant']);
-  });
-
-  it('reports the unreadable conversation before a later storage failure', () => {
-    repository.unreadable = true;
-    conversation.restore();
+  it('reports storage that cannot list the sessions', async () => {
     repository.failing = true;
-    new StartNewConversation({ conversation, pendingChanges, editor, lock }).execute();
-    expect(conversation.takePersistenceFailure()).toBeInstanceOf(UnreadableConversationError);
-    expect(conversation.takePersistenceFailure()).toBeNull();
+    await expect(restore()).rejects.toThrow(SessionStorageError);
+    expect(isBusy()).toBe(false);
+  });
+
+  it('starts a session only with a request of the user', () => {
+    expect(() => {
+      conversation.append({ id: 's', role: 'system', text: COMPILE_FIX_REQUEST });
+    }).toThrow(InvariantViolation);
   });
 
   it('keeps only the last 80 messages', async () => {
@@ -885,6 +934,6 @@ describe('conversation', () => {
       agent.will(answer('Hi.'));
       await send('hi');
     }
-    expect(repository.stored).toHaveLength(80);
+    expect(storedMessages()).toHaveLength(80);
   });
 });

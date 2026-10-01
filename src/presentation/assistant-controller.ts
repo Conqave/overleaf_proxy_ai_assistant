@@ -1,6 +1,9 @@
 import type { ApplyDocumentChange } from '../application/apply-document-change';
 import type { ConversationLog } from '../application/conversation-log';
-import type { StartNewConversation } from '../application/conversation-session';
+import type {
+  RestoreLatestSession,
+  StartNewConversation,
+} from '../application/conversation-session';
 import type { AgentResult, HandleAssistantRequest } from '../application/handle-assistant-request';
 import type { AgentProgress } from '../application/agent-progress';
 import { RequestSupersededError } from '../application/errors';
@@ -23,8 +26,9 @@ export interface UseCases {
   applyChange: ApplyDocumentChange;
   lock: Pick<OperationLock, 'onChange'>;
   rejectChange: RejectDocumentChange;
+  restoreSession: RestoreLatestSession;
   startNewConversation: StartNewConversation;
-  conversation: Pick<ConversationLog, 'restore' | 'takePersistenceFailure'>;
+  conversation: Pick<ConversationLog, 'takePersistenceFailure'>;
 }
 
 export class AssistantController implements ViewEvents {
@@ -38,8 +42,8 @@ export class AssistantController implements ViewEvents {
     this.useCases.lock.onChange((busy) => {
       view.setBusy(busy);
     });
-    return this.guard(() => {
-      view.showConversation(this.useCases.conversation.restore());
+    return this.guard(async () => {
+      view.showConversation(await this.useCases.restoreSession.execute());
     });
   }
 
@@ -144,12 +148,12 @@ export class AssistantController implements ViewEvents {
       }
       this.requireView().showNotice(errorNotice(error.message), 'error');
     } finally {
-      this.reportPersistence();
+      await this.reportPersistence();
     }
   }
 
-  private reportPersistence(): void {
-    const failure = this.useCases.conversation.takePersistenceFailure();
+  private async reportPersistence(): Promise<void> {
+    const failure = await this.useCases.conversation.takePersistenceFailure();
     if (failure) this.requireView().showNotice(failure.message, 'error');
   }
 

@@ -1,6 +1,6 @@
 import { ApplyDocumentChange } from '../application/apply-document-change';
 import { ConversationLog } from '../application/conversation-log';
-import { StartNewConversation } from '../application/conversation-session';
+import { RestoreLatestSession, StartNewConversation } from '../application/conversation-session';
 import { HandleAssistantRequest } from '../application/handle-assistant-request';
 import { OperationLock } from '../application/operation-lock';
 import { PendingChanges } from '../application/pending-change';
@@ -23,7 +23,7 @@ import {
   OverleafStoreContractError,
   StoreKey,
 } from '../infrastructure/overleaf/overleaf-store';
-import { LocalStorageConversationRepository } from '../infrastructure/persistence/local-storage-conversation-repository';
+import { IndexedDbSessionRepository } from '../infrastructure/persistence/indexed-db-session-repository';
 import { AssistantController } from '../presentation/assistant-controller';
 import { AssistantView } from '../presentation/assistant-view';
 import { ConfigurationError, loadConfig, type AssistantConfig } from './config';
@@ -52,9 +52,9 @@ function compose(
     fetch: window.fetch.bind(window),
     projectId: identity.projectId,
   });
-  const conversation = new ConversationLog(
-    new LocalStorageConversationRepository(window, identity),
-  );
+  const newId = (): string => createUuid(window.crypto);
+  const sessions = new IndexedDbSessionRepository(window, identity);
+  const conversation = new ConversationLog({ sessions, newId, now: () => Date.now() });
   const pendingChanges = new PendingChanges(conversation);
   const createController = (): AbortController => new AbortController();
   const lock = new OperationLock(createController);
@@ -66,7 +66,7 @@ function compose(
     conversation,
     pendingChanges,
     lock,
-    newId: () => createUuid(window.crypto),
+    newId,
     createController,
   });
   const review = new ReviewAppliedChange({ project, conversation, handleRequest });
@@ -83,6 +83,7 @@ function compose(
     }),
     lock,
     rejectChange: new RejectDocumentChange({ editor, pendingChanges, lock }),
+    restoreSession: new RestoreLatestSession({ sessions, conversation, lock }),
     startNewConversation: new StartNewConversation({
       conversation,
       pendingChanges,

@@ -20,8 +20,9 @@ import type { AgentPort, ContextUsage } from '../../src/ports/agent-port';
 import {
   FakeEditor,
   FakeProject,
-  InMemoryConversationRepository,
+  InMemorySessionRepository,
   sequentialIds,
+  ticking,
 } from '../support/fakes';
 import { textMatching } from '../support/guards';
 import { TestFixtureError } from '../support/test-errors';
@@ -362,7 +363,11 @@ async function runApplication(agent: AgentPort, c: Case): Promise<ApplicationRun
       return step;
     },
   };
-  const conversation = new ConversationLog(new InMemoryConversationRepository());
+  const conversation = new ConversationLog({
+    sessions: new InMemorySessionRepository(),
+    newId: sequentialIds('session'),
+    now: ticking(),
+  });
   const handleRequest = new HandleAssistantRequest({
     agent: recordingAgent,
     project,

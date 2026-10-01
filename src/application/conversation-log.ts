@@ -8,36 +8,36 @@ import {
   type ProposalMessage,
 } from '../domain/conversation';
 import { InvariantViolation } from '../domain/errors';
+import {
+  appendToSession,
+  replaceInSession,
+  startSession,
+  type ConversationSession,
+} from '../domain/session';
 import { PersistenceError } from '../ports/errors';
-import type { ConversationRepository } from '../ports/conversation-repository';
-import { RequestSupersededError, UnreadableConversationError } from './errors';
-
-const MAX_STORED_MESSAGES = 80;
+import type { SessionRepository } from '../ports/session-repository';
+import { RequestSupersededError } from './errors';
 
 export class ConversationLog {
-  private items: ConversationMessage[] = [];
+  private current: ConversationSession | null = null;
   private currentEpoch = 0;
-  private persistenceFailure: PersistenceError | UnreadableConversationError | null = null;
-  private storedConversationUnreadable = false;
+  private persistenceFailure: PersistenceError | null = null;
+  private readonly writes: Promise<void>[] = [];
 
-  constructor(private readonly repository: ConversationRepository) {}
-
-  restore(): readonly ConversationMessage[] {
-    this.currentEpoch += 1;
-    try {
-      this.items = this.repository.load();
-    } catch (error) {
-      if (!(error instanceof PersistenceError)) throw error;
-      this.recordFailure(new UnreadableConversationError(error));
-      this.storedConversationUnreadable = true;
-      this.items = [];
-    }
-    this.discardUndecidedProposals();
-    return this.messages();
-  }
+  constructor(
+    private readonly deps: {
+      sessions: SessionRepository;
+      newId: () => string;
+      now: () => number;
+    },
+  ) {}
 
   get epoch(): number {
     return this.currentEpoch;
+  }
+
+  get sessionId(): string | null {
+    return this.current === null ? null : this.current.id;
   }
 
   ensureCurrent(epoch: number): void {
@@ -45,62 +45,74 @@ export class ConversationLog {
   }
 
   messages(): readonly ConversationMessage[] {
-    return [...this.items];
+    if (this.current === null) return [];
+    return [...this.current.messages];
+  }
+
+  show(session: ConversationSession): readonly ConversationMessage[] {
+    this.currentEpoch += 1;
+    this.current = session;
+    if (session.messages.some(isUndecidedProposal)) this.discardUndecidedProposals(session);
+    return this.messages();
+  }
+
+  startNew(): void {
+    this.currentEpoch += 1;
+    this.current = null;
   }
 
   append(message: ConversationMessage): void {
-    this.items = [...this.items, message].slice(-MAX_STORED_MESSAGES);
-    this.persist();
+    const now = this.deps.now();
+    if (this.current !== null) {
+      this.update(appendToSession(this.current, message, now));
+      return;
+    }
+    if (message.role !== 'user') {
+      throw new InvariantViolation(`a session cannot start with a ${message.role} message`);
+    }
+    this.update(startSession(this.deps.newId(), message, now));
   }
 
   decideProposal(id: string, decision: ProposalDecision): ProposalMessage {
-    const proposal = this.items.find((message) => message.id === id);
-    if (proposal?.role !== 'assistant' || proposal.kind !== AssistantMessageKind.Proposal) {
+    const session = this.current;
+    const proposal = session?.messages.find((message) => message.id === id);
+    if (
+      session === null ||
+      proposal?.role !== 'assistant' ||
+      proposal.kind !== AssistantMessageKind.Proposal
+    ) {
       throw new InvariantViolation(`the conversation has no proposal ${id}`);
     }
     const decided = decideProposal(proposal, decision);
-    this.items = this.items.map((message) => (message.id === id ? decided : message));
-    this.persist();
+    this.update(replaceInSession(session, decided, this.deps.now()));
     return decided;
   }
 
-  clear(): void {
-    this.items = [];
-    this.currentEpoch += 1;
-    try {
-      this.repository.clear();
-      this.storedConversationUnreadable = false;
-    } catch (error) {
-      if (!(error instanceof PersistenceError)) throw error;
-      this.recordFailure(error);
-    }
-  }
-
-  takePersistenceFailure(): PersistenceError | UnreadableConversationError | null {
+  async takePersistenceFailure(): Promise<PersistenceError | null> {
+    await Promise.all(this.writes.splice(0));
     const failure = this.persistenceFailure;
     this.persistenceFailure = null;
     return failure;
   }
 
-  private discardUndecidedProposals(): void {
-    if (!this.items.some(isUndecidedProposal)) return;
-    this.items = this.items.map((message) =>
+  private discardUndecidedProposals(session: ConversationSession): void {
+    const messages = session.messages.map((message) =>
       isUndecidedProposal(message) ? decideProposal(message, ProposalStatus.Discarded) : message,
     );
-    this.persist();
+    this.update({ ...session, messages });
   }
 
-  private recordFailure(failure: PersistenceError | UnreadableConversationError): void {
-    this.persistenceFailure ??= failure;
+  private update(session: ConversationSession): void {
+    this.current = session;
+    this.writes.push(this.save(session));
   }
 
-  private persist(): void {
-    if (this.storedConversationUnreadable) return;
+  private async save(session: ConversationSession): Promise<void> {
     try {
-      this.repository.save(this.items);
+      await this.deps.sessions.save(session);
     } catch (error) {
       if (!(error instanceof PersistenceError)) throw error;
-      this.recordFailure(error);
+      this.persistenceFailure ??= error;
     }
   }
 }

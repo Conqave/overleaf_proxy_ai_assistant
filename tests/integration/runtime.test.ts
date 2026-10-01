@@ -1,4 +1,5 @@
 import { readFileSync } from 'node:fs';
+import { IDBFactory } from 'fake-indexeddb';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { COMPILE_FIX_REQUEST } from '../../src/application/handle-assistant-request';
 import { AGENT_POLICY } from '../../src/domain/agent-policy';
@@ -17,13 +18,13 @@ import {
   type FakeOverleafIde,
 } from '../support/fake-overleaf';
 import { itemAt } from '../support/guards';
+import { readStoredSessions } from '../support/session-store';
 import { TestFixtureError } from '../support/test-errors';
 
 const BUNDLE = readFileSync(
   new URL('../../dist/overleaf-ai-assistant.js', import.meta.url),
   'utf8',
 );
-const HISTORY_KEY = 'ola-conversation:user-1:project-1';
 const PAGE_WAIT = { timeout: 10_000 };
 const PAST_OVERLEAF_DEADLINES_MS = 5 * 60_000;
 const REFS_DOC_ID = 'doc-refs';
@@ -43,8 +44,8 @@ afterEach(() => {
   }
 });
 
-function open(ollama: FakeOllama): Browser {
-  const browser = openBrowser(ollama);
+function open(ollama: FakeOllama, sessions: IDBFactory = new IDBFactory()): Browser {
+  const browser = openBrowser(ollama, sessions);
   browsers.push(browser);
   return browser;
 }
@@ -82,7 +83,7 @@ function commandInput(root: ParentNode): HTMLTextAreaElement {
   return found;
 }
 
-function session(browser: Browser, ide: FakeOverleafIde) {
+function session(browser: Browser, ide: FakeOverleafIde, sessions: IDBFactory) {
   const doc = browser.document;
   const texts = (selector: string) =>
     Array.from(doc.querySelectorAll(selector)).map((node) => node.textContent);
@@ -109,6 +110,7 @@ function session(browser: Browser, ide: FakeOverleafIde) {
   const preview = () => texts('.ola-preview-added');
   return {
     browser,
+    sessions,
     doc,
     ide,
     ollama: browser.ollama,
@@ -149,18 +151,32 @@ async function sendPastTimeouts(
 
 interface StartOptions {
   readonly replies?: readonly OllamaReply[];
-  readonly storage?: Readonly<Record<string, string>>;
+  readonly sessions?: IDBFactory;
+  readonly prepare?: (browser: Browser) => void;
 }
 
-async function start({ replies = [], storage = {} }: StartOptions) {
-  const browser = open(new FakeOllama().reply(...replies));
-  for (const [key, value] of Object.entries(storage)) {
-    browser.window.localStorage.setItem(key, value);
-  }
+async function start({
+  replies = [],
+  sessions = new IDBFactory(),
+  prepare = () => undefined,
+}: StartOptions) {
+  const browser = open(new FakeOllama().reply(...replies), sessions);
+  prepare(browser);
   browser.inject(BUNDLE);
   const ide = browser.loadOverleaf();
   await waitForAssistant(browser);
-  return session(browser, ide);
+  return session(browser, ide, sessions);
+}
+
+function denyStorage(browser: Browser): void {
+  const { DOMException } = browser.window;
+  Object.assign(browser.window, {
+    indexedDB: {
+      open: () => {
+        throw new DOMException('denied', 'SecurityError');
+      },
+    },
+  });
 }
 
 const reply = (...lines: readonly string[]): ResponseReply => ({ response: lines.join('\n') });
@@ -298,29 +314,34 @@ describe('assistant conversation', () => {
     expect(commandInput(doc).value).toBe('');
   });
 
-  it('reloads history and starts a new conversation', async () => {
+  it('reloads the latest session and starts a new one that keeps it stored', async () => {
     const first = await start({ replies: [greetingReply] });
     await first.send('hi');
-    const stored = first.browser.window.localStorage.getItem(HISTORY_KEY);
-    if (stored === null) throw new TestFixtureError('the conversation was not saved');
-    const second = await start({ storage: { [HISTORY_KEY]: stored } });
+    const second = await start({ sessions: first.sessions });
     expect(second.messages()).toEqual(['hi', expect.stringContaining(GREETING_ANSWER)]);
     await second.click('.ola-new-chat', () => {
       expect(second.messages()).toEqual([expect.stringContaining('Ready to help')]);
     });
     expect(second.texts('.ola-context')).toEqual([UNUSED_CONTEXT]);
-    expect(second.browser.window.localStorage.getItem(HISTORY_KEY)).toBeNull();
+    expect(await readStoredSessions(first.sessions)).toEqual([
+      expect.objectContaining({
+        userId: 'user-1',
+        projectId: 'project-1',
+        title: 'hi',
+        messageCount: 2,
+      }),
+    ]);
   });
 
-  it('reports corrupted history, continues and keeps it stored until a new chat', async () => {
-    const { browser, messages, send } = await start({
-      replies: [greetingReply],
-      storage: { [HISTORY_KEY]: '{oops' },
-    });
-    expect(messages().at(-1)).toContain('The saved conversation is corrupted');
+  it('reports a browser that denies session storage and stays usable', async () => {
+    const { messages, send } = await start({ replies: [greetingReply], prepare: denyStorage });
+    expect(messages()).toEqual(['Error: Could not open the saved sessions of this browser.']);
     await send('hi');
-    expect(messages().at(-1)).toContain(GREETING_ANSWER);
-    expect(browser.window.localStorage.getItem(HISTORY_KEY)).toBe('{oops');
+    expect(messages().slice(1)).toEqual([
+      'hi',
+      expect.stringContaining(GREETING_ANSWER),
+      'Could not open the saved sessions of this browser.',
+    ]);
   });
 
   it('sends with Enter, not with Shift+Enter, and leaves page shortcuts alone', async () => {
@@ -467,7 +488,7 @@ describe('assistant agent', () => {
   });
 
   it('rejects the edit of another file, leaves it unchanged and keeps the decision', async () => {
-    const { browser, send, click, texts, ide, editorText, preview } = await start({
+    const { sessions, send, click, texts, ide, editorText, preview } = await start({
       replies: [reply('ACTION: read_file', 'PATH: refs.bib'), smithEntryEdit],
     });
     await send('Add the smith20 entry to the bibliography.');
@@ -479,9 +500,7 @@ describe('assistant agent', () => {
     expect(editorText()).toBe(REFS_TEXT);
     expect(preview()).toEqual([]);
     expect(ide.compileCount).toBe(0);
-    const stored = browser.window.localStorage.getItem(HISTORY_KEY);
-    if (stored === null) throw new TestFixtureError('the conversation was not saved');
-    const reloaded = await start({ storage: { [HISTORY_KEY]: stored } });
+    const reloaded = await start({ sessions });
     expect(reloaded.texts('.ola-ai.is-rejected .ola-result-status')).toEqual(['Rejected']);
     expect(reloaded.texts('.ola-ai.is-rejected .ola-result-meta')).toEqual([
       'refs.bib, anchor line 3: }',
@@ -497,7 +516,7 @@ describe('assistant agent', () => {
       const broken = 'This report describes the \\textbff{experiment}.';
       const fixed = 'This report describes the \\textbf{experiment}.';
       const lineFour = { PATH: 'main.tex', OPERATION: 'replace', LINE: '4' };
-      const { browser, send, click, texts, messages, ollama, ide, editorText } = await start({
+      const { sessions, send, click, texts, messages, ollama, ide, editorText } = await start({
         replies: [
           editReply({ ...lineFour, LINE_TEXT: EXPERIMENT_LINE }, broken),
           editReply({ ...lineFour, LINE_TEXT: broken }, fixed),
@@ -530,9 +549,7 @@ describe('assistant agent', () => {
       });
       expect(editorText().split('\n')[3]).toBe(fixed);
       expect(ide.compileCount).toBe(2);
-      const stored = browser.window.localStorage.getItem(HISTORY_KEY);
-      if (stored === null) throw new TestFixtureError('the conversation was not saved');
-      const reloaded = await start({ storage: { [HISTORY_KEY]: stored } });
+      const reloaded = await start({ sessions });
       expect(reloaded.texts('.ola-system')).toEqual([COMPILE_FIX_REQUEST]);
       expect(reloaded.texts('.ola-user')).toEqual(['Make the word experiment bold.']);
     },

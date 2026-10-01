@@ -1,6 +1,5 @@
 import { NamedError, OperationalError } from '../domain/errors';
 import { AGENT_POLICY } from '../domain/agent-policy';
-import type { PersistenceError } from '../ports/errors';
 
 export class EmptyRequestError extends OperationalError {
   constructor() {
@@ -23,15 +22,6 @@ export class RequestSupersededError extends OperationalError {
 export class ChangeNoLongerPendingError extends OperationalError {
   constructor() {
     super('This suggestion can no longer be used; ask again for a new one.');
-  }
-}
-
-export class UnreadableConversationError extends OperationalError {
-  constructor(cause: PersistenceError) {
-    super(
-      `${cause.message} It stays stored, and this chat is not saved, until you start a new chat.`,
-      { cause },
-    );
   }
 }
 
