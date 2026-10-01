@@ -84,8 +84,10 @@ export class FakeOverleafIde {
   opensDocs = true;
   compiles = true;
   logEntries: unknown = EMPTY_LOG_ENTRIES;
+  compileLog: () => unknown = () => this.logEntries;
   compileCount = 0;
   private readonly treeRoot: HTMLElement;
+  private readonly savedTexts = new Map(FIXTURE_TEXTS);
 
   constructor(
     private readonly window: Window & typeof globalThis,
@@ -106,7 +108,11 @@ export class FakeOverleafIde {
     });
     Object.assign(window, { overleaf: { unstable: { store: this.store } } });
     window.addEventListener('pdf:recompile', this.recompile);
-    this.editor = openOverleafEditor(window, this.element('#editor'), this.textOf(FIXTURE_DOC_ID));
+    this.editor = openOverleafEditor(
+      window,
+      this.element('#editor'),
+      this.savedTextOf(FIXTURE_DOC_ID),
+    );
   }
 
   destroy(): void {
@@ -116,9 +122,21 @@ export class FakeOverleafIde {
   }
 
   textOf(id: string): string {
-    const text = FIXTURE_TEXTS.get(id);
-    if (text === undefined) throw new TestFixtureError(`no fixture text for ${id}`);
-    return text;
+    if (id === this.openDocId()) return this.editor.state.doc.toString();
+    return this.savedTextOf(id);
+  }
+
+  hasText(id: string): boolean {
+    return this.savedTexts.has(id);
+  }
+
+  reopenEditor(): void {
+    this.editor.destroy();
+    this.editor = openOverleafEditor(
+      this.window,
+      this.element('#editor'),
+      this.savedTextOf(this.openDocId()),
+    );
   }
 
   isExpanded(folderId: string): boolean {
@@ -152,7 +170,7 @@ export class FakeOverleafIde {
     button.dataset.olLoading = 'true';
     this.store.set('pdf.logEntries', null);
     setTimeout(() => {
-      this.store.set('pdf.logEntries', structuredClone(this.logEntries));
+      this.store.set('pdf.logEntries', structuredClone(this.compileLog()));
       button.dataset.olLoading = 'false';
     });
   };
@@ -163,6 +181,7 @@ export class FakeOverleafIde {
       this.store.set('openFile', null);
       return;
     }
+    this.savedTexts.set(this.openDocId(), this.editor.state.doc.toString());
     this.store.set('editor.open_doc_id', id);
     this.store.set('openFile', null);
     this.store.set('editor.opening', true);
@@ -170,7 +189,19 @@ export class FakeOverleafIde {
     this.store.set('editor.opening', false);
     await new Promise((resolve) => setTimeout(resolve));
     this.editor.destroy();
-    this.editor = openOverleafEditor(this.window, this.element('#editor'), this.textOf(id));
+    this.editor = openOverleafEditor(this.window, this.element('#editor'), this.savedTextOf(id));
+  }
+
+  private openDocId(): string {
+    const id = this.store.get('editor.open_doc_id');
+    if (typeof id !== 'string') throw new TestFixtureError('the store names no open document');
+    return id;
+  }
+
+  private savedTextOf(id: string): string {
+    const text = this.savedTexts.get(id);
+    if (text === undefined) throw new TestFixtureError(`no fixture text for ${id}`);
+    return text;
   }
 
   private renderFolder(list: HTMLElement, folder: FakeFolder): void {

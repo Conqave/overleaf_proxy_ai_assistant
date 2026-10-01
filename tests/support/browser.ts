@@ -1,8 +1,8 @@
 import { readFileSync } from 'node:fs';
-import type { EditorView } from '@codemirror/view';
 import { JSDOM, VirtualConsole } from 'jsdom';
 import { inject } from 'vitest';
 import type { FakeOllama } from './fake-ollama';
+import type { FakeOverleafIde } from './fake-overleaf';
 
 const FIXTURE_HTML = readFileSync(
   new URL('../fixtures/overleaf-editor.html', import.meta.url),
@@ -14,8 +14,9 @@ export interface Browser {
   document: Document;
   ollama: FakeOllama;
   consoleErrors: string[];
+  pageErrors: Error[];
   inject(source: string): void;
-  openEditor(text?: string): EditorView;
+  loadOverleaf(): FakeOverleafIde;
   close(): void;
 }
 
@@ -25,7 +26,11 @@ export function openBrowser(ollama: FakeOllama): Browser {
   virtualConsole.on('error', (...args: unknown[]) => {
     consoleErrors.push(args.map(String).join(' '));
   });
-  virtualConsole.forwardTo(console);
+  const pageErrors: Error[] = [];
+  virtualConsole.on('jsdomError', (error) => {
+    pageErrors.push(error);
+  });
+  virtualConsole.forwardTo(console, { jsdomErrors: 'none' });
   const dom = new JSDOM(FIXTURE_HTML, {
     url: 'http://overleaf.test/project/1',
     runScripts: 'outside-only',
@@ -33,27 +38,25 @@ export function openBrowser(ollama: FakeOllama): Browser {
     virtualConsole,
   });
   const window = dom.window;
-  Object.assign(window, { fetch: ollama.fetch, Response });
-  let overleafLoaded = false;
+  Object.assign(window, { fetch: ollama.fetch, Response, structuredClone });
+  Object.assign(window.Range.prototype, {
+    getClientRects: () => [],
+  });
   return {
     window,
     document: window.document,
     ollama,
     consoleErrors,
+    pageErrors,
     inject(source) {
       window.eval(source);
     },
-    openEditor(text) {
-      if (!overleafLoaded) window.eval(inject('fakeOverleafScript'));
-      overleafLoaded = true;
-      return (window as unknown as Window).fakeOverleaf.open(text);
+    loadOverleaf() {
+      window.eval(inject('fakeOverleafScript'));
+      return (window as unknown as Window).fakeOverleaf.load();
     },
     close() {
       window.close();
     },
   };
-}
-
-export function editorLines(view: EditorView): string[] {
-  return view.state.doc.toJSON();
 }

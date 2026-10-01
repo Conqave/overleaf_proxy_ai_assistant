@@ -1,24 +1,28 @@
-import type { EditorView } from '@codemirror/view';
-import { FIXTURE_DOC_ID, openOverleafEditor } from './fake-overleaf';
-import { FakeOverleafStore } from './fake-overleaf-store';
-import { TestFixtureError } from './test-errors';
+import { FakeOverleafIde } from './fake-overleaf';
 
 declare global {
   interface Window {
-    fakeOverleaf: { open(text?: string): EditorView };
+    fakeOverleaf: { load(): FakeOverleafIde };
   }
 }
 
-Object.assign(window, {
-  overleaf: {
-    unstable: { store: new FakeOverleafStore({ 'editor.open_doc_id': FIXTURE_DOC_ID }) },
-  },
-});
+const DOWNLOAD_URL = /^\/Project\/[^/]+\/doc\/([^/]+)\/download$/;
+const HTTP_NOT_FOUND = 404;
 
 window.fakeOverleaf = {
-  open(text) {
-    const parent = document.getElementById('editor');
-    if (!parent) throw new TestFixtureError('the fixture has no #editor element');
-    return openOverleafEditor(window, parent, text);
+  load() {
+    const ide = new FakeOverleafIde(window);
+    const pageFetch = window.fetch.bind(window);
+    window.fetch = (input, init) => {
+      if (typeof input !== 'string') return pageFetch(input, init);
+      const download = DOWNLOAD_URL.exec(input);
+      const docId = download?.[1];
+      if (docId === undefined) return pageFetch(input, init);
+      if (!ide.hasText(docId)) {
+        return Promise.resolve(new Response('missing', { status: HTTP_NOT_FOUND }));
+      }
+      return Promise.resolve(new Response(ide.textOf(docId)));
+    };
+    return ide;
   },
 };
