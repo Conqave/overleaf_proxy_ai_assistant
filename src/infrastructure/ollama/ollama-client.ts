@@ -6,6 +6,7 @@ import {
   AssistantTimeoutError,
   AssistantUnreachableError,
 } from '../../ports/errors';
+import type { CancellationSignal } from '../../ports/cancellation';
 import {
   parseFinalContinuation,
   parseHarmonyCompletion,
@@ -46,29 +47,27 @@ export class OllamaClient {
     private readonly fetchFn: typeof fetch,
   ) {}
 
-  async generate(request: GenerateRequest): Promise<Completion> {
+  async generate(request: GenerateRequest, signal: AbortSignal): Promise<Completion> {
     const prompt = renderHarmonyPrompt(request);
-    const first = await this.complete(prompt);
+    const first = await this.complete(prompt, signal);
     const harmony = parseHarmonyCompletion(first.text);
     if (harmony.kind === 'final') return finish(first, harmony.text);
-    const second = await this.complete(renderFinalContinuation(prompt, harmony.analysis));
+    const second = await this.complete(renderFinalContinuation(prompt, harmony.analysis), signal);
     return finish(second, parseFinalContinuation(second.text));
   }
 
-  private complete(prompt: string): Promise<ModelOutput> {
-    return this.withTimeout(async (signal) => {
-      const response = await this.post(
-        { prompt, raw: true, truncate: false, options: this.getOptions() },
-        signal,
-      );
-      const body = await this.readText(response, signal);
-      if (!response.ok) throw createGenerateError(response, body);
-      return getCompletion(parseJson(body));
-    });
+  private async complete(prompt: string, signal: AbortSignal): Promise<ModelOutput> {
+    const response = await this.post(
+      { prompt, raw: true, truncate: false, options: this.getOptions() },
+      signal,
+    );
+    const body = await this.readText(response, signal);
+    if (!response.ok) throw createGenerateError(response, body);
+    return getCompletion(parseJson(body));
   }
 
   loadModel(): Promise<void> {
-    return this.withTimeout(async (signal) => {
+    return this.withDeadline([], async (signal) => {
       const response = await this.post({ prompt: '', options: this.getOptions() }, signal);
       if (!response.ok) {
         throw new AssistantHttpError(
@@ -78,15 +77,20 @@ export class OllamaClient {
     });
   }
 
-  private async withTimeout<T>(run: (signal: AbortSignal) => Promise<T>): Promise<T> {
-    const controller = new AbortController();
+  async withDeadline<T>(
+    cancels: readonly CancellationSignal[],
+    run: (signal: AbortSignal) => Promise<T>,
+  ): Promise<T> {
+    const deadline = new AbortController();
     const timer = setTimeout(() => {
-      controller.abort();
+      deadline.abort(this.createTimeoutError());
     }, this.config.timeoutMs);
+    const forwards = cancels.map((cancel) => forwardCancellation(cancel, deadline));
     try {
-      return await run(controller.signal);
+      return await run(deadline.signal);
     } finally {
       clearTimeout(timer);
+      for (const stop of forwards) stop();
     }
   }
 
@@ -107,7 +111,7 @@ export class OllamaClient {
         signal,
       });
     } catch (error) {
-      if (signal.aborted) throw this.createTimeoutError(error);
+      signal.throwIfAborted();
       if (error instanceof TypeError) {
         throw new AssistantUnreachableError('Ollama could not be reached.', { cause: error });
       }
@@ -119,15 +123,14 @@ export class OllamaClient {
     try {
       return await response.text();
     } catch (error) {
-      if (signal.aborted) throw this.createTimeoutError(error);
+      signal.throwIfAborted();
       throw error;
     }
   }
 
-  private createTimeoutError(cause: unknown): AssistantTimeoutError {
+  private createTimeoutError(): AssistantTimeoutError {
     return new AssistantTimeoutError(
-      `Ollama did not respond within ${formatDuration(this.config.timeoutMs)}.`,
-      { cause },
+      `Ollama did not finish within ${formatDuration(this.config.timeoutMs)}.`,
     );
   }
 }
@@ -153,6 +156,17 @@ function parseJson(body: string): unknown {
       cause: error,
     });
   }
+}
+
+function forwardCancellation(cancel: CancellationSignal, deadline: AbortController): () => void {
+  const forward = (): void => {
+    deadline.abort(cancel.reason);
+  };
+  if (cancel.aborted) forward();
+  cancel.addEventListener('abort', forward);
+  return () => {
+    cancel.removeEventListener('abort', forward);
+  };
 }
 
 function finish(output: ModelOutput, text: string): Completion {

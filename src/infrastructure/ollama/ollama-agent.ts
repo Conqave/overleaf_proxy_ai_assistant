@@ -8,7 +8,10 @@ export class OllamaAgent implements AgentPort {
 
   async decide(request: AgentStepRequest): Promise<AgentStep> {
     const exchange = createAgentExchange(request, AGENT_PROMPT_BUDGET);
-    const { value, contextUsage } = await runExchange(this.client, exchange);
-    return { decision: value, contextUsage };
+    const cancels = request.signal === undefined ? [] : [request.signal];
+    return await this.client.withDeadline(cancels, async (deadline) => {
+      const { value, contextUsage } = await runExchange(this.client, exchange, deadline);
+      return { decision: value, contextUsage };
+    });
   }
 }

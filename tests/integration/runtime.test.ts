@@ -393,7 +393,7 @@ describe('assistant agent', () => {
     [
       'a model that does not answer in time',
       [{ hang: true } as const],
-      'Ollama did not respond within 200 milliseconds',
+      'Ollama did not finish within 200 milliseconds',
     ],
   ])('reports %s and stays usable', async (_name, replies: OllamaReply[], error) => {
     const { send, texts, messages } = await start({ replies });

@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { HarmonyFormatError } from '../../../src/infrastructure/ollama/harmony-format';
 import { OllamaAgent } from '../../../src/infrastructure/ollama/ollama-agent';
-import { OllamaClient } from '../../../src/infrastructure/ollama/ollama-client';
+import { OllamaClient, type Completion } from '../../../src/infrastructure/ollama/ollama-client';
 import { AGENT_PROMPT_BUDGET } from '../../../src/infrastructure/ollama/agent-protocol';
 import { CONTEXT_TOKENS } from '../../../src/infrastructure/ollama/context-budget';
 import { preloadOllamaModel } from '../../../src/infrastructure/ollama/ollama-preload';
@@ -25,15 +25,15 @@ const config = {
   timeoutMs: 50,
 };
 const make = (ollama: FakeOllama) => ({ client: new OllamaClient(config, ollama.fetch) });
+const generate = (client: OllamaClient): Promise<Completion> =>
+  client.withDeadline([], (signal) => client.generate({ system: 'S', prompt: 'P' }, signal));
 
 describe('OllamaClient', () => {
   it('posts the request in the harmony format of the model and returns its final message', async () => {
     const ollama = new FakeOllama().reply({ response: 'raw' });
-    await expect(make(ollama).client.generate({ system: 'S', prompt: 'P' })).resolves.toMatchObject(
-      {
-        text: 'raw',
-      },
-    );
+    await expect(generate(make(ollama).client)).resolves.toMatchObject({
+      text: 'raw',
+    });
     const [call] = ollama.calls;
     expect(call!.url).toBe('/ollama/main/api/generate');
     expect(call!.harmonyPrompt).toMatch(
@@ -56,11 +56,9 @@ describe('OllamaClient', () => {
       completion:
         '<|channel|>analysis<|message|>Think.<|end|><|start|>assistant<|channel|>final<|message|>Done.',
     });
-    await expect(make(ollama).client.generate({ system: 'S', prompt: 'P' })).resolves.toMatchObject(
-      {
-        text: 'Done.',
-      },
-    );
+    await expect(generate(make(ollama).client)).resolves.toMatchObject({
+      text: 'Done.',
+    });
     expect(ollama.promptCalls).toHaveLength(1);
   });
 
@@ -72,7 +70,7 @@ describe('OllamaClient', () => {
       },
       { completion: 'ACTION: read_file' },
     );
-    const completion = await make(ollama).client.generate({ system: 'S', prompt: 'P' });
+    const completion = await generate(make(ollama).client);
     const [first, second] = ollama.promptCalls;
     expect(completion).toEqual({
       text: 'ACTION: read_file',
@@ -87,7 +85,7 @@ describe('OllamaClient', () => {
     const ollama = new FakeOllama().reply({
       completion: '<|channel|>commentary to=functions.read<|message|>{}',
     });
-    await expect(make(ollama).client.generate({ system: 'S', prompt: 'P' })).rejects.toThrow(
+    await expect(generate(make(ollama).client)).rejects.toThrow(
       new HarmonyFormatError(
         'the reply has no final message; write it as plain text',
         '<|channel|>commentary to=functions.read<|message|>{}',
@@ -107,9 +105,7 @@ describe('OllamaClient', () => {
     ],
   ])('rejects control tokens in the %s final message', async (_name, replies) => {
     const ollama = new FakeOllama().reply(...replies);
-    await expect(make(ollama).client.generate({ system: 'S', prompt: 'P' })).rejects.toThrow(
-      HarmonyFormatError,
-    );
+    await expect(generate(make(ollama).client)).rejects.toThrow(HarmonyFormatError);
   });
 
   const cutOff = (response: string, promptTokens = 100) => ({
@@ -120,9 +116,7 @@ describe('OllamaClient', () => {
     const ollama = new FakeOllama().reply(cutOff('<|channel|>analysis<|message|>Long thou'), {
       completion: 'ACTION: compile',
     });
-    await expect(make(ollama).client.generate({ system: 'S', prompt: 'P' })).resolves.toMatchObject(
-      { text: 'ACTION: compile' },
-    );
+    await expect(generate(make(ollama).client)).resolves.toMatchObject({ text: 'ACTION: compile' });
     expect(ollama.promptCalls[1]!.harmonyPrompt).toContain(
       '<|channel|>analysis<|message|>Long thou<|end|><|start|>assistant<|channel|>final<|message|>',
     );
@@ -136,55 +130,47 @@ describe('OllamaClient', () => {
     ],
   ])('rejects a %s final message cut off at the length limit', async (_name, replies) => {
     const ollama = new FakeOllama().reply(...replies);
-    await expect(make(ollama).client.generate({ system: 'S', prompt: 'P' })).rejects.toThrow(
-      AssistantReplyTruncatedError,
-    );
+    await expect(generate(make(ollama).client)).rejects.toThrow(AssistantReplyTruncatedError);
   });
 
   it('reports a reply cut off by a full context window as a request too large', async () => {
     const ollama = new FakeOllama().reply(
       cutOff('<|channel|>final<|message|>ACTION: ans', CONTEXT_TOKENS - 100),
     );
-    await expect(make(ollama).client.generate({ system: 'S', prompt: 'P' })).rejects.toThrow(
-      AssistantRequestTooLargeError,
-    );
+    await expect(generate(make(ollama).client)).rejects.toThrow(AssistantRequestTooLargeError);
   });
 
   it('reports an unknown done reason as a broken response contract', async () => {
     const ollama = new FakeOllama().reply({
       body: { response: 'r', prompt_eval_count: 1, done_reason: 'load' },
     });
-    await expect(make(ollama).client.generate({ system: 'S', prompt: 'P' })).rejects.toThrow(
+    await expect(generate(make(ollama).client)).rejects.toThrow(
       new AssistantResponseContractError('Ollama returned the unexpected "done_reason" "load".'),
     );
   });
 
   it('reports HTTP errors with their status', async () => {
     const ollama = new FakeOllama().reply({ status: 502 });
-    await expect(make(ollama).client.generate({ system: 'S', prompt: 'P' })).rejects.toThrow(
+    await expect(generate(make(ollama).client)).rejects.toThrow(
       new AssistantHttpError('Ollama answered HTTP 502'),
     );
   });
 
   it('reports a prompt that overflows the context window as too large', async () => {
     const ollama = new FakeOllama().reply({ contextOverflow: true });
-    await expect(make(ollama).client.generate({ system: 'S', prompt: 'P' })).rejects.toThrow(
-      AssistantRequestTooLargeError,
-    );
+    await expect(generate(make(ollama).client)).rejects.toThrow(AssistantRequestTooLargeError);
   });
 
   it('reports a body that is not JSON as a broken response contract', async () => {
     const client = new OllamaClient(config, () => Promise.resolve(new Response('<html>')));
-    await expect(client.generate({ system: 'S', prompt: 'P' })).rejects.toThrow(
+    await expect(generate(client)).rejects.toThrow(
       new AssistantResponseContractError('Ollama sent a body that is not JSON.'),
     );
   });
 
   it('reports network failures as an unreachable Ollama', async () => {
     const client = new OllamaClient(config, () => Promise.reject(new TypeError('offline')));
-    await expect(client.generate({ system: 'S', prompt: 'P' })).rejects.toThrow(
-      AssistantUnreachableError,
-    );
+    await expect(generate(client)).rejects.toThrow(AssistantUnreachableError);
     await expect(client.loadModel()).rejects.toThrow(AssistantUnreachableError);
   });
 
@@ -202,22 +188,20 @@ describe('OllamaClient', () => {
     ],
   ])('reports a body with %s as a broken response contract', async (_name, body, message) => {
     const client = new OllamaClient(config, () => Promise.resolve(new Response(body)));
-    await expect(client.generate({ system: 'S', prompt: 'P' })).rejects.toThrow(
-      new AssistantResponseContractError(message),
-    );
+    await expect(generate(client)).rejects.toThrow(new AssistantResponseContractError(message));
   });
 
   it('reports a body without a response as a broken response contract', async () => {
     const client = new OllamaClient(config, () => Promise.resolve(new Response('{"done":true}')));
-    await expect(client.generate({ system: 'S', prompt: 'P' })).rejects.toThrow(
+    await expect(generate(client)).rejects.toThrow(
       new AssistantResponseContractError('Ollama returned no "response" field.'),
     );
   });
 
   it('times out, naming the configured limit', async () => {
     const ollama = new FakeOllama().reply({ hang: true });
-    await expect(make(ollama).client.generate({ system: 'S', prompt: 'P' })).rejects.toThrow(
-      new AssistantTimeoutError('Ollama did not respond within 50 milliseconds.'),
+    await expect(generate(make(ollama).client)).rejects.toThrow(
+      new AssistantTimeoutError('Ollama did not finish within 50 milliseconds.'),
     );
   });
 
@@ -237,9 +221,7 @@ describe('OllamaClient', () => {
     vi.useFakeTimers();
     try {
       const client = new OllamaClient({ ...config, timeoutMs }, hanging);
-      const assertion = expect(client.generate({ system: 'S', prompt: 'P' })).rejects.toThrow(
-        `within ${duration}.`,
-      );
+      const assertion = expect(generate(client)).rejects.toThrow(`within ${duration}.`);
       await vi.advanceTimersByTimeAsync(timeoutMs);
       await assertion;
     } finally {
@@ -250,21 +232,19 @@ describe('OllamaClient', () => {
   it('does not disguise defects as transport errors', async () => {
     const defect = new RangeError('bug');
     const client = new OllamaClient(config, () => Promise.reject(defect));
-    await expect(client.generate({ system: 'S', prompt: 'P' })).rejects.toBe(defect);
+    await expect(generate(client)).rejects.toBe(defect);
     await expect(client.loadModel()).rejects.toBe(defect);
     const bodyDefect = new OllamaClient(config, () =>
       Promise.resolve(new Response('{"response": 1}')),
     );
-    await expect(bodyDefect.generate({ system: 'S', prompt: 'P' })).rejects.toThrow(
-      AssistantResponseContractError,
-    );
+    await expect(generate(bodyDefect)).rejects.toThrow(AssistantResponseContractError);
   });
 
   it('loads the model with an empty prompt and the same model options as real calls', async () => {
     const ollama = new FakeOllama().reply({ response: 'raw' });
     const { client } = make(ollama);
     await client.loadModel();
-    await client.generate({ system: 'S', prompt: 'P' });
+    await generate(client);
     expect(ollama.calls[0]!.body.prompt).toBe('');
     expect(ollama.calls[0]!.body.options).toEqual(ollama.calls[1]!.body.options);
   });
@@ -300,6 +280,44 @@ describe('OllamaAgent', () => {
     transcript: [],
   };
   const agent = (ollama: FakeOllama) => new OllamaAgent(make(ollama).client);
+
+  it('gives the whole decision, correction included, one deadline', async () => {
+    const ollama = new FakeOllama().reply({ response: 'hello' }, { response: 'ACTION: compile' });
+    let attempts = 0;
+    const slow: typeof fetch = (url, init) =>
+      new Promise((resolve, reject) => {
+        attempts += 1;
+        const timer = setTimeout(() => {
+          resolve(ollama.fetch(url, init));
+        }, 30);
+        init?.signal?.addEventListener('abort', () => {
+          clearTimeout(timer);
+          reject(new DOMException('aborted', 'AbortError'));
+        });
+      });
+    vi.useFakeTimers();
+    try {
+      const decision = new OllamaAgent(new OllamaClient(config, slow)).decide(step);
+      const assertion = expect(decision).rejects.toThrow(
+        new AssistantTimeoutError('Ollama did not finish within 50 milliseconds.'),
+      );
+      await vi.advanceTimersByTimeAsync(60);
+      await assertion;
+    } finally {
+      vi.useRealTimers();
+    }
+    expect(attempts).toBe(2);
+  });
+
+  it('stops with the reason of a cancelled request', async () => {
+    const ollama = new FakeOllama().reply({ hang: true });
+    const cancellation = new AbortController();
+    const decision = agent(ollama).decide({ ...step, signal: cancellation.signal });
+    const reason = new DOMException('superseded', 'AbortError');
+    cancellation.abort(reason);
+    await expect(decision).rejects.toBe(reason);
+    expect(ollama.promptCalls).toHaveLength(1);
+  });
 
   it('decides on a tool call from one model call', async () => {
     const ollama = new FakeOllama().reply({ response: 'ACTION: read_file\nPATH: refs.bib' });

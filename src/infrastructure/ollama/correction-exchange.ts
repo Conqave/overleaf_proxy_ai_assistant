@@ -29,11 +29,12 @@ type RejectedReplyError = InvalidAssistantResponse | HarmonyFormatError;
 export async function runExchange<T>(
   client: OllamaClient,
   exchange: ProtocolExchange<T>,
+  signal: AbortSignal,
 ): Promise<ExchangeOutcome<T>> {
-  const first = await attempt(client, exchange.request, exchange.parse);
+  const first = await attempt(client, exchange.request, exchange.parse, signal);
   if (first.kind === 'accepted') return first.outcome;
   const correction = createCorrectionRequest(exchange, first.reply, first.error.problem);
-  const second = await attempt(client, correction, exchange.parse);
+  const second = await attempt(client, correction, exchange.parse, signal);
   if (second.kind === 'accepted') return second.outcome;
   throw new AssistantProtocolError(
     `The assistant replied in an unexpected format (${compact(second.error.problem, PROBLEM_CHARS)}). Please try again.`,
@@ -45,8 +46,9 @@ async function attempt<T>(
   client: OllamaClient,
   request: GenerateRequest,
   parse: (raw: string) => T,
+  signal: AbortSignal,
 ): Promise<Attempt<T>> {
-  const completion = await generate(client, request);
+  const completion = await generate(client, request, signal);
   if (completion instanceof HarmonyFormatError) {
     return { kind: 'rejected', reply: completion.completion, error: completion };
   }
@@ -64,9 +66,10 @@ async function attempt<T>(
 async function generate(
   client: OllamaClient,
   request: GenerateRequest,
+  signal: AbortSignal,
 ): Promise<Completion | HarmonyFormatError> {
   try {
-    return await client.generate(request);
+    return await client.generate(request, signal);
   } catch (error) {
     if (!(error instanceof HarmonyFormatError)) throw error;
     return error;
