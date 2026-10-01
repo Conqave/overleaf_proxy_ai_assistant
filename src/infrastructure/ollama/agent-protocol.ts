@@ -8,10 +8,10 @@ import { ProjectFileKind, type ProjectFile } from '../../domain/project-file';
 import { InvariantViolation } from '../../domain/errors';
 import { numberLine, READ_LIMITS } from '../../domain/read-window';
 import type { AgentRequest, AgentStepRequest } from '../../ports/agent-port';
-import { createMessageTooLargeError } from './context-budget';
+import { createMessageTooLargeError, CURRENT_RESULT_SHARE } from './context-budget';
 import { getCorrectionReserveChars, type ProtocolExchange } from './correction-exchange';
 import { parseAgentDecision } from './reply-parser';
-import { diagnosticsText, renderRecord } from './tool-record-text';
+import { diagnosticsText, renderShortRecord } from './tool-record-text';
 import { conversationText } from './conversation-text';
 import { findOutdatedReads, renderUnlessOutdated } from './outdated-reads';
 import {
@@ -27,6 +27,7 @@ import {
 import {
   block,
   blockHeading,
+  compact,
   CONVERSATION_LABEL,
   LINE_BREAK,
   lines,
@@ -42,6 +43,8 @@ const HISTORY_SHARE = 4;
 const FILES_LABEL = 'Project files:';
 const SMALL_BLOCK_LABELS: readonly string[] = [FILES_LABEL, SELECTION_LABEL];
 const REJECTED = 'rejected';
+const CURRENT_RESULT_SHORTENED =
+  'look up a smaller part (START_LINE and END_LINE, or a narrower search) to see the rest';
 const COMPILE_RESULT_LABEL = 'Compile result after the applied change';
 
 const A = AgentAction;
@@ -212,10 +215,11 @@ function buildPrompt(request: AgentStepRequest, budget: number): string {
     label: `Numbered lines of ${workspace.openFile.path} (open in the editor, caret on line ${String(workspace.cursorLine)}):`,
     text: numberLines(workspace.openFile.document),
   };
+  const resultChars = Math.floor(budget / CURRENT_RESULT_SHARE);
   const results = [
-    ...attachedBlocks(request.request),
+    ...attachedBlocks(request.request, resultChars),
     ...transcript.map((turn, index) =>
-      turnBlock(index + 1, turn, itemAt(records, index), outdated),
+      turnBlock(index + 1, turn, { record: itemAt(records, index), outdated, resultChars }),
     ),
   ];
   const separators = (history.length + results.length + 2) * LINE_BREAK.length;
@@ -321,32 +325,44 @@ function numberLines(document: DocumentSnapshot): string {
   return document.lines.map((line, index) => numberLine(index + 1, line)).join(LINE_BREAK);
 }
 
-function attachedBlocks(request: AgentRequest): PromptBlock[] {
+function attachedBlocks(request: AgentRequest, resultChars: number): PromptBlock[] {
   switch (request.kind) {
     case 'user':
       return [];
     case 'compile-fix':
-      return [{ label: `${COMPILE_RESULT_LABEL}:`, text: diagnosticsText(request.diagnostics) }];
+      return [
+        {
+          label: `${COMPILE_RESULT_LABEL}:`,
+          text: compact(diagnosticsText(request.diagnostics), resultChars),
+        },
+      ];
   }
+}
+
+interface TurnRendering {
+  readonly record: ToolRecord | null;
+  readonly outdated: ReadonlySet<ToolRecord>;
+  readonly resultChars: number;
 }
 
 function turnBlock(
   position: number,
   turn: AgentTurn,
-  record: ToolRecord | null,
-  outdated: ReadonlySet<ToolRecord>,
+  { record, outdated, resultChars }: TurnRendering,
 ): PromptBlock {
   switch (turn.kind) {
     case 'tool':
       if (record === null) throw new InvariantViolation('a lookup has no record');
       return {
         label: `Result ${String(position)} (${describeCall(turn.call)}):`,
-        text: renderUnlessOutdated(record, outdated, renderRecord),
+        text: renderUnlessOutdated(record, outdated, (shown) =>
+          renderShortRecord(shown, resultChars, CURRENT_RESULT_SHORTENED),
+        ),
       };
     case 'mistake':
       return {
         label: `Result ${String(position)} (${describeDecision(turn.decision)}, ${REJECTED}):`,
-        text: turn.problem,
+        text: compact(turn.problem, resultChars),
       };
   }
 }

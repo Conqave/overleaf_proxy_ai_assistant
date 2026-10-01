@@ -27,18 +27,17 @@ export function describeRecord(record: ToolRecord): string {
   }
 }
 
-export function renderRecord(record: ToolRecord): string {
-  const { body, notices } = recordText(record);
-  return lines(body, ...notices);
-}
-
-export function renderShortRecord(record: ToolRecord, maxChars: number): string {
+export function renderShortRecord(
+  record: ToolRecord,
+  maxChars: number,
+  fullerLookup: string,
+): string {
   const { body, notices } = recordText(record);
   if (body.length <= maxChars) return lines(body, ...notices);
   return lines(
     compact(body, maxChars),
     ...notices,
-    `[shortened to ${String(maxChars)} characters; repeat the lookup to see it whole]`,
+    `[shortened to ${String(maxChars)} characters; ${fullerLookup}]`,
   );
 }
 

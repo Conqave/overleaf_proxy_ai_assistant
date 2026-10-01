@@ -5,7 +5,12 @@ import { createDocumentSnapshot } from '../../../src/domain/document';
 import { createDocumentCommand } from '../../../src/domain/document-command';
 import { ProjectFileKind } from '../../../src/domain/project-file';
 import { createAgentExchange } from '../../../src/infrastructure/ollama/agent-protocol';
-import { SEARCH_OUTPUT_CHARS } from '../../../src/infrastructure/ollama/context-budget';
+import {
+  CURRENT_RESULT_SHARE,
+  ESTIMATED_PROMPT_CHARS,
+  SEARCH_OUTPUT_CHARS,
+} from '../../../src/infrastructure/ollama/context-budget';
+import { getReadSpan } from '../../../src/domain/read-window';
 import {
   createCorrectionRequest,
   getCorrectionReserveChars,
@@ -165,7 +170,10 @@ describe('agent exchange', () => {
         truncated: false,
       },
     };
-    const { prompt } = createAgentExchange(request({ transcript: [long] }), budget).request;
+    const { prompt } = createAgentExchange(
+      request({ transcript: [long] }),
+      ESTIMATED_PROMPT_CHARS,
+    ).request;
     const shown = prompt.slice(prompt.indexOf('Result 1'), prompt.indexOf('Lookups left'));
     expect(shown.length).toBeLessThan(SEARCH_OUTPUT_CHARS + 200);
     expect(shown).toContain('[AUTOCOMPACTED: omitted');
@@ -279,6 +287,54 @@ describe('agent prompt budget', () => {
     },
   });
 
+  it('shows a whole read window uncut within the planned prompt', () => {
+    const chapter = createDocumentSnapshot(
+      Array.from(
+        { length: 5_000 },
+        (_, index) => `Sentence ${String(index + 1)} of a long chapter.`,
+      ),
+    );
+    const shown = getReadSpan(chapter, undefined);
+    const read: AgentTurn = {
+      kind: 'tool',
+      call: { tool: AgentTool.ReadFile, path: 'ch.tex' },
+      result: { tool: AgentTool.ReadFile, path: 'ch.tex', document: chapter, shown },
+    };
+    const { prompt } = createAgentExchange(
+      request({ transcript: [read] }),
+      ESTIMATED_PROMPT_CHARS,
+    ).request;
+    expect(prompt).toContain(
+      `${String(shown.last)}: Sentence ${String(shown.last)} of a long chapter.`,
+    );
+    expect(prompt).not.toContain('[shortened to');
+    expect(prompt).not.toContain('AUTOCOMPACTED');
+  });
+
+  it('shortens a lookup result to a tenth of the prompt and says how to see the rest', () => {
+    const noisy: AgentTurn = {
+      kind: 'tool',
+      call: { tool: AgentTool.Compile },
+      result: {
+        tool: AgentTool.Compile,
+        diagnostics: Array.from({ length: 2_000 }, (_, index) => ({
+          level: 'warning' as const,
+          message: `Overfull hbox ${String(index)}.`,
+        })),
+      },
+    };
+    const { prompt } = createAgentExchange(
+      request({ transcript: [noisy] }),
+      ESTIMATED_PROMPT_CHARS,
+    ).request;
+    const result = prompt.slice(prompt.indexOf('Result 1'), prompt.indexOf('Lookups left'));
+    expect(result.length).toBeLessThan(ESTIMATED_PROMPT_CHARS / CURRENT_RESULT_SHARE + 400);
+    expect(result).toContain('Overfull hbox 1999.');
+    expect(result).toContain(
+      'characters; look up a smaller part (START_LINE and END_LINE, or a narrower search) to see the rest]',
+    );
+  });
+
   it('gives the open file the whole room when there are no tool results', () => {
     const withLong = request({
       workspace: { ...request().workspace, openFile: { path: 'main.tex', document: long } },
@@ -289,7 +345,7 @@ describe('agent prompt budget', () => {
     expect(size(roomier) - size(exchange)).toBe(1_000);
   });
 
-  it('compacts the open file and older results before the newest result', () => {
+  it('shortens every result to a tenth of the prompt and fits the open file around them', () => {
     const exchange = createAgentExchange(
       request({
         workspace: { ...request().workspace, openFile: { path: 'main.tex', document: long } },
@@ -306,8 +362,9 @@ describe('agent prompt budget', () => {
     const open = itemAt(marks, 0, 'omission mark of the open file');
     const older = itemAt(marks, 1, 'omission mark of the older read');
     const newer = itemAt(marks, 2, 'omission mark of the newer read');
-    expect(older).toBeGreaterThan(newer);
+    expect(older).toBe(newer);
     expect(open).toBeLessThan(older);
+    expect(prompt).toMatch(/\[shortened to \d+ characters; look up a smaller part/);
     expect(prompt).toContain('Result 4 (compile):\nerror main.tex:2');
   });
 

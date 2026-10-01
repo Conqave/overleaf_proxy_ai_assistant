@@ -10,6 +10,7 @@ const MEASURED_RATIO_MARGIN = 0.9;
 
 export const SEARCH_OUTPUT_CHARS = 8_000;
 export const OLDER_RESULT_CHARS = 2_000;
+export const CURRENT_RESULT_SHARE = 10;
 
 export const PROMPT_TOKENS = CONTEXT_TOKENS - COMPLETIONS_PER_GENERATION * MAX_COMPLETION_TOKENS;
 
@@ -26,7 +27,7 @@ export class ContextOverflowError extends NamedError {
 
 export async function fitIntoContext<T>(run: (promptChars: number) => Promise<T>): Promise<T> {
   try {
-    return await run(getPromptChars(ESTIMATED_CHARS_PER_TOKEN));
+    return await run(ESTIMATED_PROMPT_CHARS);
   } catch (error) {
     if (!(error instanceof ContextOverflowError)) throw error;
     return await runMeasured(run, error);
@@ -52,6 +53,8 @@ async function runMeasured<T>(
 function getPromptChars(charsPerToken: number): number {
   return Math.floor(PROMPT_TOKENS * charsPerToken) - HARMONY_FRAMING_CHARS;
 }
+
+export const ESTIMATED_PROMPT_CHARS = getPromptChars(ESTIMATED_CHARS_PER_TOKEN);
 
 export function createMessageTooLargeError(): AssistantRequestTooLargeError {
   return new AssistantRequestTooLargeError(

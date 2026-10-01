@@ -12,6 +12,8 @@ import { renderUnlessOutdated } from './outdated-reads';
 import { LINE_BREAK } from './prompt-blocks';
 import { describeRecord, renderShortRecord } from './tool-record-text';
 
+const OLDER_RESULT_SHORTENED = 'repeat the lookup to see it whole';
+
 export function conversationText(
   conversation: readonly ConversationMessage[],
   outdated: ReadonlySet<ToolRecord>,
@@ -30,7 +32,7 @@ function entryText(message: ConversationMessage, outdated: ReadonlySet<ToolRecor
       return `[${message.role}] ${describeRecord(message.record)}:${LINE_BREAK}${renderUnlessOutdated(
         message.record,
         outdated,
-        (record) => renderShortRecord(record, OLDER_RESULT_CHARS),
+        (record) => renderShortRecord(record, OLDER_RESULT_CHARS, OLDER_RESULT_SHORTENED),
       )}`;
   }
 }
