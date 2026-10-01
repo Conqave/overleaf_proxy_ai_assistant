@@ -56,7 +56,7 @@ export interface ProtocolExchange<T> {
 }
 
 export const LANGUAGE_RULE =
-  'Write every user-facing text in the language of the user message (Polish message → Polish text).';
+  'Write every user-facing text in the language of the user message (Polish message → Polish text). Text that goes into a file keeps the language of that file unless the user asks for a translation, and names the user gives are used exactly as given.';
 const JSON_RULE =
   'Output exactly one JSON object and nothing else: no markdown fences, no text before or after it.';
 
@@ -112,7 +112,7 @@ export const EDIT_RULES = lines(
   `- delete: lines ${F.Line} to ${F.EndLine} (or just ${F.Line}) are removed; ${CONTENT_MARKER} is left out or left empty.`,
   `- ${F.EndLine} only for replace and delete, only when the change spans several consecutive lines (a paragraph over several lines, a whole subsection with its text, an environment).`,
   'Targeting:',
-  `- ${F.Line} is the number of the line and ${F.LineText} its text copied exactly from the start, without the "N: " prefix; for a long paragraph the first sentence is enough.`,
+  `- ${F.Line} is the number of the line and ${F.LineText} its text copied exactly from the start, without the "N: " prefix; for a long paragraph the first sentence is enough. Take ${F.Line} from the "N: " prefix of the very line you quote.`,
   '- Do not target \\begin{document}, \\maketitle, \\tableofcontents or preamble lines unless the user asks for that location.',
   '- New sections go after the end of the closest related section; with no sections yet, after \\maketitle.',
   '- Explanatory text goes before the table, figure, equation or listing it describes; captions and labels go inside their environment.',

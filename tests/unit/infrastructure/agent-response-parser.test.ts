@@ -149,7 +149,7 @@ describe('parseAgentDecision replies', () => {
     [
       'an edit of a line that does not match',
       'ACTION: edit\nPATH: main.tex\nOPERATION: delete\nLINE: 3\nLINE_TEXT: \\section{Results}',
-      'the text you quoted starts line 2',
+      'LINE_TEXT quotes line 2, not line 3',
     ],
   ])('rejects %s', (_name, raw, expected) => {
     expect(problem(raw)).toContain(expected);

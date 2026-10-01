@@ -24,6 +24,8 @@ import {
   fieldLine,
 } from './edit-reply-format';
 
+const NEARBY_LINES = 2;
+
 export class InvalidAssistantResponse extends Error {
   constructor(readonly problem: string) {
     super(`invalid assistant response: ${problem}`);
@@ -209,11 +211,18 @@ function describeTargetMismatch(shown: DocumentSnapshot, command: DocumentComman
   }
   const content = actual.trim() === '' ? 'is an empty line' : `reads: ${actual}`;
   const [quotedLine, ...others] = findLinesStartingWith(shown, lineText);
-  const hint =
-    quotedLine !== undefined && others.length === 0
-      ? `; the text you quoted starts line ${String(quotedLine)}`
-      : '';
-  return `${EditField.LineText} must be copied from the start of line ${String(lineNumber)} (at least ${String(MIN_QUOTED_START)} characters, or the whole line if shorter), which ${content}${hint}`;
+  if (quotedLine !== undefined && others.length === 0) {
+    return `${EditField.LineText} quotes line ${String(quotedLine)}, not line ${String(lineNumber)}, which ${content}; to target line ${String(quotedLine)} write ${EditField.Line}: ${String(quotedLine)}, to target line ${String(lineNumber)} copy its text into ${EditField.LineText}. The lines around line ${String(lineNumber)} are:\n${describeNearbyLines(shown, lineNumber)}`;
+  }
+  return `${EditField.LineText} must be copied from the start of line ${String(lineNumber)} (at least ${String(MIN_QUOTED_START)} characters, or the whole line if shorter), which ${content}`;
+}
+
+function describeNearbyLines(shown: DocumentSnapshot, lineNumber: number): string {
+  const first = Math.max(1, lineNumber - NEARBY_LINES);
+  return shown.lines
+    .slice(first - 1, lineNumber + NEARBY_LINES)
+    .map((text, index) => `${String(first + index)}: ${text}`)
+    .join('\n');
 }
 
 function decode(raw: string): Map<string, unknown> {

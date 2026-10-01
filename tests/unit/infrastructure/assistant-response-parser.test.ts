@@ -148,7 +148,13 @@ describe('parseEditResponse', () => {
 
   it('tells the model which line starts with the text it quoted', () => {
     expect(() => parse(edit({ LINE: '2', LINE_TEXT: '\\section{Results}' }))).toThrow(
-      'which is an empty line; the text you quoted starts line 3',
+      'LINE_TEXT quotes line 3, not line 2, which is an empty line; to target line 3 write LINE: 3',
+    );
+  });
+
+  it('shows the lines around the targeted line when the quote belongs to another line', () => {
+    expect(() => parse(edit({ LINE: '2', LINE_TEXT: '\\section{Results}' }))).toThrow(
+      'The lines around line 2 are:\n1: \\title{A}\n2: \n3: \\section{Results}\n4: Long paragraph. More.',
     );
   });
 
