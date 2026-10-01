@@ -8,7 +8,7 @@ import type { AgentStepRequest } from '../../ports/agent-port';
 import { AGENT_ACTIONS, AgentAction, AgentField, TEXT_MARKER } from './agent-reply-format';
 import { parseAgentDecision } from './agent-response-parser';
 import { createTooLargeError, PROMPT_BUDGET_CHARS } from './context-budget';
-import { CORRECTION_RESERVE_CHARS, type ProtocolExchange } from './correction-exchange';
+import { getCorrectionReserveChars, type ProtocolExchange } from './correction-exchange';
 import { CONTENT, CONTENT_MARKER, EditField, fieldLine } from './edit-reply-format';
 import {
   block,
@@ -148,9 +148,9 @@ const AGENT_SYSTEM = lines(
   fieldLine(F.Reason, 'Usuwam podsekcję z wynikami pomocniczymi.'),
 );
 
-export const AGENT_PROMPT_BUDGET = PROMPT_BUDGET_CHARS - CORRECTION_RESERVE_CHARS;
-
 const RETRY = `Reply again with exactly one action: the first line ${fieldLine(AgentField.Action, AGENT_ACTIONS.join('|'))}, then only the lines that action takes. No JSON.`;
+
+export const AGENT_PROMPT_BUDGET = PROMPT_BUDGET_CHARS - getCorrectionReserveChars(RETRY);
 
 export function createAgentExchange(
   request: AgentStepRequest,

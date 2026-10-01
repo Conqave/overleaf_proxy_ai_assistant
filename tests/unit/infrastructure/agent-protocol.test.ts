@@ -4,7 +4,10 @@ import type { AgentTurn } from '../../../src/domain/agent-transcript';
 import { createDocumentSnapshot } from '../../../src/domain/document';
 import { ProjectFileKind } from '../../../src/domain/project-file';
 import { createAgentExchange } from '../../../src/infrastructure/ollama/agent-protocol';
-import { createCorrectionRequest } from '../../../src/infrastructure/ollama/correction-exchange';
+import {
+  createCorrectionRequest,
+  getCorrectionReserveChars,
+} from '../../../src/infrastructure/ollama/correction-exchange';
 import type { AgentStepRequest } from '../../../src/ports/agent-port';
 import { AssistantRequestTooLargeError } from '../../../src/ports/errors';
 
@@ -137,8 +140,10 @@ describe('agent exchange', () => {
     expect(correction.prompt).toContain(
       'Reply again with exactly one action: the first line ACTION: read_file|search|compile|answer|question|edit',
     );
-    const long = createCorrectionRequest(exchange, 'z'.repeat(100_000), 'x');
-    expect(long.prompt.length - exchange.request.prompt.length).toBeLessThan(4_096);
+    const long = createCorrectionRequest(exchange, 'z'.repeat(100_000), 'x'.repeat(100_000));
+    expect(long.prompt.length - exchange.request.prompt.length).toBeLessThanOrEqual(
+      getCorrectionReserveChars(exchange.retryInstruction),
+    );
   });
 });
 

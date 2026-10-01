@@ -7,7 +7,7 @@ import { HarmonyFormatError } from './harmony-format';
 import type { Completion, GenerateRequest, OllamaClient } from './ollama-client';
 
 const REJECTED_REPLY_CHARS = 3_000;
-export const CORRECTION_RESERVE_CHARS = 4_096;
+const PROBLEM_CHARS = 1_000;
 
 export interface ProtocolExchange<T> {
   readonly request: GenerateRequest;
@@ -36,7 +36,7 @@ export async function runExchange<T>(
   const second = await attempt(client, correction, exchange.parse);
   if (second.kind === 'accepted') return second.outcome;
   throw new AssistantProtocolError(
-    `The assistant replied in an unexpected format (${second.error.problem}). Please try again.`,
+    `The assistant replied in an unexpected format (${compact(second.error.problem, PROBLEM_CHARS)}). Please try again.`,
     { cause: second.error },
   );
 }
@@ -86,9 +86,24 @@ export function createCorrectionRequest(
     system: exchange.request.system,
     prompt: lines(
       exchange.request.prompt,
-      `Your previous reply was:${LINE_BREAK}${compact(rejected, REJECTED_REPLY_CHARS)}`,
-      `It was rejected because: ${problem}.`,
-      exchange.retryInstruction,
+      correctionText(
+        compact(rejected, REJECTED_REPLY_CHARS),
+        compact(problem, PROBLEM_CHARS),
+        exchange.retryInstruction,
+      ),
     ),
   };
+}
+
+export function getCorrectionReserveChars(retryInstruction: string): number {
+  const framing = correctionText('', '', retryInstruction).length;
+  return LINE_BREAK.length + framing + REJECTED_REPLY_CHARS + PROBLEM_CHARS;
+}
+
+function correctionText(rejected: string, problem: string, retryInstruction: string): string {
+  return lines(
+    `Your previous reply was:${LINE_BREAK}${rejected}`,
+    `It was rejected because: ${problem}.`,
+    retryInstruction,
+  );
 }
