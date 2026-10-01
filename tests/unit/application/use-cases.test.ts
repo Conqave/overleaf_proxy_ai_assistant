@@ -65,7 +65,9 @@ let reject: RejectDocumentChange;
 let review: ReviewAppliedChange;
 let lock: OperationLock;
 let progress: AgentProgress[];
+let busy: boolean[];
 
+const isBusy = () => busy.at(-1) === true;
 const record = (p: AgentProgress) => {
   progress.push(p);
 };
@@ -124,6 +126,10 @@ beforeEach(() => {
   conversation = new ConversationLog(repository);
   pendingChanges = new PendingChanges();
   lock = new OperationLock(() => new AbortController());
+  busy = [];
+  lock.onChange((isNowBusy) => {
+    busy.push(isNowBusy);
+  });
   const newId = sequentialIds();
   handle = new HandleAssistantRequest({
     agent,
@@ -467,7 +473,7 @@ describe('conversation reset during a request', () => {
     });
     new StartNewConversation({ conversation, pendingChanges, editor, lock }).execute();
     await expect(running).rejects.toThrow(RequestSupersededError);
-    expect(lock.isBusy).toBe(false);
+    expect(isBusy()).toBe(false);
     agent.will(answer('Fresh.'));
     await expect(send('summarize again')).resolves.toMatchObject({ message: { text: 'Fresh.' } });
   });
@@ -528,7 +534,7 @@ describe('preview / apply / reject', () => {
     new StartNewConversation({ conversation, pendingChanges, editor, lock }).execute();
     await expect(applying).rejects.toThrow(RequestSupersededError);
     expect(editor.lines).toEqual([...MAIN, 'Added.']);
-    expect(lock.isBusy).toBe(false);
+    expect(isBusy()).toBe(false);
   });
 
   it('cancels a file read of the agent for a new conversation', async () => {
@@ -547,11 +553,11 @@ describe('preview / apply / reject', () => {
     const compiled = Promise.withResolvers<readonly CompileDiagnostic[]>();
     project.willCompile(new PendingStep(() => compiled.promise));
     const applying = apply.execute(changeId, record);
-    expect(lock.isBusy).toBe(true);
+    expect(isBusy()).toBe(true);
     await expect(send('what next?')).rejects.toThrow(RequestInProgressError);
     compiled.resolve([]);
     await expect(applying).resolves.toEqual({ kind: 'compiled' });
-    expect(lock.isBusy).toBe(false);
+    expect(isBusy()).toBe(false);
   });
 
   it('opens the file of the change when the user switched away before Apply', async () => {

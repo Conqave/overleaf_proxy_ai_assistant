@@ -8,10 +8,6 @@ export class OperationLock {
 
   constructor(private readonly createController: () => CancellationController) {}
 
-  get isBusy(): boolean {
-    return this.current !== null;
-  }
-
   onChange(listener: (busy: boolean) => void): void {
     this.listeners.push(listener);
   }
