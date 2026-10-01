@@ -29,6 +29,7 @@ export class FakeEditor implements EditorPort {
   cursorLine = 1;
   preview: ResolvedEdit | null = null;
   applyFailure: Error | null = null;
+  previewFailure: Error | null = null;
   applied: DocumentCommand[] = [];
   shownFileId = '';
 
@@ -48,6 +49,7 @@ export class FakeEditor implements EditorPort {
   }
   showPreview(file: TextFile, edit: ResolvedEdit): void {
     this.ensureShowing(file);
+    if (this.previewFailure) throw this.previewFailure;
     this.preview = edit;
   }
   clearPreview(): void {
@@ -80,7 +82,11 @@ export class FakeEditor implements EditorPort {
   }
 }
 
-type Step<T> = T | Error;
+export class PendingStep<T> {
+  constructor(readonly settle: (signal: CancellationSignal) => Promise<T>) {}
+}
+
+type Step<T> = T | Error | PendingStep<T>;
 
 export const FAKE_CONTEXT_TOKENS = 98_304;
 
@@ -96,6 +102,7 @@ export function agentStep(decision: AgentDecision, promptTokens = 1_000): AgentS
 
 export class FakeAgent implements AgentPort {
   requests: AgentStepRequest[] = [];
+  onDecide: (request: AgentStepRequest) => void = () => undefined;
   private decisions: Step<AgentDecision>[] = [];
 
   will(...decisions: Step<AgentDecision>[]): this {
@@ -104,7 +111,9 @@ export class FakeAgent implements AgentPort {
   }
   async decide(request: AgentStepRequest): Promise<AgentStep> {
     this.requests.push(request);
-    return agentStep(await next(this.decisions, 'decide'), 1_000 * this.requests.length);
+    this.onDecide(request);
+    const decision = await next(this.decisions, 'decide', request.signal);
+    return agentStep(decision, 1_000 * this.requests.length);
   }
 }
 
@@ -114,6 +123,7 @@ export class FakeProject implements ProjectPort {
   readonly reads: string[] = [];
   readonly signals: CancellationSignal[] = [];
   compileCalls = 0;
+  holdsReads = false;
   failure: Partial<Record<'listFiles' | 'readFile' | 'openFile', Error>> = {};
   onOpen: (path: string) => void = () => undefined;
   private compiles: Step<readonly CompileDiagnostic[]>[] = [];
@@ -169,6 +179,7 @@ export class FakeProject implements ProjectPort {
     this.reads.push(file.path);
     this.signals.push(signal);
     if (this.failure.readFile) return Promise.reject(this.failure.readFile);
+    if (this.holdsReads) return rejectOnAbort(signal);
     const lines = file.path === this.openPath ? this.editor.lines : this.savedDocument(file.path);
     return Promise.resolve(createDocumentSnapshot([...lines]));
   }
@@ -184,7 +195,7 @@ export class FakeProject implements ProjectPort {
   compile(signal: CancellationSignal): Promise<readonly CompileDiagnostic[]> {
     this.compileCalls += 1;
     this.signals.push(signal);
-    return next(this.compiles, 'compile');
+    return next(this.compiles, 'compile', signal);
   }
   private show(path: string): void {
     this.editor.lines = [...this.savedDocument(path)];
@@ -192,11 +203,14 @@ export class FakeProject implements ProjectPort {
   }
 }
 
-function next<T>(queue: Step<T>[], what: string): Promise<T> {
+function next<T>(queue: Step<T>[], what: string, signal: CancellationSignal): Promise<T> {
   const step = queue.shift();
-  if (step === undefined)
+  if (step === undefined) {
     return Promise.reject(new UnexpectedFakeCallError(`unexpected ${what} call`));
-  return step instanceof Error ? Promise.reject(step) : Promise.resolve(step);
+  }
+  if (step instanceof Error) return Promise.reject(step);
+  if (step instanceof PendingStep) return step.settle(signal);
+  return Promise.resolve(step);
 }
 
 export class InMemoryConversationRepository implements ConversationRepository {

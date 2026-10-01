@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AgentProgress } from '../../../src/application/agent-progress';
 import { ApplyDocumentChange } from '../../../src/application/apply-document-change';
 import { ConversationLog } from '../../../src/application/conversation-log';
@@ -26,8 +26,7 @@ import { AGENT_POLICY } from '../../../src/domain/agent-policy';
 import { createDocumentSnapshot } from '../../../src/domain/document';
 import { createDocumentCommand } from '../../../src/domain/document-command';
 import { DocumentConflictError, InvariantViolation } from '../../../src/domain/errors';
-import { findTextFile, type TextFile } from '../../../src/domain/project-file';
-import type { CancellationSignal } from '../../../src/ports/cancellation';
+import { findTextFile } from '../../../src/domain/project-file';
 import { ResolvedEdit } from '../../../src/domain/resolved-edit';
 import {
   AssistantProtocolError,
@@ -40,12 +39,12 @@ import {
   ProjectUnavailableError,
 } from '../../../src/ports/errors';
 import {
-  agentStep,
   FAKE_CONTEXT_TOKENS,
   FakeAgent,
   FakeEditor,
   FakeProject,
   InMemoryConversationRepository,
+  PendingStep,
   rejectOnAbort,
   sequentialIds,
 } from '../../support/fakes';
@@ -365,11 +364,10 @@ describe('HandleAssistantRequest', () => {
   });
 
   it('reopens the target file when the user switched files during the request', async () => {
-    agent.decide = (request) => {
-      agent.requests.push(request);
+    agent.onDecide = () => {
       project.switchTo('refs.bib');
-      return Promise.resolve(agentStep(mainEdit()));
     };
+    agent.will(mainEdit());
     const result = await send('add more');
     expect(project.opened).toEqual(['main.tex']);
     expect(editor.preview).toBe(pendingChanges.get(changeIdOf(result)).change.edit);
@@ -386,11 +384,10 @@ describe('HandleAssistantRequest', () => {
   });
 
   it('drops an edit when the document changed while the agent was working', async () => {
-    agent.decide = (request) => {
-      agent.requests.push(request);
+    agent.onDecide = () => {
       editor.lines[0] = '\\section{Introduction}';
-      return Promise.resolve(agentStep(mainEdit()));
     };
+    agent.will(mainEdit());
     await expect(send('add more')).rejects.toThrow(DocumentConflictError);
     expect(editor.preview).toBeNull();
     expect(conversation.messages().map((m) => m.role)).toEqual(['user']);
@@ -398,9 +395,7 @@ describe('HandleAssistantRequest', () => {
 
   it('drops an edit whose preview fails', async () => {
     agent.will(mainEdit());
-    editor.showPreview = () => {
-      throw new EditorUnavailableError('gone');
-    };
+    editor.previewFailure = new EditorUnavailableError('gone');
     await expect(send('add more')).rejects.toThrow(EditorUnavailableError);
     expect(conversation.messages().map((m) => m.role)).toEqual(['user']);
   });
@@ -463,16 +458,15 @@ describe('HandleAssistantRequest', () => {
 
 describe('conversation reset during a request', () => {
   it('cancels the running request and frees the assistant at once', async () => {
-    agent.decide = (request) => {
-      agent.requests.push(request);
-      return rejectOnAbort(request.signal);
-    };
+    agent.will(new PendingStep(rejectOnAbort));
     const running = send('summarize');
+    await vi.waitFor(() => {
+      expect(agent.requests).toHaveLength(1);
+    });
     new StartNewConversation({ conversation, pendingChanges, editor, lock }).execute();
     await expect(running).rejects.toThrow(RequestSupersededError);
     expect(lock.isBusy).toBe(false);
     agent.will(answer('Fresh.'));
-    agent.decide = FakeAgent.prototype.decide.bind(agent);
     await expect(send('summarize again')).resolves.toMatchObject({ message: { text: 'Fresh.' } });
   });
 
@@ -481,10 +475,12 @@ describe('conversation reset during a request', () => {
     const gate = new Promise<void>((resolve) => {
       release = resolve;
     });
-    agent.decide = async () => {
-      await gate;
-      return agentStep(mainEdit());
-    };
+    agent.will(
+      new PendingStep(async () => {
+        await gate;
+        return mainEdit();
+      }),
+    );
     const running = send('add');
     new StartNewConversation({ conversation, pendingChanges, editor, lock }).execute();
     release();
@@ -495,21 +491,20 @@ describe('conversation reset during a request', () => {
 
   it('drops the request when the conversation is reset during a tool call', async () => {
     agent.will(tool({ tool: 'compile' }));
-    project.compile = () => {
-      new StartNewConversation({ conversation, pendingChanges, editor, lock }).execute();
-      return Promise.resolve([]);
-    };
+    project.willCompile(
+      new PendingStep(() => {
+        new StartNewConversation({ conversation, pendingChanges, editor, lock }).execute();
+        return Promise.resolve([]);
+      }),
+    );
     await expect(send('does it compile?')).rejects.toThrow(RequestSupersededError);
     expect(agent.requests).toHaveLength(1);
   });
 });
 
 describe('preview / apply / reject', () => {
-  beforeEach(() => {
-    project.willCompile([], []);
-  });
-
   it('applies an approved change and then compiles the project', async () => {
+    project.willCompile([]);
     const changeId = await proposeEdit();
     progress = [];
     await expect(apply.execute(changeId, record)).resolves.toEqual({ kind: 'compiled' });
@@ -523,7 +518,7 @@ describe('preview / apply / reject', () => {
 
   it('cancels the review compile of an applied change for a new conversation', async () => {
     const changeId = await proposeEdit();
-    project.compile = rejectOnAbort;
+    project.willCompile(new PendingStep(rejectOnAbort));
     const applying = apply.execute(changeId, record);
     new StartNewConversation({ conversation, pendingChanges, editor, lock }).execute();
     await expect(applying).rejects.toThrow(RequestSupersededError);
@@ -533,9 +528,11 @@ describe('preview / apply / reject', () => {
 
   it('cancels a file read of the agent for a new conversation', async () => {
     agent.will(readBib());
-    project.readFile = (_file: TextFile, signal: CancellationSignal) => rejectOnAbort(signal);
+    project.holdsReads = true;
     const running = send('read the bibliography');
-    await Promise.resolve();
+    await vi.waitFor(() => {
+      expect(project.reads).toEqual(['refs.bib']);
+    });
     new StartNewConversation({ conversation, pendingChanges, editor, lock }).execute();
     await expect(running).rejects.toThrow(RequestSupersededError);
   });
@@ -543,7 +540,7 @@ describe('preview / apply / reject', () => {
   it('refuses a request while an applied change is being reviewed', async () => {
     const changeId = await proposeEdit();
     const compiled = Promise.withResolvers<readonly CompileDiagnostic[]>();
-    project.compile = () => compiled.promise;
+    project.willCompile(new PendingStep(() => compiled.promise));
     const applying = apply.execute(changeId, record);
     expect(lock.isBusy).toBe(true);
     await expect(send('what next?')).rejects.toThrow(RequestInProgressError);
@@ -553,6 +550,7 @@ describe('preview / apply / reject', () => {
   });
 
   it('opens the file of the change when the user switched away before Apply', async () => {
+    project.willCompile([]);
     const changeId = await proposeEdit(readBib(), bibEdit());
     project.switchTo('main.tex');
     progress = [];
@@ -581,6 +579,7 @@ describe('preview / apply / reject', () => {
   });
 
   it('refuses a double apply', async () => {
+    project.willCompile([]);
     const changeId = await proposeEdit();
     await apply.execute(changeId, record);
     await expect(apply.execute(changeId, record)).rejects.toThrow(ChangeNoLongerPendingError);
@@ -588,6 +587,7 @@ describe('preview / apply / reject', () => {
   });
 
   it('refuses apply after reject and reject after apply', async () => {
+    project.willCompile([]);
     const first = await proposeEdit();
     reject.execute(first);
     await expect(apply.execute(first, record)).rejects.toThrow(ChangeNoLongerPendingError);
@@ -597,6 +597,7 @@ describe('preview / apply / reject', () => {
   });
 
   it('forgets closed changes once the next request starts', async () => {
+    project.willCompile([]);
     const applied = await proposeEdit();
     await apply.execute(applied, record);
     const rejected = await proposeEdit();
@@ -689,10 +690,12 @@ describe('ReviewAppliedChange', () => {
   });
 
   it('drops the review when the conversation was reset during compilation', async () => {
-    project.compile = () => {
-      new StartNewConversation({ conversation, pendingChanges, editor, lock }).execute();
-      return Promise.resolve([{ level: 'error' as const, message: 'x' }]);
-    };
+    project.willCompile(
+      new PendingStep(() => {
+        new StartNewConversation({ conversation, pendingChanges, editor, lock }).execute();
+        return Promise.resolve([{ level: 'error' as const, message: 'x' }]);
+      }),
+    );
     await expect(reviewApplied()).rejects.toThrow(RequestSupersededError);
     expect(agent.requests).toHaveLength(0);
   });
