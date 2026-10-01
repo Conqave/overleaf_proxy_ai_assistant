@@ -18,6 +18,7 @@ export interface ProtocolExchange<T> {
 export interface ExchangeOutcome<T> {
   readonly value: T;
   readonly contextUsage: ContextUsage;
+  readonly promptChars: number;
 }
 
 type Attempt<T> =
@@ -55,7 +56,7 @@ async function attempt<T>(
   try {
     return {
       kind: 'accepted',
-      outcome: outcome(parse(completion.text), completion.promptTokens),
+      outcome: outcome(parse(completion.text), completion),
     };
   } catch (error) {
     if (!(error instanceof InvalidAssistantResponse)) throw error;
@@ -76,8 +77,8 @@ async function generate(
   }
 }
 
-function outcome<T>(value: T, promptTokens: number): ExchangeOutcome<T> {
-  return { value, contextUsage: describeUsage(promptTokens) };
+function outcome<T>(value: T, { promptChars, promptTokens }: Completion): ExchangeOutcome<T> {
+  return { value, contextUsage: describeUsage(promptTokens), promptChars };
 }
 
 export function createCorrectionRequest(

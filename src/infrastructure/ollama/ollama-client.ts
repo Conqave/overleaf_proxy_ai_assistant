@@ -34,11 +34,11 @@ export interface GenerateRequest {
 
 export interface Completion {
   readonly text: string;
+  readonly promptChars: number;
   readonly promptTokens: number;
 }
 
 interface ModelOutput extends Completion {
-  readonly promptChars: number;
   readonly stoppedAtLimit: boolean;
 }
 
@@ -210,7 +210,9 @@ function parseJson(body: string): unknown {
 }
 
 function finish(output: ModelOutput, text: string): Completion {
-  if (!output.stoppedAtLimit) return { text, promptTokens: output.promptTokens };
+  if (!output.stoppedAtLimit) {
+    return { text, promptChars: output.promptChars, promptTokens: output.promptTokens };
+  }
   if (output.promptTokens + MAX_COMPLETION_TOKENS > CONTEXT_TOKENS) {
     throw new ContextOverflowError(output.promptChars, output.promptTokens);
   }

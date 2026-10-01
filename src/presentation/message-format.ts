@@ -3,6 +3,7 @@ import type { ContextUsage } from '../application/handle-assistant-request';
 import {
   ProposalStatus,
   type AssistantMessage,
+  type CompactionSummaryMessage,
   type ProposalMessage,
 } from '../domain/conversation';
 import { DocumentOperation } from '../domain/document-command';
@@ -126,6 +127,20 @@ function thousands(tokens: number): string {
   return `${(tokens / TOKENS_PER_THOUSAND).toFixed(1)}k`;
 }
 
+export function compactionNotice({
+  tokensBefore,
+  tokensAfter,
+  coveredTurns,
+}: CompactionSummaryMessage): string {
+  const turns = coveredTurns === 1 ? '1 turn' : `${String(coveredTurns)} turns`;
+  return `Context compacted: ${thousands(tokensBefore)} → ${thousands(tokensAfter)} (summary of ${turns})`;
+}
+
+export function compactionFiles({ files }: CompactionSummaryMessage): string {
+  const listed = (paths: readonly string[]): string => (paths.length ? paths.join(', ') : 'none');
+  return `Files read: ${listed(files.read)}. Files edited: ${listed(files.edited)}.`;
+}
+
 export function progressStatus(progress: AgentProgress): string {
   switch (progress.stage) {
     case 'received':
@@ -139,7 +154,10 @@ export function progressStatus(progress: AgentProgress): string {
       return 'Hans is compiling the project';
     case 'opening':
       return `Hans is opening ${progress.path}`;
+    case 'compacting':
+      return 'Hans is summarising the earlier conversation';
     case 'decided':
+    case 'compacted':
       return '';
   }
 }

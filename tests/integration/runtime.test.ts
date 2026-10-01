@@ -3,6 +3,9 @@ import { IDBFactory } from 'fake-indexeddb';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { COMPILE_FIX_REQUEST } from '../../src/application/handle-assistant-request';
 import { AGENT_POLICY } from '../../src/domain/agent-policy';
+import type { ConversationMessage } from '../../src/domain/conversation';
+import type { ConversationSession } from '../../src/domain/session';
+import { IndexedDbSessionRepository } from '../../src/infrastructure/persistence/indexed-db-session-repository';
 import { type Browser, openBrowser } from '../support/browser';
 import {
   FAKE_AGENT_STEP_TIMEOUT_MS,
@@ -742,6 +745,63 @@ describe('assistant agent', () => {
     ollama.reply(greetingReply);
     await send('hi');
     expect(messages().at(-1)).toContain(GREETING_ANSWER);
+  });
+});
+
+const SCOPE = { userId: 'user-1', projectId: 'project-1' };
+
+const LONG_HISTORY: ConversationSession = {
+  id: 'long',
+  title: 'Question 0 about tables?',
+  createdAt: 1,
+  updatedAt: 2,
+  messages: Array.from({ length: 50 }, (_, turn): ConversationMessage[] => [
+    { id: `u-${String(turn)}`, role: 'user', text: `Question ${String(turn)} about tables?` },
+    {
+      id: `a-${String(turn)}`,
+      role: 'assistant',
+      kind: 'explanation',
+      text: `Answer ${String(turn)}: ${'Use booktabs rules and caption every table. '.repeat(70)}`,
+    },
+  ]).flat(),
+};
+
+const SUMMARY_NOTE = '## Goal\nKeep the tables of the report consistent.';
+
+describe('assistant context compaction', () => {
+  it('summarises a long conversation before asking the model and shows it as a notice', async () => {
+    const sessions = new IDBFactory();
+    await new IndexedDbSessionRepository({ indexedDB: sessions }, SCOPE).save(LONG_HISTORY);
+    const { send, doc, texts, ollama } = await start({
+      replies: [{ response: SUMMARY_NOTE }, reply('ACTION: answer', 'TEXT:', 'Use booktabs.')],
+      sessions,
+    });
+    await send('Which rules do my tables use?');
+    const [summarising, answering] = [
+      itemAt(ollama.prompts, 0, 'summary prompt'),
+      itemAt(ollama.prompts, 1, 'agent prompt'),
+    ];
+    expect(summarising.instructions).toContain('## User preferences');
+    expect(summarising.userMessage).toContain(
+      'Conversation to summarise:\n[user] Question 0 about tables?',
+    );
+    const title = element(doc, '.ola-compaction-title').textContent;
+    const covered = Number(
+      /^Context compacted: \d+\.\dk → \d+\.\dk \(summary of (\d+) turns\)$/.exec(title)?.[1],
+    );
+    expect(covered).toBeGreaterThan(30);
+    expect(answering.userMessage).toContain(
+      `[summary of the ${String(covered)} earlier turns]\n${SUMMARY_NOTE}`,
+    );
+    expect(answering.userMessage).not.toContain(`Question ${String(covered - 1)} about`);
+    expect(answering.userMessage).toContain(`[user] Question ${String(covered)} about tables?`);
+    const notice = element(doc, 'details.ola-compaction');
+    expect(notice.hasAttribute('open')).toBe(false);
+    expect(texts('.ola-compaction-body h2')).toEqual(['Goal']);
+    expect(texts('.ola-compaction-body p')).toEqual(['Keep the tables of the report consistent.']);
+    expect(texts('.ola-result-body').at(-1)).toBe('Use booktabs.');
+    const reloaded = await start({ sessions });
+    expect(reloaded.texts('.ola-compaction-title')).toEqual(texts('.ola-compaction-title'));
   });
 });
 

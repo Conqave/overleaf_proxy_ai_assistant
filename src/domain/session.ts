@@ -1,4 +1,5 @@
 import type { ConversationMessage, UserMessage } from './conversation';
+import { countCoveredMessages } from './conversation-view';
 import { InvariantViolation } from './errors';
 
 export const MAX_SESSION_MESSAGES = 80;
@@ -42,8 +43,14 @@ export function appendToSession(
   message: ConversationMessage,
   now: number,
 ): ConversationSession {
-  const messages = [...session.messages, message].slice(-MAX_SESSION_MESSAGES);
+  const messages = dropCoveredExcess([...session.messages, message]);
   return { ...session, messages, updatedAt: now };
+}
+
+function dropCoveredExcess(messages: ConversationMessage[]): ConversationMessage[] {
+  const excess = messages.length - MAX_SESSION_MESSAGES;
+  if (excess <= 0) return messages;
+  return messages.slice(Math.min(excess, countCoveredMessages(messages)));
 }
 
 export function replaceInSession(

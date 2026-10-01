@@ -1,6 +1,6 @@
 import type { AgentDecision } from '../../src/domain/agent-action';
 import type { CompileDiagnostic } from '../../src/domain/agent-transcript';
-import type { ConversationMessage } from '../../src/domain/conversation';
+import { isRequestMessage, type ConversationMessage } from '../../src/domain/conversation';
 import { createDocumentSnapshot, type DocumentSnapshot } from '../../src/domain/document';
 import type { DocumentCommand } from '../../src/domain/document-command';
 import {
@@ -12,7 +12,18 @@ import {
 } from '../../src/domain/project-file';
 import type { ResolvedEdit } from '../../src/domain/resolved-edit';
 import { summarizeSession, type ConversationSession } from '../../src/domain/session';
-import type { AgentPort, AgentStep, AgentStepRequest } from '../../src/ports/agent-port';
+import type {
+  AgentPort,
+  AgentStep,
+  AgentStepRequest,
+  CompactionPlan,
+  CompactionTrigger,
+} from '../../src/ports/agent-port';
+import type {
+  ConversationSummarizer,
+  SummaryRequest,
+} from '../../src/ports/conversation-summarizer';
+import type { ConversationView } from '../../src/domain/conversation-view';
 import type { CancellationSignal } from '../../src/ports/cancellation';
 import type { SessionListing, SessionRepository } from '../../src/ports/session-repository';
 import type { EditorPort } from '../../src/ports/editor-port';
@@ -111,6 +122,8 @@ export class FakeAgent implements AgentPort {
     pressure: 'low',
   } as const;
   requests: AgentStepRequest[] = [];
+  triggers: CompactionTrigger[] = [];
+  plan: (trigger: CompactionTrigger) => CompactionPlan | null = () => null;
   onDecide: (request: AgentStepRequest) => void = () => undefined;
   private decisions: Step<AgentDecision>[] = [];
 
@@ -123,6 +136,38 @@ export class FakeAgent implements AgentPort {
     this.onDecide(request);
     const decision = await next(this.decisions, 'decide', request.signal);
     return agentStep(decision, 1_000 * this.requests.length);
+  }
+  planCompaction(trigger: CompactionTrigger): CompactionPlan | null {
+    this.triggers.push(trigger);
+    return this.plan(trigger);
+  }
+  measureConversation({ summary, messages }: ConversationView): number {
+    return FAKE_MESSAGE_TOKENS * (messages.length + (summary === null ? 0 : 1));
+  }
+}
+
+export const FAKE_MESSAGE_TOKENS = 1_000;
+
+export const EMPTY_CONVERSATION: ConversationView = { summary: null, messages: [] };
+
+export function coverAllButLastTurn(trigger: CompactionTrigger): CompactionPlan | null {
+  const { messages } = trigger.kind === 'manual' ? trigger.conversation : trigger.step.conversation;
+  const start = messages.findLastIndex(isRequestMessage);
+  if (start <= 0) return null;
+  return { covered: messages.slice(0, start) };
+}
+
+export class FakeSummarizer implements ConversationSummarizer {
+  requests: SummaryRequest[] = [];
+  private summaries: Step<string>[] = [];
+
+  will(...summaries: Step<string>[]): this {
+    this.summaries.push(...summaries);
+    return this;
+  }
+  summarize(request: SummaryRequest): Promise<string> {
+    this.requests.push(request);
+    return next(this.summaries, 'summarize', request.signal);
   }
 }
 

@@ -35,10 +35,13 @@ describe('findOutdatedReads', () => {
 describe('outdated reads in the prompt', () => {
   const step: AgentStepRequest = {
     request: { kind: 'user', message: { id: 'r', role: 'user', text: 'Check a.tex' } },
-    conversation: [
-      { id: 'u', role: 'user', text: 'Read a.tex' },
-      { id: 't', role: 'tool', record: read('a.tex', 1, 3) },
-    ],
+    conversation: {
+      summary: null,
+      messages: [
+        { id: 'u', role: 'user', text: 'Read a.tex' },
+        { id: 't', role: 'tool', record: read('a.tex', 1, 3) },
+      ],
+    },
     workspace: {
       files: [
         { id: '1', path: 'main.tex', kind: ProjectFileKind.Text },

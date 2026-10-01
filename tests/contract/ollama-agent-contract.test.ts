@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { beforeAll, describe, expect, it } from 'vitest';
 import type { AgentProgress } from '../../src/application/agent-progress';
+import { ConversationCompactor } from '../../src/application/conversation-compactor';
 import { ConversationLog } from '../../src/application/conversation-log';
 import {
   HandleAssistantRequest,
@@ -16,15 +17,19 @@ import type { DocumentOperation } from '../../src/domain/document-command';
 import { searchProject } from '../../src/domain/project-search';
 import { OllamaAgent } from '../../src/infrastructure/ollama/ollama-agent';
 import { OllamaClient } from '../../src/infrastructure/ollama/ollama-client';
+import { OllamaSummarizer } from '../../src/infrastructure/ollama/ollama-summarizer';
+import type { ConversationMessage } from '../../src/domain/conversation';
 import type { AgentPort, ContextUsage } from '../../src/ports/agent-port';
 import {
+  EMPTY_CONVERSATION,
   FakeEditor,
   FakeProject,
   InMemorySessionRepository,
   sequentialIds,
+  storedSession,
   ticking,
 } from '../support/fakes';
-import { textMatching } from '../support/guards';
+import { itemAt, textMatching } from '../support/guards';
 import { TestFixtureError } from '../support/test-errors';
 
 const CASE_TIMEOUT_MS = 600_000;
@@ -357,6 +362,55 @@ const CASES: readonly Case[] = [
   },
 ];
 
+const FILLER_TOPICS = [
+  'tabel z biblioteką booktabs',
+  'rysunków z pakietem graphicx',
+  'bibliografii w BibTeX',
+  'wzorów w środowisku align',
+  'odsyłaczy \\label i \\ref',
+  'list wypunktowanych',
+  'stron tytułowych',
+  'przypisów dolnych',
+];
+
+function fillerAnswer(turn: number): string {
+  const topic = itemAt(FILLER_TOPICS, turn % FILLER_TOPICS.length, 'topic');
+  return Array.from(
+    { length: 12 },
+    (_, index) =>
+      `Krok ${String(index + 1)} dotyczący ${topic}: w LaTeX-u warto trzymać spójny styl, opisywać każdy element podpisem i odwoływać się do niego w tekście, a po każdej zmianie skompilować dokument i sprawdzić ostrzeżenia w dzienniku.`,
+  ).join(' ');
+}
+
+const PROJECT_CODE = /HX[\p{Pd}\s]?42/u;
+
+const LONG_CONVERSATION: readonly ConversationMessage[] = [
+  {
+    id: 'h-0-user',
+    role: 'user',
+    text: 'Zapamiętaj na całą rozmowę: skrót projektu to HX-42, a wszystkie wykresy mają mieć kolor butelkowej zieleni.',
+  },
+  {
+    id: 'h-0-answer',
+    role: 'assistant',
+    kind: 'explanation',
+    text: 'Zapamiętane: skrót projektu HX-42, wykresy w kolorze butelkowej zieleni.',
+  },
+  ...Array.from({ length: 50 }, (_, turn): ConversationMessage[] => [
+    {
+      id: `h-${String(turn + 1)}-user`,
+      role: 'user',
+      text: `Wyjaśnij krok po kroku dobre praktyki dotyczące ${itemAt(FILLER_TOPICS, turn % FILLER_TOPICS.length, 'topic')}.`,
+    },
+    {
+      id: `h-${String(turn + 1)}-answer`,
+      role: 'assistant',
+      kind: 'explanation',
+      text: fillerAnswer(turn),
+    },
+  ]).flat(),
+];
+
 function textFiles(
   texts: ReadonlyMap<string, DocumentSnapshot>,
 ): { path: string; document: DocumentSnapshot }[] {
@@ -374,6 +428,7 @@ interface ApplicationRun {
   readonly tools: readonly ToolCall['tool'][];
   readonly usages: readonly ContextUsage[];
   readonly project: FakeProject;
+  readonly conversation: readonly ConversationMessage[];
 }
 
 function createProject(editor: FakeEditor, texts: ReadonlyMap<string, DocumentSnapshot>) {
@@ -381,7 +436,11 @@ function createProject(editor: FakeEditor, texts: ReadonlyMap<string, DocumentSn
   return new FakeProject(editor, documents, MAIN, BINARY_PATHS);
 }
 
-async function runApplication(agent: AgentPort, c: Case): Promise<ApplicationRun> {
+async function runApplication(
+  { agent, summarizer }: ContractModel,
+  c: Case,
+  history: readonly ConversationMessage[] = [],
+): Promise<ApplicationRun> {
   const editor = new FakeEditor([]);
   editor.selection = c.selection;
   const project = createProject(editor, c.texts);
@@ -389,6 +448,8 @@ async function runApplication(agent: AgentPort, c: Case): Promise<ApplicationRun
   const usages: ContextUsage[] = [];
   const recordingAgent: AgentPort = {
     idleUsage: agent.idleUsage,
+    planCompaction: (trigger) => agent.planCompaction(trigger),
+    measureConversation: (conversation) => agent.measureConversation(conversation),
     async decide(request) {
       const step = await agent.decide(request);
       usages.push(step.contextUsage);
@@ -400,6 +461,8 @@ async function runApplication(agent: AgentPort, c: Case): Promise<ApplicationRun
     newId: sequentialIds('session'),
     now: ticking(),
   });
+  if (history.length > 0) conversation.show(storedSession('history', history));
+  const newId = sequentialIds();
   const handleRequest = new HandleAssistantRequest({
     agent: recordingAgent,
     project,
@@ -407,15 +470,22 @@ async function runApplication(agent: AgentPort, c: Case): Promise<ApplicationRun
     conversation,
     pendingChanges: new PendingChanges(conversation),
     lock: new OperationLock(() => new AbortController()),
-    newId: sequentialIds(),
+    newId,
     createController: () => new AbortController(),
+    compactor: new ConversationCompactor({
+      agent: recordingAgent,
+      summarizer,
+      conversation,
+      newId,
+      now: () => new Date(),
+    }),
   });
   const tools: ToolCall['tool'][] = [];
   const result = await handleRequest.execute(c.request, (progress) => {
     const tool = TOOL_OF_PROGRESS[progress.stage];
     if (tool !== undefined) tools.push(tool);
   });
-  return { result, tools, usages, project };
+  return { result, tools, usages, project, conversation: conversation.messages() };
 }
 
 function gap(texts: ReadonlyMap<string, DocumentSnapshot>, edit: ExpectedEdit): number {
@@ -425,7 +495,12 @@ function gap(texts: ReadonlyMap<string, DocumentSnapshot>, edit: ExpectedEdit): 
   return at;
 }
 
-function createContractAgent(): OllamaAgent {
+interface ContractModel {
+  readonly agent: OllamaAgent;
+  readonly summarizer: OllamaSummarizer;
+}
+
+function createContractModel(): ContractModel {
   const client = new OllamaClient(
     {
       endpoint: requireEnv('OLLAMA_CONTRACT_URL'),
@@ -434,7 +509,7 @@ function createContractAgent(): OllamaAgent {
     },
     (input, init) => fetch(input, init),
   );
-  return new OllamaAgent(client);
+  return { agent: new OllamaAgent(client), summarizer: new OllamaSummarizer(client) };
 }
 
 function expectEdit(
@@ -463,16 +538,16 @@ function expectEdit(
 }
 
 describe('Ollama agent contract', () => {
-  let agent: OllamaAgent;
+  let model: ContractModel;
 
   beforeAll(() => {
-    agent = createContractAgent();
+    model = createContractModel();
   });
 
   it.each(CASES)(
     '$name',
     async (c) => {
-      const run = await runApplication(agent, c);
+      const run = await runApplication(model, c);
       for (const usage of run.usages) {
         expect(usage.promptTokens).toBeGreaterThan(0);
         expect(usage.promptTokens).toBeLessThanOrEqual(usage.contextTokens);
@@ -493,7 +568,7 @@ describe('Ollama agent contract', () => {
     'replies once the tools are used up',
     async () => {
       const project = createProject(new FakeEditor([]), TEXTS);
-      const { decision } = await agent.decide({
+      const { decision } = await model.agent.decide({
         request: {
           kind: 'user',
           message: {
@@ -502,7 +577,7 @@ describe('Ollama agent contract', () => {
             text: 'jaki tytuł ma praca cytowana w dokumencie jako greenwade93?',
           },
         },
-        conversation: [],
+        conversation: EMPTY_CONVERSATION,
         workspace: {
           files: project.files,
           openFile: { path: MAIN, document: getText(TEXTS, MAIN) },
@@ -516,6 +591,34 @@ describe('Ollama agent contract', () => {
         kind: 'reply',
         reply: { kind: 'answer', text: textMatching(/Comprehensive|CTAN/i) },
       });
+    },
+    CASE_TIMEOUT_MS,
+  );
+  it(
+    'compacts a long conversation on its own and still answers from it',
+    async () => {
+      const run = await runApplication(
+        model,
+        {
+          ...UNTOUCHED_PROJECT,
+          name: 'long conversation',
+          request: 'Jaki skrót projektu i jaki kolor wykresów ustaliłem na samym początku rozmowy?',
+        },
+        LONG_CONVERSATION,
+      );
+      const summaries = run.conversation.filter((message) => message.role === 'summary');
+      expect(summaries).toHaveLength(1);
+      expect(summaries[0]).toMatchObject({ text: textMatching(PROJECT_CODE) });
+      expect(run.result.message).toMatchObject({
+        kind: 'explanation',
+        text: textMatching(PROJECT_CODE),
+      });
+      expect(run.result.message).toMatchObject({
+        text: textMatching(/butelk|zielon|zieleń|bottle/i),
+      });
+      for (const usage of run.usages) {
+        expect(usage.promptTokens).toBeLessThanOrEqual(usage.contextTokens);
+      }
     },
     CASE_TIMEOUT_MS,
   );

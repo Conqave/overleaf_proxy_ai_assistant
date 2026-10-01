@@ -1,6 +1,7 @@
 import { JSDOM } from 'jsdom';
 import { describe, expect, it, vi } from 'vitest';
 import { ApplyDocumentChange } from '../../../src/application/apply-document-change';
+import { ConversationCompactor } from '../../../src/application/conversation-compactor';
 import { ConversationLog } from '../../../src/application/conversation-log';
 import {
   DeleteSession,
@@ -25,6 +26,7 @@ import {
   FakeAgent,
   FakeEditor,
   FakeProject,
+  FakeSummarizer,
   InMemorySessionRepository,
   PendingStep,
   sequentialIds,
@@ -67,6 +69,15 @@ async function openAssistant(...stored: ConversationSession[]) {
   });
   const pendingChanges = new PendingChanges(conversation);
   const lock = new OperationLock(() => new AbortController());
+  const newId = sequentialIds();
+  const summarizer = new FakeSummarizer();
+  const compactor = new ConversationCompactor({
+    agent,
+    summarizer,
+    conversation,
+    newId,
+    now: () => new Date('2026-10-01T12:00:00Z'),
+  });
   const handleRequest = new HandleAssistantRequest({
     agent,
     project,
@@ -74,8 +85,9 @@ async function openAssistant(...stored: ConversationSession[]) {
     conversation,
     pendingChanges,
     lock,
-    newId: sequentialIds(),
+    newId,
     createController: () => new AbortController(),
+    compactor,
   });
   const review = new ReviewAppliedChange({ project, conversation, handleRequest });
   const sessionDeps = { sessions, conversation, pendingChanges, editor, lock };

@@ -1,3 +1,4 @@
+import { EMPTY_CONVERSATION } from '../../support/fakes';
 import { describe, expect, it, vi } from 'vitest';
 import { HarmonyFormatError } from '../../../src/infrastructure/ollama/harmony-format';
 import { OllamaAgent } from '../../../src/infrastructure/ollama/ollama-agent';
@@ -38,7 +39,11 @@ describe('OllamaClient', () => {
     const ollama = new FakeOllama().reply({ response: 'raw' });
     const completion = await generate(make(ollama).client);
     const call = itemAt(ollama.prompts, 0, 'prompt');
-    expect(completion).toEqual({ text: 'raw', promptTokens: call.promptTokens });
+    expect(completion).toEqual({
+      text: 'raw',
+      promptChars: call.body.prompt.length,
+      promptTokens: call.promptTokens,
+    });
     expect(call.url).toBe('/ollama/main/api/generate');
     expect(call.body.prompt).toMatch(
       /^<\|start\|>system<\|message\|>[^]*Reasoning: medium[^]*<\|end\|><\|start\|>developer<\|message\|># Instructions\n\nS<\|end\|><\|start\|>user<\|message\|>P<\|end\|><\|start\|>assistant$/,
@@ -90,7 +95,11 @@ describe('OllamaClient', () => {
     const completion = await generate(make(ollama).client);
     const first = itemAt(ollama.prompts, 0, 'prompt');
     const second = itemAt(ollama.prompts, 1, 'prompt');
-    expect(completion).toEqual({ text: 'ACTION: read_file', promptTokens: second.promptTokens });
+    expect(completion).toEqual({
+      text: 'ACTION: read_file',
+      promptChars: second.body.prompt.length,
+      promptTokens: second.promptTokens,
+    });
     expect(second.promptTokens).not.toBe(first.promptTokens);
     expect(second.turns).toEqual(first.turns);
     expect(second.assistantPrefill).toBe(
@@ -356,7 +365,7 @@ describe('OllamaAgent', () => {
       kind: 'user',
       message: { id: 'r', role: 'user', text: 'Which title does the cited work have?' },
     },
-    conversation: [],
+    conversation: EMPTY_CONVERSATION,
     signal: new AbortController().signal,
     workspace: {
       files: [

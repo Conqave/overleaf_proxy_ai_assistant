@@ -1,4 +1,4 @@
-import type { ConversationMessage } from '../../domain/conversation';
+import type { ConversationView } from '../../domain/conversation-view';
 import { InvariantViolation } from '../../domain/errors';
 import type { AgentRequest } from '../../ports/agent-port';
 
@@ -8,7 +8,7 @@ const MIN_KEPT_CHARS = 32;
 export const LINE_BREAK = '\n';
 const COMPACT_GAP = LINE_BREAK.repeat(2);
 const COMPACT_MARKER_CHARS = compactMarker(Number.MAX_SAFE_INTEGER).length;
-const MIN_COMPACT_CHARS = COMPACT_MARKER_CHARS + 2 * MIN_KEPT_CHARS;
+export const MIN_COMPACT_CHARS = COMPACT_MARKER_CHARS + 2 * MIN_KEPT_CHARS;
 
 const USER_MESSAGE_LABEL = 'User message:';
 const SYSTEM_REQUEST_LABEL = 'System request (sent by the editor, not typed by the user):';
@@ -17,10 +17,7 @@ const LAST_USER_MESSAGE_CHARS = 500;
 export const CONVERSATION_LABEL = 'Conversation so far:';
 export const SELECTION_LABEL = 'Selected text:';
 
-export function requestBlock(
-  request: AgentRequest,
-  conversation: readonly ConversationMessage[],
-): string {
+export function requestBlock(request: AgentRequest, conversation: ConversationView): string {
   switch (request.kind) {
     case 'user':
       return `${USER_MESSAGE_LABEL}${LINE_BREAK}${request.message.text}`;
@@ -32,8 +29,8 @@ export function requestBlock(
   }
 }
 
-function lastUserMessage(conversation: readonly ConversationMessage[]): string[] {
-  const last = conversation.findLast((message) => message.role === 'user');
+function lastUserMessage(conversation: ConversationView): string[] {
+  const last = conversation.messages.findLast((message) => message.role === 'user');
   if (last === undefined) return [];
   return [block(LAST_USER_MESSAGE_LABEL, last.text.trim(), LAST_USER_MESSAGE_CHARS)];
 }

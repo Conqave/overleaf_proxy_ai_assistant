@@ -47,6 +47,17 @@ const messages: ConversationMessage[] = [
   { id: '4', role: 'system', text: 'Compiling reports errors; fix the first error.' },
   { id: '5', role: 'assistant', kind: 'explanation', text: 'It **compiles**.' },
   {
+    id: 's1',
+    role: 'summary',
+    text: '## Goal\nA tidy report.',
+    files: { read: ['refs.bib'], edited: ['main.tex'] },
+    coveredUntilId: '4',
+    coveredTurns: 2,
+    tokensBefore: 72_000,
+    tokensAfter: 38_000,
+    createdAt: '2026-10-01T12:00:00.000Z',
+  },
+  {
     id: 't1',
     role: 'tool',
     record: {
@@ -145,8 +156,8 @@ describe('IndexedDbSessionRepository', () => {
     await expect(repository.load('a')).resolves.toEqual(session('a'));
     await expect(repository.list()).resolves.toEqual({
       sessions: [
-        { id: 'a', title: 'Session a', createdAt: 10, updatedAt: 20, messageCount: 12 },
-        { id: 'b', title: 'Session b', createdAt: 10, updatedAt: 30, messageCount: 12 },
+        { id: 'a', title: 'Session a', createdAt: 10, updatedAt: 20, messageCount: 13 },
+        { id: 'b', title: 'Session b', createdAt: 10, updatedAt: 30, messageCount: 13 },
       ],
       unreadableIds: [],
     });
@@ -164,7 +175,7 @@ describe('IndexedDbSessionRepository', () => {
         title: 'Session a',
         createdAt: 10,
         updatedAt: 20,
-        messageCount: 12,
+        messageCount: 13,
         messages,
       },
     ]);
@@ -257,6 +268,33 @@ describe('IndexedDbSessionRepository', () => {
     ).map(([name, record]): [string, Record<string, unknown>] => [
       `with a tool record ${name}`,
       { messages: [{ id: 't', role: 'tool', record }] },
+    ]),
+    ...(
+      [
+        ['without its text', { text: '' }],
+        ['with a broken date', { createdAt: 'soon' }],
+        ['with fractional tokens', { tokensAfter: 0.5 }],
+        ['without its file lists', { files: { read: [] } }],
+        ['of a file outside the project', { files: { read: ['/x'], edited: [] } }],
+      ] as const
+    ).map(([name, change]): [string, Record<string, unknown>] => [
+      `with a summary ${name}`,
+      {
+        messages: [
+          {
+            id: 's',
+            role: 'summary',
+            text: 'note',
+            files: { read: [], edited: [] },
+            coveredUntilId: 'u',
+            coveredTurns: 1,
+            tokensBefore: 2,
+            tokensAfter: 1,
+            createdAt: '2026-10-01T12:00:00.000Z',
+            ...change,
+          },
+        ],
+      },
     ]),
   ])('lists a session %s as unreadable and does not load it', async (_name, overrides) => {
     await repository.save(session('a'));

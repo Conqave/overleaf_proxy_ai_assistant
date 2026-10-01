@@ -1,18 +1,23 @@
 import { AgentTool, type AgentDecision, type ToolCall } from '../../domain/agent-action';
 import { countToolCallsLeft } from '../../domain/agent-policy';
 import { recordToolTurn, type AgentTurn, type ToolRecord } from '../../domain/agent-transcript';
-import type { ConversationMessage } from '../../domain/conversation';
+import type { ConversationView } from '../../domain/conversation-view';
 import type { DocumentSnapshot } from '../../domain/document';
 import { DocumentOperation } from '../../domain/document-command';
 import { ProjectFileKind, type ProjectFile } from '../../domain/project-file';
 import { InvariantViolation } from '../../domain/errors';
 import { numberLine, READ_LIMITS } from '../../domain/read-window';
 import type { AgentRequest, AgentStepRequest } from '../../ports/agent-port';
-import { createMessageTooLargeError, CURRENT_RESULT_SHARE } from './context-budget';
+import {
+  createMessageTooLargeError,
+  CURRENT_RESULT_SHARE,
+  ESTIMATED_PROMPT_CHARS,
+} from './context-budget';
+import { HARMONY_FRAMING_CHARS } from './harmony-format';
 import { getCorrectionReserveChars, type ProtocolExchange } from './correction-exchange';
 import { parseAgentDecision } from './reply-parser';
 import { diagnosticsText, renderShortRecord } from './tool-record-text';
-import { conversationText } from './conversation-text';
+import { conversationText, getViewRecords } from './conversation-text';
 import { findOutdatedReads, renderUnlessOutdated } from './outdated-reads';
 import {
   AGENT_ACTIONS,
@@ -31,6 +36,7 @@ import {
   CONVERSATION_LABEL,
   LINE_BREAK,
   lines,
+  MIN_COMPACT_CHARS,
   minBlockChars,
   SELECTION_LABEL,
   SMALL_BLOCK_SHARE,
@@ -172,9 +178,8 @@ export function createAgentExchange(
   request: AgentStepRequest,
   promptChars: number,
 ): ProtocolExchange<AgentDecision> {
-  const budget = promptChars - CORRECTION_RESERVE_CHARS - AGENT_SYSTEM.length;
   return {
-    request: { system: AGENT_SYSTEM, prompt: buildPrompt(request, budget) },
+    request: { system: AGENT_SYSTEM, prompt: buildPrompt(request, getPromptBudget(promptChars)) },
     retryInstruction: RETRY,
     parse: parseAgentDecision,
   };
@@ -191,36 +196,80 @@ interface RenderedBlocks {
   readonly results: readonly string[];
 }
 
-function buildPrompt(request: AgentStepRequest, budget: number): string {
+interface ComposedPrompt {
+  readonly requested: string;
+  readonly history: readonly PromptBlock[];
+  readonly files: PromptBlock;
+  readonly open: PromptBlock;
+  readonly results: readonly PromptBlock[];
+  readonly selection: readonly PromptBlock[];
+  readonly toolsLeft: string;
+}
+
+export function measureAgentPromptChars(request: AgentStepRequest): number {
+  const composed = composePrompt(request, getPromptBudget(ESTIMATED_PROMPT_CHARS));
+  const blocks = [...composed.history, composed.files, composed.open, ...composed.results];
+  const separators = (blocks.length + composed.selection.length + 1) * LINE_BREAK.length;
+  return (
+    HARMONY_FRAMING_CHARS +
+    AGENT_SYSTEM.length +
+    composed.requested.length +
+    sum([...blocks, ...composed.selection].map(fullSize)) +
+    `${LINE_BREAK}${composed.toolsLeft}`.length +
+    separators
+  );
+}
+
+export function measureConversationChars(conversation: ConversationView): number {
+  const history = historyBlock(conversation, findOutdatedReads(getViewRecords(conversation)));
+  return sum(history.map(fullSize));
+}
+
+function getPromptBudget(promptChars: number): number {
+  return promptChars - CORRECTION_RESERVE_CHARS - AGENT_SYSTEM.length;
+}
+
+function composePrompt(request: AgentStepRequest, budget: number): ComposedPrompt {
   const { workspace, transcript } = request;
-  const requested = requestBlock(request.request, request.conversation);
-  const smallBlock = Math.floor((budget - requested.length) / SMALL_BLOCK_SHARE);
+  const records = transcript.map((turn) => (turn.kind === 'tool' ? recordToolTurn(turn) : null));
+  const outdated = findOutdatedReads([
+    ...getViewRecords(request.conversation),
+    ...records.filter((record) => record !== null),
+  ]);
+  const resultChars = Math.max(MIN_COMPACT_CHARS, Math.floor(budget / CURRENT_RESULT_SHARE));
+  return {
+    requested: requestBlock(request.request, request.conversation),
+    history: historyBlock(request.conversation, outdated),
+    files: { label: FILES_LABEL, text: fileList(workspace.files, workspace.openFile.path) },
+    open: {
+      label: `Numbered lines of ${workspace.openFile.path} (open in the editor, caret on line ${String(workspace.cursorLine)}):`,
+      text: numberLines(workspace.openFile.document),
+    },
+    results: [
+      ...attachedBlocks(request.request, resultChars),
+      ...transcript.map((turn, index) =>
+        turnBlock(index + 1, turn, { record: itemAt(records, index), outdated, resultChars }),
+      ),
+    ],
+    selection:
+      workspace.selection === '' ? [] : [{ label: SELECTION_LABEL, text: workspace.selection }],
+    toolsLeft: toolsLeft(transcript),
+  };
+}
+
+function buildPrompt(request: AgentStepRequest, budget: number): string {
+  const smallBlock = Math.floor(
+    (budget - requestBlock(request.request, request.conversation).length) / SMALL_BLOCK_SHARE,
+  );
   if (SMALL_BLOCK_LABELS.some((label) => smallBlock < minBlockChars(label))) {
     throw createMessageTooLargeError();
   }
-  const files = block(FILES_LABEL, fileList(workspace.files, workspace.openFile.path), smallBlock);
+  const composed = composePrompt(request, budget);
+  const { requested, history, open, results } = composed;
+  const files = block(composed.files.label, composed.files.text, smallBlock);
   const after = [
-    ...(workspace.selection === ''
-      ? []
-      : [block(SELECTION_LABEL, workspace.selection, smallBlock)]),
-    `${LINE_BREAK}${toolsLeft(transcript)}`,
-  ];
-  const records = transcript.map((turn) => (turn.kind === 'tool' ? recordToolTurn(turn) : null));
-  const outdated = findOutdatedReads([
-    ...request.conversation.flatMap((message) => (message.role === 'tool' ? [message.record] : [])),
-    ...records.filter((record) => record !== null),
-  ]);
-  const history = historyBlock(request.conversation, outdated);
-  const open = {
-    label: `Numbered lines of ${workspace.openFile.path} (open in the editor, caret on line ${String(workspace.cursorLine)}):`,
-    text: numberLines(workspace.openFile.document),
-  };
-  const resultChars = Math.floor(budget / CURRENT_RESULT_SHARE);
-  const results = [
-    ...attachedBlocks(request.request, resultChars),
-    ...transcript.map((turn, index) =>
-      turnBlock(index + 1, turn, { record: itemAt(records, index), outdated, resultChars }),
-    ),
+    ...composed.selection.map((selected) => block(selected.label, selected.text, smallBlock)),
+    `${LINE_BREAK}${composed.toolsLeft}`,
   ];
   const separators = (history.length + results.length + 2) * LINE_BREAK.length;
   const available = budget - lines(requested, files, ...after).length - separators;
@@ -229,10 +278,10 @@ function buildPrompt(request: AgentStepRequest, budget: number): string {
 }
 
 function historyBlock(
-  conversation: readonly ConversationMessage[],
+  conversation: ConversationView,
   outdated: ReadonlySet<ToolRecord>,
 ): PromptBlock[] {
-  if (!conversation.length) return [];
+  if (conversation.summary === null && !conversation.messages.length) return [];
   return [{ label: CONVERSATION_LABEL, text: conversationText(conversation, outdated) }];
 }
 

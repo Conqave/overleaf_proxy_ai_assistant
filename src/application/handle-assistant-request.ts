@@ -9,13 +9,20 @@ import {
 } from '../domain/agent-transcript';
 import {
   ProposalStatus,
-  type ConversationMessage,
   type ProposalMessage,
+  type ToolMessage,
   type ReplyMessage,
   type SystemRequestMessage,
   type UserMessage,
 } from '../domain/conversation';
-import type { AgentPort, AgentRequest, AgentWorkspace, ContextUsage } from '../ports/agent-port';
+import { viewConversation, type ConversationView } from '../domain/conversation-view';
+import type {
+  AgentPort,
+  AgentRequest,
+  AgentStepRequest,
+  AgentWorkspace,
+  ContextUsage,
+} from '../ports/agent-port';
 import type { CancellationController, CancellationSignal } from '../ports/cancellation';
 import type { EditorPort } from '../ports/editor-port';
 import type { ProjectPort } from '../ports/project-port';
@@ -26,6 +33,7 @@ import {
   type AgentMistake,
 } from './agent-decision';
 import type { AgentProgress } from './agent-progress';
+import type { ConversationCompactor } from './conversation-compactor';
 import type { ConversationLog } from './conversation-log';
 import { AgentMistakeLimitError, EmptyRequestError } from './errors';
 import type { OperationLock } from './operation-lock';
@@ -70,6 +78,7 @@ export class HandleAssistantRequest {
       lock: OperationLock;
       newId: () => string;
       createController: () => CancellationController;
+      compactor: ConversationCompactor;
     },
   ) {
     this.tools = new ProjectTools(deps.project, deps.createController);
@@ -84,8 +93,8 @@ export class HandleAssistantRequest {
     if (!request) throw new EmptyRequestError();
     return await this.deps.lock.run(async (signal) => {
       const message: UserMessage = { id: this.deps.newId(), role: 'user', text: request };
-      const { history, epoch } = this.receive(message, onProgress);
-      return await this.runAgent({ kind: 'user', message }, history, { epoch, signal, onProgress });
+      const epoch = this.receive(message, onProgress);
+      return await this.runAgent({ kind: 'user', message }, { epoch, signal, onProgress });
     });
   }
 
@@ -100,48 +109,53 @@ export class HandleAssistantRequest {
       role: 'system',
       text: COMPILE_FIX_REQUEST,
     };
-    const { history, epoch } = this.receive(message, onProgress);
-    return await this.runAgent({ kind: 'compile-fix', message, diagnostics }, history, {
-      epoch,
-      signal,
-      onProgress,
-    });
+    const epoch = this.receive(message, onProgress);
+    return await this.runAgent(
+      { kind: 'compile-fix', message, diagnostics },
+      { epoch, signal, onProgress },
+    );
   }
 
   private receive(
     message: UserMessage | SystemRequestMessage,
     onProgress: (progress: AgentProgress) => void,
-  ): { history: readonly ConversationMessage[]; epoch: number } {
+  ): number {
     const { editor, conversation, pendingChanges } = this.deps;
     const discarded = pendingChanges.discardAll();
     if (discarded.length) editor.clearPreview();
     for (const proposal of discarded) onProgress({ stage: 'decided', message: proposal });
-    const history = conversation.messages();
     const epoch = conversation.epoch;
     conversation.append(message);
     onProgress({ stage: 'received', message });
-    return { history, epoch };
+    return epoch;
   }
 
-  private async runAgent(
-    request: AgentRequest,
-    history: readonly ConversationMessage[],
-    run: RequestRun,
-  ): Promise<AgentResult> {
-    const { agent, conversation } = this.deps;
+  private async runAgent(request: AgentRequest, run: RequestRun): Promise<AgentResult> {
+    const { agent, conversation, compactor } = this.deps;
     const { epoch, signal, onProgress } = run;
     const workspace = await this.readWorkspace(signal);
     conversation.ensureCurrent(epoch);
     const transcript: AgentTurn[] = [];
+    const turnIds = new Set([request.message.id]);
+    const stepRequest = (): AgentStepRequest => ({
+      request,
+      conversation: this.viewHistory(turnIds),
+      workspace,
+      transcript: [...transcript],
+      signal,
+    });
+    let isCompacted = false;
     for (let step = 1; ; step += 1) {
+      if (!isCompacted) {
+        const summary = await compactor.compact(
+          { kind: 'auto', step: stepRequest() },
+          onProgress,
+          signal,
+        );
+        isCompacted = summary !== null;
+      }
       onProgress({ stage: 'thinking', step });
-      const { decision, contextUsage } = await agent.decide({
-        request,
-        conversation: history,
-        workspace,
-        transcript: [...transcript],
-        signal,
-      });
+      const { decision, contextUsage } = await agent.decide(stepRequest());
       conversation.ensureCurrent(epoch);
       let accepted: AcceptedDecision;
       try {
@@ -165,8 +179,19 @@ export class HandleAssistantRequest {
       conversation.ensureCurrent(epoch);
       const turn: ToolTurn = { kind: 'tool', call: accepted.call, result };
       transcript.push(turn);
-      conversation.append({ id: this.deps.newId(), role: 'tool', record: recordToolTurn(turn) });
+      const record: ToolMessage = {
+        id: this.deps.newId(),
+        role: 'tool',
+        record: recordToolTurn(turn),
+      };
+      turnIds.add(record.id);
+      conversation.append(record);
     }
+  }
+
+  private viewHistory(turnIds: ReadonlySet<string>): ConversationView {
+    const history = this.deps.conversation.messages().filter(({ id }) => !turnIds.has(id));
+    return viewConversation(history);
   }
 
   private async readWorkspace(signal: CancellationSignal): Promise<AgentWorkspace> {

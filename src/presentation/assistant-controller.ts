@@ -184,11 +184,15 @@ export class AssistantController implements ViewEvents {
           view.showNotice(appliedNotice(progress.message), 'info');
         }
         break;
+      case 'compacted':
+        view.appendMessage(progress.message);
+        break;
       case 'thinking':
       case 'reading':
       case 'searching':
       case 'compiling':
       case 'opening':
+      case 'compacting':
         break;
     }
     view.setStatus(progressStatus(progress));

@@ -81,12 +81,36 @@ export interface ToolMessage {
   readonly record: ToolRecord;
 }
 
-export type ChatMessage = UserMessage | SystemRequestMessage | AssistantMessage;
+export interface FileActivity {
+  readonly read: readonly string[];
+  readonly edited: readonly string[];
+}
 
-export type ConversationMessage = ChatMessage | ToolMessage;
+export interface ConversationSummary {
+  readonly text: string;
+  readonly files: FileActivity;
+  readonly coveredUntilId: string;
+  readonly coveredTurns: number;
+}
 
-export function isChatMessage(message: ConversationMessage): message is ChatMessage {
-  return message.role !== 'tool';
+export interface CompactionSummaryMessage extends ConversationSummary {
+  readonly id: string;
+  readonly role: 'summary';
+  readonly tokensBefore: number;
+  readonly tokensAfter: number;
+  readonly createdAt: string;
+}
+
+export type RequestMessage = UserMessage | SystemRequestMessage;
+
+export type ChatMessage = RequestMessage | AssistantMessage;
+
+export type ExchangeMessage = ChatMessage | ToolMessage;
+
+export type ConversationMessage = ExchangeMessage | CompactionSummaryMessage;
+
+export function isRequestMessage(message: ConversationMessage): message is RequestMessage {
+  return message.role === 'user' || message.role === 'system';
 }
 
 export function isUndecidedProposal(message: ConversationMessage): message is ProposalMessage {

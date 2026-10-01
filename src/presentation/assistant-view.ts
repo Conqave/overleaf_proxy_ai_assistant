@@ -1,10 +1,10 @@
 import type { SessionList } from '../application/conversation-session';
 import {
   AssistantMessageKind,
-  isChatMessage,
   ProposalStatus,
   type AssistantMessage,
   type ChatMessage,
+  type CompactionSummaryMessage,
   type ConversationMessage,
   type ProposalMessage,
 } from '../domain/conversation';
@@ -15,12 +15,16 @@ import css from './assistant.css?raw';
 import { InvariantViolation } from '../domain/errors';
 import { MarkdownRenderer } from './markdown-renderer';
 import {
+  compactionFiles,
+  compactionNotice,
   messageMeta,
   messageTitle,
   proposalStatusText,
   sessionDetails,
   VIEW_TEXT,
 } from './message-format';
+
+type ShownMessage = ChatMessage | CompactionSummaryMessage;
 
 export interface ViewEvents {
   send(text: string): Promise<void>;
@@ -136,7 +140,7 @@ export class AssistantView {
     this.chat.textContent = '';
     this.messageNodes.clear();
     this.actionNodes.clear();
-    const chat = messages.filter(isChatMessage);
+    const chat = messages.filter((message): message is ShownMessage => message.role !== 'tool');
     if (!chat.length) {
       this.showWelcome();
       return;
@@ -144,7 +148,7 @@ export class AssistantView {
     for (const message of chat) this.appendMessage(message);
   }
 
-  appendMessage(message: ChatMessage, changeId?: string): void {
+  appendMessage(message: ShownMessage, changeId?: string): void {
     this.chat.querySelector('.ola-welcome')?.remove();
     const node = this.renderMessage(message, changeId);
     this.messageNodes.set(message.id, node);
@@ -217,8 +221,10 @@ export class AssistantView {
     void this.events.send(this.input.value);
   }
 
-  private renderMessage(message: ChatMessage, changeId?: string): HTMLElement {
+  private renderMessage(message: ShownMessage, changeId?: string): HTMLElement {
     switch (message.role) {
+      case 'summary':
+        return this.renderSummary(message);
       case 'user':
         return this.el('div', 'ola-msg ola-user', message.text);
       case 'system':
@@ -238,7 +244,7 @@ export class AssistantView {
         break;
       case AssistantMessageKind.Explanation:
       case AssistantMessageKind.Clarification:
-        node.append(this.renderMarkdown(message.text));
+        node.append(this.renderMarkdown('ola-result-body', message.text));
     }
     const meta = messageMeta(message);
     if (meta !== undefined) node.append(this.el('div', 'ola-result-meta', meta));
@@ -261,10 +267,28 @@ export class AssistantView {
     return node;
   }
 
-  private renderMarkdown(text: string): HTMLElement {
-    const node = this.el('div', 'ola-result-body ola-markdown');
+  private renderMarkdown(className: string, text: string): HTMLElement {
+    const node = this.el('div', `${className} ola-markdown`);
     node.append(this.markdown.render(text));
     return node;
+  }
+
+  private renderSummary(message: CompactionSummaryMessage): HTMLElement {
+    const node = this.el('details', 'ola-msg ola-system ola-compaction');
+    node.addEventListener('toggle', () => {
+      if (node.open) this.revealBottomOf(node);
+    });
+    node.append(
+      this.el('summary', 'ola-compaction-title', compactionNotice(message)),
+      this.renderMarkdown('ola-compaction-body', message.text),
+      this.el('div', 'ola-result-meta', compactionFiles(message)),
+    );
+    return node;
+  }
+
+  private revealBottomOf(node: HTMLElement): void {
+    const hiddenBelow = node.offsetTop + node.offsetHeight - this.chat.clientHeight;
+    if (hiddenBelow > this.chat.scrollTop) this.chat.scrollTop = hiddenBelow;
   }
 
   private renderProposal(message: ProposalMessage): HTMLElement[] {

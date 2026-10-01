@@ -1,0 +1,71 @@
+import type { SummaryRequest } from '../../ports/conversation-summarizer';
+import { createMessageTooLargeError } from './context-budget';
+import { getCorrectionReserveChars, type ProtocolExchange } from './correction-exchange';
+import { conversationText, getRecords, summaryText } from './conversation-text';
+import { findOutdatedReads } from './outdated-reads';
+import { block, lines, minBlockChars } from './prompt-blocks';
+import { AgentField } from './reply-format';
+import { InvalidAssistantResponse } from './reply-parser';
+
+const PREVIOUS_LABEL = 'Previous summary, to be updated with the conversation below:';
+const CONVERSATION_LABEL = 'Conversation to summarise:';
+const ACTION_START = `${AgentField.Action}:`;
+
+const SUMMARY_SYSTEM = lines(
+  'You summarise a conversation between a user and Hans, an assistant built into the Overleaf LaTeX editor, into a continuation note. Hans continues the work from this note alone, without the conversation it replaces.',
+  'Be concise and factual. Keep exact names: file paths, \\label and \\cite keys, section titles, and line numbers that still matter.',
+  'When a previous summary is given, merge it with the new conversation into one note.',
+  'Write plain text with exactly these sections and nothing before or after them:',
+  '## Goal',
+  'One sentence: what the user wants overall.',
+  '## State',
+  '- Done: what is finished, including the changes the user applied or rejected.',
+  '- In progress: what is being worked on.',
+  '- Blocked: open questions or problems.',
+  '## Highlights',
+  'Key decisions, findings and facts the user stated (write "none" if there are none).',
+  '## Next',
+  'The immediate next steps.',
+  '## User preferences',
+  'The language the user writes in and any wishes about style, wording or workflow.',
+  'Do not list the files read or edited; the editor adds that list itself. Write the note in English and quote text in its own language.',
+);
+
+const RETRY =
+  'Reply again with only the continuation note, starting with the line ## Goal. No actions, no JSON.';
+
+const CORRECTION_RESERVE_CHARS = getCorrectionReserveChars(RETRY);
+
+export function createSummaryExchange(
+  request: SummaryRequest,
+  promptChars: number,
+): ProtocolExchange<string> {
+  const budget = promptChars - CORRECTION_RESERVE_CHARS - SUMMARY_SYSTEM.length;
+  return {
+    request: { system: SUMMARY_SYSTEM, prompt: buildSummaryPrompt(request, budget) },
+    retryInstruction: RETRY,
+    parse: parseSummary,
+  };
+}
+
+function buildSummaryPrompt({ previous, covered }: SummaryRequest, budget: number): string {
+  const earlier = previous === null ? [] : [block(PREVIOUS_LABEL, summaryText(previous), budget)];
+  const outdated = findOutdatedReads(getRecords(covered));
+  const remaining = budget - lines(...earlier).length - 1;
+  if (remaining < minBlockChars(CONVERSATION_LABEL)) throw createMessageTooLargeError();
+  const conversation = conversationText({ summary: null, messages: covered }, outdated);
+  return lines(...earlier, block(CONVERSATION_LABEL, conversation, remaining));
+}
+
+export function parseSummary(raw: string): string {
+  const summary = raw.trim();
+  if (summary === '') {
+    throw new InvalidAssistantResponse('the summary is empty; write the continuation note');
+  }
+  if (summary.startsWith(ACTION_START)) {
+    throw new InvalidAssistantResponse(
+      'the reply is an action; write the continuation note with its sections instead',
+    );
+  }
+  return summary;
+}

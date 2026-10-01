@@ -1,3 +1,4 @@
+import { EMPTY_CONVERSATION } from '../../support/fakes';
 import { describe, expect, it } from 'vitest';
 import { AgentTool } from '../../../src/domain/agent-action';
 import type { AgentTurn } from '../../../src/domain/agent-transcript';
@@ -59,7 +60,7 @@ const turns: readonly AgentTurn[] = [
 
 const request = (overrides: Partial<AgentStepRequest> = {}): AgentStepRequest => ({
   request: { kind: 'user', message: { id: 'r', role: 'user', text: 'Add a citation' } },
-  conversation: [],
+  conversation: EMPTY_CONVERSATION,
   signal: new AbortController().signal,
   workspace: {
     files: [

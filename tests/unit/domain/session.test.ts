@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import type { ConversationMessage, UserMessage } from '../../../src/domain/conversation';
+import type {
+  CompactionSummaryMessage,
+  ConversationMessage,
+  UserMessage,
+} from '../../../src/domain/conversation';
 import { InvariantViolation } from '../../../src/domain/errors';
 import {
   appendToSession,
@@ -20,6 +24,20 @@ const answer: ConversationMessage = {
   kind: 'explanation',
   text: 'Done.',
 };
+
+function summaryUntil(coveredUntilId: string): CompactionSummaryMessage {
+  return {
+    id: 'summary',
+    role: 'summary',
+    text: 'Earlier turns.',
+    files: { read: [], edited: [] },
+    coveredUntilId,
+    coveredTurns: 1,
+    tokensBefore: 2,
+    tokensAfter: 1,
+    createdAt: '2026-10-01T12:00:00.000Z',
+  };
+}
 
 function summary(id: string, createdAt: number, updatedAt: number): SessionSummary {
   return { id, title: id, createdAt, updatedAt, messageCount: 1 };
@@ -69,15 +87,37 @@ describe('session', () => {
     });
   });
 
-  it('keeps only the newest messages and its title', () => {
+  it('keeps every message while no summary covers them', () => {
     let session = startSession('s1', first, 1);
     for (let index = 0; index < MAX_SESSION_MESSAGES; index += 1) {
       session = appendToSession(session, { ...answer, id: `a${String(index)}` }, 2);
     }
-    expect(session.messages).toHaveLength(MAX_SESSION_MESSAGES);
-    expect(session.messages[0]?.id).toBe('a0');
+    expect(session.messages).toHaveLength(MAX_SESSION_MESSAGES + 1);
+    expect(session.messages[0]).toBe(first);
     expect(session.title).toBe('Add a table of results');
   });
+
+  it.each([
+    [30, MAX_SESSION_MESSAGES, 'm7'],
+    [3, 84, 'm3'],
+  ])(
+    'drops beyond the limit only messages a summary covers, when %i are covered',
+    (covered, kept, firstKept) => {
+      const messages = Array.from({ length: 85 }, (_, index): ConversationMessage => ({
+        id: `m${String(index)}`,
+        role: 'user',
+        text: 'hi',
+      }));
+      const session = {
+        ...startSession('s1', first, 1),
+        messages: [...messages, summaryUntil(`m${String(covered - 1)}`)],
+      };
+      const appended = appendToSession(session, { ...answer, id: 'next' }, 2);
+      expect(appended.messages).toHaveLength(kept);
+      expect(appended.messages[0]?.id).toBe(firstKept);
+      expect(appended.messages.at(-2)?.role).toBe('summary');
+    },
+  );
 
   it('replaces a message it holds and refuses one it does not', () => {
     const session = appendToSession(startSession('s1', first, 1), answer, 2);

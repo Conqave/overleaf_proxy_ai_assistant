@@ -1,10 +1,7 @@
 import type { AgentDecision } from '../domain/agent-action';
 import type { AgentTurn, CompileDiagnostic, OpenFileView } from '../domain/agent-transcript';
-import type {
-  ConversationMessage,
-  SystemRequestMessage,
-  UserMessage,
-} from '../domain/conversation';
+import type { ExchangeMessage, SystemRequestMessage, UserMessage } from '../domain/conversation';
+import type { ConversationView } from '../domain/conversation-view';
 import type { ProjectFile } from '../domain/project-file';
 import type { CancellationSignal } from './cancellation';
 
@@ -30,7 +27,7 @@ export type AgentRequest = UserRequest | CompileFixRequest;
 
 export interface AgentStepRequest {
   readonly request: AgentRequest;
-  readonly conversation: readonly ConversationMessage[];
+  readonly conversation: ConversationView;
   readonly workspace: AgentWorkspace;
   readonly transcript: readonly AgentTurn[];
   readonly signal: CancellationSignal;
@@ -54,7 +51,17 @@ export interface AgentStep {
   readonly contextUsage: ContextUsage;
 }
 
+export type CompactionTrigger =
+  | { readonly kind: 'auto'; readonly step: AgentStepRequest }
+  | { readonly kind: 'manual'; readonly conversation: ConversationView };
+
+export interface CompactionPlan {
+  readonly covered: readonly ExchangeMessage[];
+}
+
 export interface AgentPort {
   readonly idleUsage: ContextUsage;
   decide(request: AgentStepRequest): Promise<AgentStep>;
+  planCompaction(trigger: CompactionTrigger): CompactionPlan | null;
+  measureConversation(conversation: ConversationView): number;
 }

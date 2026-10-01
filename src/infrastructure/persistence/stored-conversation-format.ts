@@ -2,8 +2,10 @@ import {
   AssistantMessageKind,
   isProposalStatus,
   isReplyKind,
+  type CompactionSummaryMessage,
   type ConversationMessage,
 } from '../../domain/conversation';
+import { createCompactionSummaryMessage, createFileActivity } from '../../domain/conversation-view';
 import { AgentTool } from '../../domain/agent-action';
 import {
   createReadRecord,
@@ -14,6 +16,7 @@ import {
 } from '../../domain/agent-transcript';
 import { createDocumentCommand, type DocumentCommand } from '../../domain/document-command';
 import {
+  InvalidCompactionSummaryError,
   InvalidDocumentCommandError,
   InvalidProjectPathError,
   InvalidToolRecordError,
@@ -36,6 +39,7 @@ function parseMessage(value: unknown): ConversationMessage {
   const role = fields.get('role');
   if (role === 'user' || role === 'system') return { id, role, text: getString(fields, 'text') };
   if (role === 'tool') return { id, role, record: parseRecord(fields.get('record')) };
+  if (role === 'summary') return parseSummary(id, fields);
   if (role !== 'assistant') throw new UnknownStoredFormatError('unknown role');
   const kind = fields.get('kind');
   if (kind === AssistantMessageKind.Proposal) {
@@ -47,6 +51,25 @@ function parseMessage(value: unknown): ConversationMessage {
   }
   if (!isReplyKind(kind)) throw new UnknownStoredFormatError('unknown message kind');
   return { id, role, kind, text: getString(fields, 'text') };
+}
+
+function parseSummary(id: string, fields: Map<string, unknown>): CompactionSummaryMessage {
+  const files = getFields(fields.get('files'));
+  try {
+    return createCompactionSummaryMessage({
+      id,
+      text: getString(fields, 'text'),
+      files: createFileActivity(getArray(files, 'read'), getArray(files, 'edited')),
+      coveredUntilId: getString(fields, 'coveredUntilId'),
+      coveredTurns: getNonNegativeInteger(fields, 'coveredTurns'),
+      tokensBefore: getNonNegativeInteger(fields, 'tokensBefore'),
+      tokensAfter: getNonNegativeInteger(fields, 'tokensAfter'),
+      createdAt: getString(fields, 'createdAt'),
+    });
+  } catch (error) {
+    if (!(error instanceof InvalidCompactionSummaryError)) throw error;
+    throw new UnknownStoredFormatError(`invalid summary: ${error.message}`, { cause: error });
+  }
 }
 
 function parseRecord(value: unknown): ToolRecord {

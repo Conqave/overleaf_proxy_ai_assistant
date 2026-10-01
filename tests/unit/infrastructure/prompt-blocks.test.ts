@@ -1,3 +1,4 @@
+import { EMPTY_CONVERSATION } from '../../support/fakes';
 import { describe, expect, it } from 'vitest';
 import { AGENT_POLICY } from '../../../src/domain/agent-policy';
 import { createDocumentSnapshot } from '../../../src/domain/document';
@@ -5,6 +6,7 @@ import { createDocumentCommand } from '../../../src/domain/document-command';
 import { ProjectFileKind } from '../../../src/domain/project-file';
 import { createAgentExchange } from '../../../src/infrastructure/ollama/agent-protocol';
 import type { AgentStepRequest } from '../../../src/ports/agent-port';
+import { viewConversation } from '../../../src/domain/conversation-view';
 import { TestFixtureError } from '../../support/test-errors';
 
 const budget = 20_480;
@@ -16,7 +18,7 @@ const conversation = Array.from({ length: 15 }, (_, i) => ({
 
 const request = (overrides: Partial<AgentStepRequest> = {}): AgentStepRequest => ({
   request: { kind: 'user', message: { id: 'r', role: 'user', text: 'm' } },
-  conversation: [],
+  conversation: EMPTY_CONVERSATION,
   signal: new AbortController().signal,
   workspace: {
     files: [{ id: '1', path: 'main.tex', kind: ProjectFileKind.Text }],
@@ -43,10 +45,13 @@ describe('conversation history', () => {
         message: { id: 'r', role: 'system', text: 'Fix the first error.' },
         diagnostics: [],
       },
-      conversation: [
-        { id: '1', role: 'user', text: 'Dodaj tabelę wyników' },
-        { id: '2', role: 'assistant', kind: 'explanation', text: 'Gotowe.' },
-      ],
+      conversation: {
+        summary: null,
+        messages: [
+          { id: '1', role: 'user', text: 'Dodaj tabelę wyników' },
+          { id: '2', role: 'assistant', kind: 'explanation', text: 'Gotowe.' },
+        ],
+      },
     });
     expect(prompt).toContain(
       "System request (sent by the editor, not typed by the user):\nFix the first error.\n\nThe user's last message, whose language your texts use:\nDodaj tabelę wyników",
@@ -79,7 +84,7 @@ describe('conversation history', () => {
   it('carries the message and the whole conversation', () => {
     const prompt = promptOf({
       request: { kind: 'user', message: { id: 'r', role: 'user', text: 'Add a table' } },
-      conversation,
+      conversation: { summary: null, messages: conversation },
     });
     expect(prompt).toContain('User message:\nAdd a table');
     expect(prompt).toContain('Conversation so far:\n[user] message 0\n');
@@ -89,7 +94,7 @@ describe('conversation history', () => {
   it('shows earlier lookups shortened, with their notices at the edge', () => {
     const lines = Array.from({ length: 300 }, (_, i) => `Line ${String(i + 1)} of the chapter.`);
     const prompt = promptOf({
-      conversation: [
+      conversation: viewConversation([
         {
           id: 't',
           role: 'tool',
@@ -106,7 +111,7 @@ describe('conversation history', () => {
           role: 'tool',
           record: { tool: 'search', query: 'fig', matches: [], truncated: false },
         },
-      ],
+      ]),
     });
     const read = /\[tool\] read_file ch\.tex lines 1–300 of 900:\n1: Line 1[^]*?\n\[tool\]/.exec(
       prompt,
@@ -123,7 +128,9 @@ describe('conversation history', () => {
 
   it('shows a request the assistant made on its own as a system line', () => {
     const prompt = promptOf({
-      conversation: [{ id: 's', role: 'system', text: 'Compiling reports errors.' }],
+      conversation: viewConversation([
+        { id: 's', role: 'system', text: 'Compiling reports errors.' },
+      ]),
     });
     expect(prompt).toContain('Conversation so far:\n[system] Compiling reports errors.');
   });
@@ -150,7 +157,7 @@ describe('conversation history', () => {
         }),
         status,
       };
-      expect(promptOf({ conversation: [proposal] })).toContain(
+      expect(promptOf({ conversation: viewConversation([proposal]) })).toContain(
         `[assistant] ${outcome} main.tex line 2: replace (Clearer.)\nNew body.`,
       );
     },

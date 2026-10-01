@@ -2,26 +2,46 @@ import {
   AssistantMessageKind,
   ProposalStatus,
   type AssistantMessage,
-  type ConversationMessage,
+  type ConversationSummary,
+  type ExchangeMessage,
   type ProposalMessage,
 } from '../../domain/conversation';
+import type { ConversationView } from '../../domain/conversation-view';
 import type { ToolRecord } from '../../domain/agent-transcript';
 import { DocumentOperation, type DocumentCommand } from '../../domain/document-command';
 import { OLDER_RESULT_CHARS } from './context-budget';
 import { renderUnlessOutdated } from './outdated-reads';
-import { LINE_BREAK } from './prompt-blocks';
+import { LINE_BREAK, lines } from './prompt-blocks';
 import { describeRecord, renderShortRecord } from './tool-record-text';
 
 const OLDER_RESULT_SHORTENED = 'repeat the lookup to see it whole';
 
 export function conversationText(
-  conversation: readonly ConversationMessage[],
+  conversation: ConversationView,
   outdated: ReadonlySet<ToolRecord>,
 ): string {
-  return conversation.map((message) => entryText(message, outdated)).join(LINE_BREAK);
+  const summary = conversation.summary === null ? [] : [summaryText(conversation.summary)];
+  return lines(...summary, ...conversation.messages.map((message) => entryText(message, outdated)));
 }
 
-function entryText(message: ConversationMessage, outdated: ReadonlySet<ToolRecord>): string {
+export function getViewRecords(conversation: ConversationView): ToolRecord[] {
+  return getRecords(conversation.messages);
+}
+
+export function getRecords(messages: readonly ExchangeMessage[]): ToolRecord[] {
+  return messages.flatMap((message) => (message.role === 'tool' ? [message.record] : []));
+}
+
+export function summaryText({ text, files, coveredTurns }: ConversationSummary): string {
+  return lines(
+    `[summary of the ${String(coveredTurns)} earlier turns]`,
+    text,
+    `Files read: ${files.read.length ? files.read.join(', ') : 'none'}`,
+    `Files edited: ${files.edited.length ? files.edited.join(', ') : 'none'}`,
+  );
+}
+
+export function entryText(message: ExchangeMessage, outdated: ReadonlySet<ToolRecord>): string {
   switch (message.role) {
     case 'user':
     case 'system':

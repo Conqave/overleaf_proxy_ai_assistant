@@ -9,14 +9,34 @@ const COMPLETIONS_PER_GENERATION = 2;
 const ESTIMATED_CHARS_PER_TOKEN = 2;
 const MEASURED_RATIO_MARGIN = 0.9;
 
+export const PROMPT_TOKENS = CONTEXT_TOKENS - COMPLETIONS_PER_GENERATION * MAX_COMPLETION_TOKENS;
+
 export const SEARCH_OUTPUT_CHARS = 8_000;
 export const OLDER_RESULT_CHARS = 2_000;
 export const CURRENT_RESULT_SHARE = 10;
 
-export const PROMPT_TOKENS = CONTEXT_TOKENS - COMPLETIONS_PER_GENERATION * MAX_COMPLETION_TOKENS;
+const AUTO_COMPACTION_RATIO = 0.8;
+export const AUTO_COMPACTION_TOKENS = Math.floor(PROMPT_TOKENS * AUTO_COMPACTION_RATIO);
+export const PRESERVED_RECENT_TOKENS = 20_000;
+export const MANUAL_COMPACTION_KEEP_RATIO = 0.5;
+export const MIN_COMPACTED_TOKENS = 2_000;
+const MAX_UNDERESTIMATE_FACTOR = 4;
 
 const ELEVATED_USAGE_RATIO = 0.6;
 const HIGH_USAGE_RATIO = 0.8;
+
+export class TokenEstimate {
+  private underestimate = 1;
+
+  calibrate(promptChars: number, promptTokens: number): void {
+    const estimated = promptChars / ESTIMATED_CHARS_PER_TOKEN;
+    this.underestimate = Math.min(MAX_UNDERESTIMATE_FACTOR, Math.max(1, promptTokens / estimated));
+  }
+
+  tokensOf(chars: number): number {
+    return Math.ceil((chars / ESTIMATED_CHARS_PER_TOKEN) * this.underestimate);
+  }
+}
 
 export function describeUsage(promptTokens: number): ContextUsage {
   return { contextTokens: CONTEXT_TOKENS, promptTokens, pressure: getPressure(promptTokens) };

@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AgentProgress } from '../../../src/application/agent-progress';
 import { ApplyDocumentChange } from '../../../src/application/apply-document-change';
+import { ConversationCompactor } from '../../../src/application/conversation-compactor';
 import { ConversationLog } from '../../../src/application/conversation-log';
 import {
   DeleteSession,
@@ -47,10 +48,14 @@ import {
   UnreadableSessionError,
 } from '../../../src/ports/errors';
 import {
+  EMPTY_CONVERSATION,
   FAKE_CONTEXT_TOKENS,
+  coverAllButLastTurn,
+  FAKE_MESSAGE_TOKENS,
   FakeAgent,
   FakeEditor,
   FakeProject,
+  FakeSummarizer,
   InMemorySessionRepository,
   PendingStep,
   rejectOnAbort,
@@ -78,6 +83,9 @@ let lock: OperationLock;
 let progress: AgentProgress[];
 let busy: boolean[];
 let newId: () => string;
+let summarizer: FakeSummarizer;
+
+const NOW = new Date('2026-10-01T12:00:00Z');
 
 const isBusy = () => busy.at(-1) === true;
 const record = (p: AgentProgress) => {
@@ -147,6 +155,13 @@ function createHandle(): HandleAssistantRequest {
     lock,
     newId,
     createController: () => new AbortController(),
+    compactor: new ConversationCompactor({
+      agent,
+      summarizer,
+      conversation,
+      newId,
+      now: () => NOW,
+    }),
   });
 }
 
@@ -172,6 +187,7 @@ beforeEach(() => {
     busy.push(isNowBusy);
   });
   newId = sequentialIds();
+  summarizer = new FakeSummarizer();
   handle = createHandle();
   review = new ReviewAppliedChange({ project, conversation, handleRequest: handle });
   apply = new ApplyDocumentChange({ editor, project, pendingChanges, conversation, lock, review });
@@ -205,7 +221,7 @@ describe('HandleAssistantRequest', () => {
         kind: 'user',
         message: { id: anInstanceOf(String), role: 'user', text: 'What is this document about?' },
       },
-      conversation: [],
+      conversation: EMPTY_CONVERSATION,
       workspace: {
         files: project.files,
         openFile: { path: 'main.tex', document: createDocumentSnapshot(MAIN) },
@@ -233,7 +249,7 @@ describe('HandleAssistantRequest', () => {
     agent.will(answer('ok'), answer('fine'));
     await send('hello');
     await send('second?');
-    expect(requestAt(1).conversation).toMatchObject([
+    expect(requestAt(1).conversation.messages).toMatchObject([
       { role: 'user', text: 'hello' },
       { role: 'assistant', kind: 'explanation', text: 'ok' },
     ]);
@@ -354,7 +370,10 @@ describe('HandleAssistantRequest', () => {
         lines: BIB,
       },
     });
-    expect(requestAt(2).conversation).toEqual(conversation.messages().slice(0, 3));
+    expect(requestAt(2).conversation).toEqual({
+      summary: null,
+      messages: conversation.messages().slice(0, 3),
+    });
     expect(repository.stored.get('session-1')?.messages).toEqual(conversation.messages());
   });
 
@@ -402,16 +421,7 @@ describe('HandleAssistantRequest', () => {
       ]),
     );
     project = new FakeProject(editor, documents, 'part0.tex');
-    handle = new HandleAssistantRequest({
-      agent,
-      project,
-      editor,
-      conversation,
-      pendingChanges,
-      lock,
-      newId: sequentialIds(),
-      createController: () => new AbortController(),
-    });
+    handle = createHandle();
     project.holdsReads = true;
     agent.will(tool({ tool: 'search', query: 'text' }));
     const sending = send('find text');
@@ -625,7 +635,7 @@ describe('HandleAssistantRequest', () => {
     const discarded = { id: changeId, kind: 'proposal', status: 'discarded' };
     expect(progress[0]).toMatchObject({ stage: 'decided', message: discarded });
     expect(storedMessages()).toContainEqual(expect.objectContaining(discarded));
-    expect(requestAt(-1).conversation).toContainEqual(expect.objectContaining(discarded));
+    expect(requestAt(-1).conversation.messages).toContainEqual(expect.objectContaining(discarded));
     await expect(apply.execute(changeId, record)).rejects.toThrow(ChangeNoLongerPendingError);
     await expect(reject.execute(changeId)).rejects.toThrow(ChangeNoLongerPendingError);
   });
@@ -674,6 +684,91 @@ describe('conversation reset during a request', () => {
     );
     await expect(send('does it compile?')).rejects.toThrow(RequestSupersededError);
     expect(agent.requests).toHaveLength(1);
+  });
+});
+
+describe('automatic compaction', () => {
+  async function talk(...questions: string[]): Promise<void> {
+    for (const question of questions) {
+      agent.will(answer(`About ${question}.`));
+      await send(question);
+    }
+  }
+
+  it('summarises the older turns before a model call that nears the window', async () => {
+    await talk('first', 'second');
+    agent.plan = (trigger) => (trigger.kind === 'auto' ? coverAllButLastTurn(trigger) : null);
+    summarizer.will('## Goal\nAnswer questions.');
+    agent.will(answer('Third answer.'));
+    progress = [];
+    await send('third');
+    const summary = conversation.messages().find((message) => message.role === 'summary');
+    expect(summary).toEqual({
+      id: 'id-6',
+      role: 'summary',
+      text: '## Goal\nAnswer questions.',
+      files: { read: [], edited: [] },
+      coveredUntilId: 'id-2',
+      coveredTurns: 1,
+      tokensBefore: 4 * FAKE_MESSAGE_TOKENS,
+      tokensAfter: 3 * FAKE_MESSAGE_TOKENS,
+      createdAt: NOW.toISOString(),
+    });
+    expect(summarizer.requests).toEqual([
+      {
+        previous: null,
+        covered: conversation.messages().slice(0, 2),
+        signal: expect.anything() as unknown,
+      },
+    ]);
+    expect(requestAt(-1).conversation).toEqual({
+      summary,
+      messages: conversation.messages().slice(2, 4),
+    });
+    expect(progress.map((p) => p.stage)).toEqual([
+      'received',
+      'compacting',
+      'compacted',
+      'thinking',
+    ]);
+  });
+
+  it('checks before every model call and compacts at most once per request', async () => {
+    await talk('first', 'second');
+    agent.triggers = [];
+    let calls = 0;
+    agent.plan = (trigger) => {
+      calls += 1;
+      return calls === 1 ? null : coverAllButLastTurn(trigger);
+    };
+    summarizer.will('## Goal\nOne.');
+    agent.will(tool({ tool: 'compile' }), tool({ tool: 'search', query: 'ab' }), answer('Done.'));
+    project.willCompile([]);
+    await send('third');
+    expect(agent.triggers.map((trigger) => trigger.kind)).toEqual(['auto', 'auto']);
+    expect(summarizer.requests).toHaveLength(1);
+    expect(conversation.messages().filter((message) => message.role === 'summary')).toHaveLength(1);
+  });
+
+  it('drops the summary when the conversation is reset while it is written', async () => {
+    await talk('first', 'second');
+    agent.plan = coverAllButLastTurn;
+    summarizer.will(
+      new PendingStep(() => {
+        startNew();
+        return Promise.resolve('## Goal\nLate.');
+      }),
+    );
+    await expect(send('third')).rejects.toThrow(RequestSupersededError);
+    expect(conversation.messages()).toEqual([]);
+  });
+
+  it('fails the request when the summary cannot be written', async () => {
+    await talk('first', 'second');
+    agent.plan = coverAllButLastTurn;
+    summarizer.will(new AssistantProtocolError('no note'));
+    await expect(send('third')).rejects.toThrow(AssistantProtocolError);
+    expect(conversation.messages().some((message) => message.role === 'summary')).toBe(false);
   });
 });
 
@@ -1025,12 +1120,12 @@ describe('conversation', () => {
     }).toThrow(InvariantViolation);
   });
 
-  it('keeps only the last 80 messages', async () => {
+  it('keeps every message no summary covers', async () => {
     for (let i = 0; i < 45; i += 1) {
       agent.will(answer('Hi.'));
       await send('hi');
     }
-    expect(storedMessages()).toHaveLength(80);
+    expect(storedMessages()).toHaveLength(90);
   });
 });
 

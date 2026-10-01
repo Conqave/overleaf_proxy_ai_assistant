@@ -1,4 +1,9 @@
-import type { ProposalMessage, SystemRequestMessage, UserMessage } from '../domain/conversation';
+import type {
+  CompactionSummaryMessage,
+  ProposalMessage,
+  SystemRequestMessage,
+  UserMessage,
+} from '../domain/conversation';
 
 export type AgentProgress =
   | { readonly stage: 'received'; readonly message: UserMessage | SystemRequestMessage }
@@ -7,4 +12,6 @@ export type AgentProgress =
   | { readonly stage: 'searching'; readonly query: string }
   | { readonly stage: 'compiling' }
   | { readonly stage: 'opening'; readonly path: string }
-  | { readonly stage: 'decided'; readonly message: ProposalMessage };
+  | { readonly stage: 'decided'; readonly message: ProposalMessage }
+  | { readonly stage: 'compacting' }
+  | { readonly stage: 'compacted'; readonly message: CompactionSummaryMessage };

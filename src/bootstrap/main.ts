@@ -1,4 +1,5 @@
 import { ApplyDocumentChange } from '../application/apply-document-change';
+import { ConversationCompactor } from '../application/conversation-compactor';
 import { ConversationLog } from '../application/conversation-log';
 import {
   DeleteSession,
@@ -15,6 +16,7 @@ import { ReviewAppliedChange } from '../application/review-applied-change';
 import { createUuid } from '../infrastructure/browser/uuid';
 import { OllamaAgent } from '../infrastructure/ollama/ollama-agent';
 import { OllamaClient } from '../infrastructure/ollama/ollama-client';
+import { OllamaSummarizer } from '../infrastructure/ollama/ollama-summarizer';
 import { preloadOllamaModel } from '../infrastructure/ollama/ollama-preload';
 import { OverleafHookContractError } from '../infrastructure/overleaf/codemirror-api';
 import { OverleafEditorAdapter } from '../infrastructure/overleaf/overleaf-editor-adapter';
@@ -64,6 +66,13 @@ function compose(
   const pendingChanges = new PendingChanges(conversation);
   const createController = (): AbortController => new AbortController();
   const lock = new OperationLock(createController);
+  const compactor = new ConversationCompactor({
+    agent,
+    summarizer: new OllamaSummarizer(client),
+    conversation,
+    newId,
+    now: () => new Date(),
+  });
 
   const handleRequest = new HandleAssistantRequest({
     agent,
@@ -74,6 +83,7 @@ function compose(
     lock,
     newId,
     createController,
+    compactor,
   });
   const review = new ReviewAppliedChange({ project, conversation, handleRequest });
   const sessionDeps = { sessions, conversation, pendingChanges, editor, lock };

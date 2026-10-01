@@ -79,6 +79,17 @@
 #ola-root .ola-context.is-high {
   color: #ff7b6b;
 }
+#ola-root .ola-compaction-title {
+  display: list-item;
+  list-style: disclosure-closed inside;
+  cursor: pointer;
+}
+#ola-root .ola-compaction[open] > .ola-compaction-title {
+  list-style-type: disclosure-open;
+}
+#ola-root .ola-compaction-body {
+  margin-top: 8px;
+}
 #ola-root .ola-title {
   min-width: 0;
   overflow: hidden;
