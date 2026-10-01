@@ -4,6 +4,8 @@ const START = '<|start|>';
 const END = '<|end|>';
 const MESSAGE = '<|message|>';
 const CHANNEL = '<|channel|>';
+const TOKEN_OPENING = '<|';
+const NEUTRAL_OPENING = '<\uFF5C';
 
 const ASSISTANT_START = `${START}assistant`;
 const ANALYSIS_START = `${CHANNEL}analysis${MESSAGE}`;
@@ -42,9 +44,13 @@ export function parseHarmonyCompletion(raw: string): HarmonyCompletion {
 }
 
 export function renderFinalContinuation(prompt: string, analysis: string): string {
-  return `${prompt}${ANALYSIS_START}${analysis}${END}${ASSISTANT_START}${FINAL_START}`;
+  return `${prompt}${ANALYSIS_START}${neutralise(analysis)}${END}${ASSISTANT_START}${FINAL_START}`;
 }
 
 function renderMessage(role: 'system' | 'developer' | 'user', content: string): string {
-  return `${START}${role}${MESSAGE}${content}${END}`;
+  return `${START}${role}${MESSAGE}${neutralise(content)}${END}`;
+}
+
+function neutralise(content: string): string {
+  return content.replaceAll(TOKEN_OPENING, NEUTRAL_OPENING);
 }
