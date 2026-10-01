@@ -200,6 +200,12 @@ describe('parseAgentDecision edit header', () => {
     expect(parse(edit({ REASON: '' }))).not.toHaveProperty('command.reason');
   });
 
+  it('tells the model to put content below the CONTENT: line, not on it', () => {
+    expect(editProblem(edit().replace('CONTENT:\n', 'CONTENT: '))).toContain(
+      'puts text on the CONTENT: line; write CONTENT: alone on its line and the new LaTeX on the lines below it',
+    );
+  });
+
   it('rejects a header line written after the content', () => {
     expect(editProblem(edit({ REASON: null }, '\\begin{table}\nREASON: Adds a table.'))).toContain(
       '"REASON: Adds a table." comes after CONTENT:',

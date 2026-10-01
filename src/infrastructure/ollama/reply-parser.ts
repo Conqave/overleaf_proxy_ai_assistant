@@ -208,6 +208,11 @@ function parseFields(
   const fields = new Map<string, string>();
   for (const row of headerRows) {
     if (row.trim() === '') continue;
+    if (row.startsWith(CONTENT_MARKER)) {
+      throw new InvalidAssistantResponse(
+        `${JSON.stringify(row)} puts text on the ${CONTENT_MARKER} line; write ${CONTENT_MARKER} alone on its line and the new LaTeX on the lines below it`,
+      );
+    }
     const match = pattern.exec(row);
     if (!match) {
       throw new InvalidAssistantResponse(
