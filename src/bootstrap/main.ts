@@ -9,6 +9,7 @@ import { createUuid } from '../infrastructure/browser/uuid';
 import { OllamaAgent } from '../infrastructure/ollama/ollama-agent';
 import { OllamaClient } from '../infrastructure/ollama/ollama-client';
 import { preloadOllamaModel } from '../infrastructure/ollama/ollama-preload';
+import { OverleafHookContractError } from '../infrastructure/overleaf/codemirror-api';
 import { OverleafEditorAdapter } from '../infrastructure/overleaf/overleaf-editor-adapter';
 import { OverleafEditorBridge } from '../infrastructure/overleaf/overleaf-editor-bridge';
 import {
@@ -104,10 +105,15 @@ function start(window: Window & typeof globalThis): void {
 
 function isStartupFailure(
   error: unknown,
-): error is ConfigurationError | MissingPageIdentityError | OverleafStoreContractError {
+): error is
+  | ConfigurationError
+  | MissingPageIdentityError
+  | OverleafHookContractError
+  | OverleafStoreContractError {
   return (
     error instanceof ConfigurationError ||
     error instanceof MissingPageIdentityError ||
+    error instanceof OverleafHookContractError ||
     error instanceof OverleafStoreContractError
   );
 }

@@ -10,6 +10,7 @@ import {
 } from '../../../src/infrastructure/overleaf/codemirror-api';
 import { OverleafEditorAdapter } from '../../../src/infrastructure/overleaf/overleaf-editor-adapter';
 import { OverleafEditorBridge } from '../../../src/infrastructure/overleaf/overleaf-editor-bridge';
+import { OverleafStoreContractError } from '../../../src/infrastructure/overleaf/overleaf-store';
 import { EditorUnavailableError } from '../../../src/ports/errors';
 import { FIXTURE_DOC_ID, FIXTURE_DOCUMENT, openOverleafEditor } from '../../support/fake-overleaf';
 
@@ -22,6 +23,21 @@ const lines = () => editor.state.doc.toJSON();
 const edit = (input: Parameters<typeof createDocumentCommand>[0]): ResolvedEdit =>
   ResolvedEdit.resolve(createDocumentSnapshot(lines()), createDocumentCommand(input));
 const results = { lineNumber: 6, lineText: 'The results are shown below.' };
+
+function captureWindowErrors(): { errors: unknown[]; stop: () => void } {
+  const errors: unknown[] = [];
+  const listener = (event: ErrorEvent): void => {
+    errors.push(event.error);
+    event.preventDefault();
+  };
+  window.addEventListener('error', listener);
+  return {
+    errors,
+    stop: () => {
+      window.removeEventListener('error', listener);
+    },
+  };
+}
 
 function open(text: string = FIXTURE_DOCUMENT): EditorView {
   document.body.innerHTML = '<div id="editor"></div>';
@@ -49,6 +65,30 @@ describe('OverleafEditorBridge', () => {
     expect(() => getExtensionsEventDetail(new Event('UNSTABLE_editor:extensions'))).toThrow(
       OverleafHookContractError,
     );
+  });
+
+  it('fails to start when the extension hook breaks its contract', async () => {
+    const broken = new OverleafEditorBridge(() => shownDocId);
+    const uninstall = broken.install(window);
+    const reported = captureWindowErrors();
+    window.dispatchEvent(
+      new CustomEvent('UNSTABLE_editor:extensions', { detail: { CodeMirror: {}, extensions: [] } }),
+    );
+    reported.stop();
+    uninstall();
+    await expect(broken.whenReady()).rejects.toThrow(OverleafHookContractError);
+    expect(reported.errors).toContainEqual(expect.any(OverleafHookContractError));
+  });
+
+  it('fails to start when the store cannot name the open document', async () => {
+    editor.destroy();
+    const broken = new OverleafEditorBridge(() => {
+      throw new OverleafStoreContractError('editor.open_doc_id is not a string');
+    });
+    const uninstall = broken.install(window);
+    editor = open();
+    uninstall();
+    await expect(broken.whenReady()).rejects.toThrow(OverleafStoreContractError);
   });
 
   it('extends every editor Overleaf creates and follows the open one', async () => {

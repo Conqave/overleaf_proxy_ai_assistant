@@ -3,8 +3,10 @@ import { createChangePreview, type ChangePreview } from './change-preview';
 import {
   EXTENSIONS_EVENT,
   getExtensionsEventDetail,
+  OverleafHookContractError,
   type ExtensionsEventDetail,
 } from './codemirror-api';
+import { OverleafStoreContractError } from './overleaf-store';
 
 export interface OpenEditor {
   readonly docId: string;
@@ -21,7 +23,7 @@ export class OverleafEditorBridge {
 
   install(window: Window): () => void {
     const listener = (event: Event): void => {
-      this.extend(getExtensionsEventDetail(event));
+      this.extend(this.readEventDetail(event));
     };
     window.addEventListener(EXTENSIONS_EVENT, listener);
     return () => {
@@ -55,12 +57,32 @@ export class OverleafEditorBridge {
     }
   }
 
+  private readEventDetail(event: Event): ExtensionsEventDetail {
+    try {
+      return getExtensionsEventDetail(event);
+    } catch (error) {
+      if (!(error instanceof OverleafHookContractError)) throw error;
+      this.ready.reject(error);
+      throw error;
+    }
+  }
+
   private extend({ CodeMirror: cm, extensions }: ExtensionsEventDetail): void {
     const preview = createChangePreview(cm);
     extensions.push(
       preview.extension,
-      cm.ViewPlugin.define((view) => this.track({ docId: this.readOpenDocId(), view, preview })),
+      cm.ViewPlugin.define((view) => this.track({ docId: this.readDocId(), view, preview })),
     );
+  }
+
+  private readDocId(): string {
+    try {
+      return this.readOpenDocId();
+    } catch (error) {
+      if (!(error instanceof OverleafStoreContractError)) throw error;
+      this.ready.reject(error);
+      throw error;
+    }
   }
 
   private track(editor: OpenEditor): PluginValue {
