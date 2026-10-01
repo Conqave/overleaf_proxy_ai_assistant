@@ -1,28 +1,26 @@
 import { describe, expect, it } from 'vitest';
-import type { AssistantMessage } from '../../../src/domain/conversation';
-import { createDocumentSnapshot } from '../../../src/domain/document';
+import type { ProposalMessage } from '../../../src/domain/conversation';
 import {
   createDocumentCommand,
   type DocumentCommandInput,
 } from '../../../src/domain/document-command';
-import { ResolvedEdit } from '../../../src/domain/resolved-edit';
 import {
   appliedNotice,
   contextUsageText,
   messageMeta,
   progressStatus,
+  proposalStatusText,
 } from '../../../src/presentation/message-format';
 
-const proposal = (input: DocumentCommandInput): AssistantMessage => ({
+const proposal = (input: DocumentCommandInput, path = 'chapters/a.tex'): ProposalMessage => ({
   id: '1',
   role: 'assistant',
   kind: 'proposal',
-  path: 'chapters/a.tex',
+  path,
   command: createDocumentCommand(input),
   status: 'proposed',
 });
 const target = { lineNumber: 3, lineText: '\\section{A}' };
-const DOC = createDocumentSnapshot(['a', 'b', '\\section{A}', 'c', 'd', 'e']);
 
 describe('messageMeta', () => {
   it('names the file and the anchor of an insertion', () => {
@@ -41,24 +39,27 @@ describe('messageMeta', () => {
   });
 });
 
-const textFile = (path: string) => ({ id: path, path, kind: 'text' as const });
-
 describe('appliedNotice', () => {
   it('reports how many lines changed in which file', () => {
-    const replaced = ResolvedEdit.resolve(
-      DOC,
-      createDocumentCommand({ operation: 'replace', target, lineCount: 1, content: 'x' }),
+    const replaced = proposal(
+      { operation: 'replace', target, lineCount: 1, content: 'x' },
+      'refs.bib',
     );
-    const deleted = ResolvedEdit.resolve(
-      DOC,
-      createDocumentCommand({ operation: 'delete', target, lineCount: 4 }),
-    );
-    expect(appliedNotice({ file: textFile('refs.bib'), edit: replaced })).toBe(
-      'Done. Line replaced in refs.bib.',
-    );
-    expect(appliedNotice({ file: textFile('main.tex'), edit: deleted })).toBe(
-      'Done. 4 lines deleted in main.tex.',
-    );
+    const deleted = proposal({ operation: 'delete', target, lineCount: 4 }, 'main.tex');
+    expect(appliedNotice(replaced)).toBe('Done. Line replaced in refs.bib.');
+    expect(appliedNotice(deleted)).toBe('Done. 4 lines deleted in main.tex.');
+  });
+});
+
+describe('proposalStatusText', () => {
+  it.each([
+    ['proposed', undefined],
+    ['applied', 'Applied'],
+    ['rejected', 'Rejected'],
+    ['failed', 'Not applied'],
+    ['discarded', 'Discarded'],
+  ] as const)('labels a %s proposal', (status, text) => {
+    expect(proposalStatusText(status)).toBe(text);
   });
 });
 

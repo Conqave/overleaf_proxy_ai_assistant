@@ -1,4 +1,4 @@
-import { OperationalError } from '../domain/errors';
+import { NamedError, OperationalError } from '../domain/errors';
 import { AGENT_POLICY } from '../domain/agent-policy';
 import type { PersistenceError } from '../ports/errors';
 
@@ -41,5 +41,14 @@ export class AgentMistakeLimitError extends OperationalError {
       `The assistant took ${String(AGENT_POLICY.maxConsecutiveMistakes)} invalid steps in a row and stopped (last: ${lastMistake.message}). Please rephrase the request.`,
       { cause: lastMistake },
     );
+  }
+}
+
+export class FailureRecordingError extends NamedError {
+  constructor(
+    readonly failure: unknown,
+    recordingError: unknown,
+  ) {
+    super('Recording the outcome of a failed operation failed as well.', { cause: recordingError });
   }
 }

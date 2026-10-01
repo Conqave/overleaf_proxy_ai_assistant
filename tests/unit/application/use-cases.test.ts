@@ -18,7 +18,7 @@ import {
 } from '../../../src/application/handle-assistant-request';
 import { OperationLock } from '../../../src/application/operation-lock';
 import { PARALLEL_SEARCH_READS } from '../../../src/application/project-tools';
-import { PendingChanges, PendingDocumentChange } from '../../../src/application/pending-change';
+import { PendingChanges } from '../../../src/application/pending-change';
 import { RejectDocumentChange } from '../../../src/application/reject-document-change';
 import { ReviewAppliedChange } from '../../../src/application/review-applied-change';
 import type { AgentDecision, ToolCall } from '../../../src/domain/agent-action';
@@ -27,8 +27,6 @@ import { AGENT_POLICY } from '../../../src/domain/agent-policy';
 import { createDocumentSnapshot, type DocumentSnapshot } from '../../../src/domain/document';
 import { createDocumentCommand } from '../../../src/domain/document-command';
 import { DocumentConflictError, InvariantViolation } from '../../../src/domain/errors';
-import { findTextFile } from '../../../src/domain/project-file';
-import { ResolvedEdit } from '../../../src/domain/resolved-edit';
 import {
   AssistantProtocolError,
   AssistantUnreachableError,
@@ -125,7 +123,7 @@ beforeEach(() => {
   agent = new FakeAgent();
   repository = new InMemoryConversationRepository();
   conversation = new ConversationLog(repository);
-  pendingChanges = new PendingChanges();
+  pendingChanges = new PendingChanges(conversation);
   lock = new OperationLock(() => new AbortController());
   busy = [];
   lock.onChange((isNowBusy) => {
@@ -144,7 +142,7 @@ beforeEach(() => {
   });
   review = new ReviewAppliedChange({ project, conversation, handleRequest: handle });
   apply = new ApplyDocumentChange({ editor, project, pendingChanges, conversation, lock, review });
-  reject = new RejectDocumentChange({ editor, pendingChanges, conversation });
+  reject = new RejectDocumentChange({ editor, pendingChanges, lock });
   progress = [];
 });
 
@@ -216,16 +214,15 @@ describe('HandleAssistantRequest', () => {
   it('proposes an edit of the open file as a previewed pending change', async () => {
     agent.will(mainEdit());
     const result = await send('add more');
-    const change = pendingChanges.get(changeIdOf(result));
     expect(result.message).toEqual({
-      id: change.id,
+      id: changeIdOf(result),
       role: 'assistant',
       kind: 'proposal',
       path: 'main.tex',
-      command: change.change.edit.command,
+      command: editor.preview?.command,
       status: 'proposed',
     });
-    expect(editor.preview).toBe(change.change.edit);
+    expect(pendingChanges.isPending(changeIdOf(result))).toBe(true);
     expect(project.opened).toEqual([]);
     expect(editor.applied).toHaveLength(0);
   });
@@ -241,8 +238,8 @@ describe('HandleAssistantRequest', () => {
       },
     ]);
     expect(project.opened).toEqual(['refs.bib']);
-    expect(editor.preview).toBe(pendingChanges.get(changeIdOf(result)).change.edit);
     expect(result.message).toMatchObject({ kind: 'proposal', path: 'refs.bib' });
+    expect(result.message).toHaveProperty('command', editor.preview?.command);
     expect(progress).toEqual([
       expect.objectContaining({ stage: 'received' }),
       { stage: 'thinking', step: 1 },
@@ -410,6 +407,7 @@ describe('HandleAssistantRequest', () => {
     await expect(send('add more')).rejects.toThrow(AgentMistakeLimitError);
     expect(agent.requests).toHaveLength(AGENT_POLICY.maxConsecutiveMistakes);
     expect(pendingChanges.discardAll()).toEqual([]);
+    expect(editor.preview).toBeNull();
   });
 
   it('starts counting mistakes again after a successful tool call', async () => {
@@ -432,7 +430,7 @@ describe('HandleAssistantRequest', () => {
     agent.will(mainEdit());
     const result = await send('add more');
     expect(project.opened).toEqual(['main.tex']);
-    expect(editor.preview).toBe(pendingChanges.get(changeIdOf(result)).change.edit);
+    expect(result.message).toHaveProperty('command', editor.preview?.command);
   });
 
   it('drops an edit whose file changed before it was opened', async () => {
@@ -509,13 +507,18 @@ describe('HandleAssistantRequest', () => {
     await expect(first).resolves.toMatchObject({ message: { kind: 'explanation' } });
   });
 
-  it('discards the open change when a new request starts', async () => {
+  it('discards the open change when a new request starts and records it', async () => {
     const changeId = await proposeEdit();
+    progress = [];
     agent.will(answer('Hi.'));
     await send('hi');
     expect(editor.preview).toBeNull();
+    const discarded = { id: changeId, kind: 'proposal', status: 'discarded' };
+    expect(progress[0]).toMatchObject({ stage: 'decided', message: discarded });
+    expect(repository.stored).toContainEqual(expect.objectContaining(discarded));
+    expect(requestAt(-1).conversation).toContainEqual(expect.objectContaining(discarded));
     await expect(apply.execute(changeId, record)).rejects.toThrow(ChangeNoLongerPendingError);
-    expect(() => reject.execute(changeId)).toThrow(ChangeNoLongerPendingError);
+    await expect(reject.execute(changeId)).rejects.toThrow(ChangeNoLongerPendingError);
   });
 });
 
@@ -576,16 +579,16 @@ describe('preview / apply / reject', () => {
     const applied = conversation.messages().at(-1);
     expect(applied).toMatchObject({ id: changeId, kind: 'proposal', status: 'applied' });
     expect(repository.stored.at(-1)).toEqual(applied);
-    expect(progress).toEqual([
-      { stage: 'applied', change: pendingChanges.get(changeId).change, message: applied },
-      { stage: 'compiling' },
-    ]);
+    expect(progress).toEqual([{ stage: 'decided', message: applied }, { stage: 'compiling' }]);
   });
 
   it('cancels the review compile of an applied change for a new conversation', async () => {
     const changeId = await proposeEdit();
     project.willCompile(new PendingStep(rejectOnAbort));
     const applying = apply.execute(changeId, record);
+    await vi.waitFor(() => {
+      expect(project.compileCalls).toBe(1);
+    });
     new StartNewConversation({ conversation, pendingChanges, editor, lock }).execute();
     await expect(applying).rejects.toThrow(RequestSupersededError);
     expect(editor.lines).toEqual([...MAIN, 'Added.']);
@@ -626,18 +629,69 @@ describe('preview / apply / reject', () => {
     expect(editor.lines).toEqual([...BIB, 'Added.']);
   });
 
-  it('fails the change when its file cannot be opened for Apply', async () => {
+  it('keeps the change for another Apply when its file cannot be opened', async () => {
+    project.willCompile([]);
     const changeId = await proposeEdit(readBib(), bibEdit());
     project.switchTo('main.tex');
     project.failure.openFile = new FileOpenTimeoutError('slow');
     await expect(apply.execute(changeId, record)).rejects.toThrow(FileOpenTimeoutError);
     expect(editor.applied).toHaveLength(0);
+    expect(conversation.messages().at(-1)).toMatchObject({ id: changeId, status: 'proposed' });
+    project.failure = {};
+    await expect(apply.execute(changeId, record)).resolves.toEqual({ kind: 'compiled' });
+    expect(editor.lines).toEqual([...BIB, 'Added.']);
+  });
+
+  it('keeps the change for another Apply when the editor vanished before the write', async () => {
+    const changeId = await proposeEdit();
+    editor.available = false;
+    await expect(apply.execute(changeId, record)).rejects.toThrow(EditorUnavailableError);
+    expect(progress.filter((p) => p.stage === 'decided')).toEqual([]);
+    expect(pendingChanges.isPending(changeId)).toBe(true);
+    await expect(reject.execute(changeId)).resolves.toMatchObject({ status: 'rejected' });
+  });
+
+  it('records a change whose write failed as failed', async () => {
+    const changeId = await proposeEdit();
+    progress = [];
+    editor.applyFailure = new EditorShowsOtherFileError('switched');
+    await expect(apply.execute(changeId, record)).rejects.toThrow(EditorShowsOtherFileError);
+    const failed = { id: changeId, kind: 'proposal', status: 'failed' };
+    expect(progress).toHaveLength(1);
+    expect(progress[0]).toMatchObject({ stage: 'decided', message: failed });
+    expect(repository.stored.at(-1)).toMatchObject(failed);
     await expect(apply.execute(changeId, record)).rejects.toThrow(ChangeNoLongerPendingError);
+  });
+
+  it('keeps the failure of the write when recording it fails as well', async () => {
+    const changeId = await proposeEdit();
+    const writeFailure = new EditorShowsOtherFileError('switched');
+    editor.applyFailure = writeFailure;
+    const recordingFailure = new InvariantViolation('view broken');
+    const failing = apply.execute(changeId, (p) => {
+      if (p.stage === 'decided') throw recordingFailure;
+    });
+    await expect(failing).rejects.toMatchObject({
+      name: 'FailureRecordingError',
+      failure: writeFailure,
+      cause: recordingFailure,
+    });
+  });
+
+  it('leaves a change discarded by a new conversation during Apply discarded', async () => {
+    const changeId = await proposeEdit(readBib(), bibEdit());
+    project.switchTo('main.tex');
+    project.onOpen = () => {
+      new StartNewConversation({ conversation, pendingChanges, editor, lock }).execute();
+    };
+    await expect(apply.execute(changeId, record)).rejects.toThrow(RequestSupersededError);
+    expect(editor.applied).toHaveLength(0);
+    expect(pendingChanges.isPending(changeId)).toBe(false);
   });
 
   it('rejects a change and keeps its proposal in the conversation as rejected', async () => {
     const changeId = await proposeEdit();
-    const rejected = reject.execute(changeId);
+    const rejected = await reject.execute(changeId);
     expect(rejected).toMatchObject({ id: changeId, kind: 'proposal', status: 'rejected' });
     expect(conversation.messages().at(-1)).toEqual(rejected);
     expect(repository.stored.at(-1)).toEqual(rejected);
@@ -656,37 +710,32 @@ describe('preview / apply / reject', () => {
   it('refuses apply after reject and reject after apply', async () => {
     project.willCompile([]);
     const first = await proposeEdit();
-    reject.execute(first);
+    await reject.execute(first);
     await expect(apply.execute(first, record)).rejects.toThrow(ChangeNoLongerPendingError);
     const second = await proposeEdit();
     await apply.execute(second, record);
-    expect(() => reject.execute(second)).toThrow(ChangeNoLongerPendingError);
+    await expect(reject.execute(second)).rejects.toThrow(ChangeNoLongerPendingError);
   });
 
-  it('forgets closed changes once the next request starts', async () => {
+  it('refuses to reject a change while it is being applied', async () => {
+    const changeId = await proposeEdit();
+    const compiled = Promise.withResolvers<readonly CompileDiagnostic[]>();
+    project.willCompile(new PendingStep(() => compiled.promise));
+    const applying = apply.execute(changeId, record);
+    await expect(reject.execute(changeId)).rejects.toThrow(RequestInProgressError);
+    compiled.resolve([]);
+    await expect(applying).resolves.toEqual({ kind: 'compiled' });
+  });
+
+  it('forgets closed changes at once', async () => {
     project.willCompile([]);
     const applied = await proposeEdit();
     await apply.execute(applied, record);
     const rejected = await proposeEdit();
-    reject.execute(rejected);
-    agent.will(answer('Hi.'));
-    await send('hi');
-    expect(() => pendingChanges.get(applied)).toThrow(ChangeNoLongerPendingError);
-    expect(() => pendingChanges.get(rejected)).toThrow(ChangeNoLongerPendingError);
-  });
-
-  it('treats approving a change that was never previewed as a defect', () => {
-    const command = createDocumentCommand({
-      operation: 'delete',
-      target: { lineNumber: 1, lineText: itemAt(MAIN, 0, 'line') },
-    });
-    const change = new PendingDocumentChange('c', {
-      file: findTextFile(project.files, 'main.tex'),
-      edit: ResolvedEdit.resolve(createDocumentSnapshot(MAIN), command),
-    });
-    expect(() => {
-      change.approve();
-    }).toThrow(InvariantViolation);
+    await reject.execute(rejected);
+    expect(pendingChanges.isPending(applied)).toBe(false);
+    expect(pendingChanges.isPending(rejected)).toBe(false);
+    expect(pendingChanges.discardAll()).toEqual([]);
   });
 
   it('detects a document changed between preview and apply', async () => {
@@ -694,6 +743,7 @@ describe('preview / apply / reject', () => {
     editor.lines[0] = '\\section{Introduction}';
     await expect(apply.execute(changeId, record)).rejects.toThrow(DocumentConflictError);
     expect(editor.applied).toHaveLength(0);
+    expect(conversation.messages().at(-1)).toMatchObject({ id: changeId, status: 'failed' });
     await expect(apply.execute(changeId, record)).rejects.toThrow(ChangeNoLongerPendingError);
   });
 
@@ -701,13 +751,6 @@ describe('preview / apply / reject', () => {
     const changeId = await proposeEdit();
     editor.lines.pop();
     await expect(apply.execute(changeId, record)).rejects.toThrow(DocumentConflictError);
-    await expect(apply.execute(changeId, record)).rejects.toThrow(ChangeNoLongerPendingError);
-  });
-
-  it('fails when the editor vanished before apply', async () => {
-    const changeId = await proposeEdit();
-    editor.available = false;
-    await expect(apply.execute(changeId, record)).rejects.toThrow(EditorUnavailableError);
     await expect(apply.execute(changeId, record)).rejects.toThrow(ChangeNoLongerPendingError);
   });
 });

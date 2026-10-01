@@ -552,6 +552,7 @@ describe('assistant under interference', () => {
         expect.stringContaining('The document changed after the suggestion was made.'),
       ]);
     });
+    expect(texts('.ola-ai.is-failed .ola-result-status')).toEqual(['Not applied']);
     expect(editorText()).toBe(`% draft\n${FIXTURE_DOCUMENT}`);
     expect(ide.compileCount).toBe(0);
   });

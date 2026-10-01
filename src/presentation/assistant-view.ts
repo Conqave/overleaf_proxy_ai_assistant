@@ -110,19 +110,10 @@ export class AssistantView {
     const shown = this.messageNodes.get(message.id);
     if (shown === undefined)
       throw new InvariantViolation(`the chat shows no message ${message.id}`);
-    this.closeChangeActions(message.id);
+    this.actionNodes.delete(message.id);
     const node = this.renderMessage(message);
     shown.replaceWith(node);
     this.messageNodes.set(message.id, node);
-  }
-
-  closeChangeActions(changeId: string): void {
-    this.actionNodes.get(changeId)?.remove();
-    this.actionNodes.delete(changeId);
-  }
-
-  closeAllChangeActions(): void {
-    for (const changeId of [...this.actionNodes.keys()]) this.closeChangeActions(changeId);
   }
 
   showNotice(text: string, tone: 'info' | 'error'): void {
@@ -133,6 +124,9 @@ export class AssistantView {
     this.busy = busy;
     this.root.classList.toggle('is-busy', busy);
     this.sendButton.disabled = busy;
+    for (const actions of this.actionNodes.values()) {
+      for (const action of actions.querySelectorAll('button')) action.disabled = busy;
+    }
   }
 
   setStatus(text: string): void {
@@ -184,6 +178,7 @@ export class AssistantView {
       const apply = this.el('button', 'ola-btn ola-apply', VIEW_TEXT.apply);
       const reject = this.el('button', 'ola-btn ola-reject', VIEW_TEXT.reject);
       apply.type = reject.type = 'button';
+      apply.disabled = reject.disabled = this.busy;
       apply.addEventListener('click', () => {
         void this.events.apply(changeId);
       });

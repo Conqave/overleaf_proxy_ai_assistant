@@ -1,9 +1,11 @@
 import { ProposalStatus } from '../domain/conversation';
+import { DocumentConflictError } from '../domain/errors';
 import type { CancellationSignal } from '../ports/cancellation';
 import type { EditorPort } from '../ports/editor-port';
 import type { ProjectPort } from '../ports/project-port';
 import type { AgentProgress } from './agent-progress';
 import type { ConversationLog } from './conversation-log';
+import { FailureRecordingError } from './errors';
 import type { OperationLock } from './operation-lock';
 import type { PendingChanges } from './pending-change';
 import type { ReviewAppliedChange, ReviewOutcome } from './review-applied-change';
@@ -33,23 +35,49 @@ export class ApplyDocumentChange {
     onProgress: (progress: AgentProgress) => void,
     signal: CancellationSignal,
   ): Promise<void> {
-    const { editor, project, conversation } = this.deps;
+    const { editor, project, conversation, pendingChanges } = this.deps;
     const epoch = conversation.epoch;
-    const change = this.deps.pendingChanges.get(changeId);
-    const { file, edit } = change.change;
-    change.approve();
+    const { file, edit } = pendingChanges.approve(changeId).change;
+    let writing = false;
     try {
-      editor.clearPreview();
       await showProjectFile(project, file, onProgress, signal);
+      conversation.ensureCurrent(epoch);
+      editor.clearPreview();
       edit.assertCurrent(editor.readDocument(file));
+      writing = true;
       editor.apply(file, edit);
     } catch (error) {
-      change.markFailed();
+      this.recordFailure(
+        changeId,
+        writing || error instanceof DocumentConflictError,
+        onProgress,
+        error,
+      );
       throw error;
     }
-    change.markApplied();
-    conversation.ensureCurrent(epoch);
-    const message = conversation.decideProposal(change.id, ProposalStatus.Applied);
-    onProgress({ stage: 'applied', change: change.change, message });
+    const message = pendingChanges.settle(changeId, ProposalStatus.Applied);
+    onProgress({ stage: 'decided', message });
+  }
+
+  private recordFailure(
+    changeId: string,
+    isFinal: boolean,
+    onProgress: (progress: AgentProgress) => void,
+    failure: unknown,
+  ): void {
+    const { pendingChanges } = this.deps;
+    if (!pendingChanges.isPending(changeId)) return;
+    try {
+      if (isFinal) {
+        onProgress({
+          stage: 'decided',
+          message: pendingChanges.settle(changeId, ProposalStatus.Failed),
+        });
+      } else {
+        pendingChanges.withdrawApproval(changeId);
+      }
+    } catch (recordingError) {
+      throw new FailureRecordingError(failure, recordingError);
+    }
   }
 }

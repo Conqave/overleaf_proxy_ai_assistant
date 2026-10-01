@@ -68,6 +68,8 @@ const PROPOSAL_OUTCOME: Record<ProposalStatus, string> = {
   [ProposalStatus.Proposed]: '[proposal left undecided]',
   [ProposalStatus.Applied]: '[proposal applied]',
   [ProposalStatus.Rejected]: '[proposal rejected]',
+  [ProposalStatus.Failed]: '[proposal failed to apply]',
+  [ProposalStatus.Discarded]: '[proposal discarded without a decision]',
 };
 
 function describeProposal({ status, path, command }: ProposalMessage): string {

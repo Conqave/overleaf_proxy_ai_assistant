@@ -11,6 +11,7 @@ import { ReviewAppliedChange } from '../../../src/application/review-applied-cha
 import type { CompileDiagnostic } from '../../../src/domain/agent-transcript';
 import { createDocumentCommand } from '../../../src/domain/document-command';
 import { InvariantViolation } from '../../../src/domain/errors';
+import { FileOpenTimeoutError } from '../../../src/ports/errors';
 import { AssistantController } from '../../../src/presentation/assistant-controller';
 import { AssistantView } from '../../../src/presentation/assistant-view';
 import {
@@ -49,7 +50,7 @@ async function openAssistant() {
     },
   );
   const conversation = new ConversationLog(new InMemoryConversationRepository());
-  const pendingChanges = new PendingChanges();
+  const pendingChanges = new PendingChanges(conversation);
   const lock = new OperationLock(() => new AbortController());
   const handleRequest = new HandleAssistantRequest({
     agent,
@@ -73,7 +74,7 @@ async function openAssistant() {
       lock,
       review,
     }),
-    rejectChange: new RejectDocumentChange({ editor, pendingChanges, conversation }),
+    rejectChange: new RejectDocumentChange({ editor, pendingChanges, lock }),
     startNewConversation: new StartNewConversation({
       conversation,
       pendingChanges,
@@ -160,14 +161,38 @@ describe('AssistantController reject', () => {
     expect(texts('.ola-result-body').at(-1)).toBe('Add a closing brace.');
   });
 
-  it('shows expected failures and continues', async () => {
+  it('shows expected failures, marks the proposal not applied and continues', async () => {
     const { controller, editor, changeId, texts } = await proposeBibEdit();
     editor.lines[1] = 'Edited meanwhile.';
     await expect(controller.apply(changeId)).resolves.toBeUndefined();
     expect(texts('.ola-error')).toEqual([
       expect.stringContaining('The document changed after the suggestion was made.'),
     ]);
+    expect(texts('.ola-ai.is-failed .ola-result-status')).toEqual(['Not applied']);
+    expect(texts('.ola-apply')).toEqual([]);
     expect(texts('.ola-status')).toEqual(['']);
+  });
+
+  it('keeps Apply and Reject when the change could not be written yet', async () => {
+    const { window, controller, project, changeId, texts } = await proposeBibEdit();
+    project.switchTo('main.tex');
+    project.failure.openFile = new FileOpenTimeoutError('refs.bib did not open in time.');
+    await controller.apply(changeId);
+    expect(texts('.ola-error')).toEqual(['Error: refs.bib did not open in time.']);
+    expect(texts('.ola-result-status')).toEqual([]);
+    const buttons = Array.from(window.document.querySelectorAll('.ola-result-actions button'));
+    expect(buttons.map((node) => node.textContent)).toEqual(['Apply', 'Reject']);
+    expect(
+      buttons.every((node) => node instanceof window.HTMLButtonElement && !node.disabled),
+    ).toBe(true);
+  });
+
+  it('marks a proposal discarded by the next request', async () => {
+    const { controller, agent, texts } = await proposeBibEdit();
+    agent.will({ kind: 'reply', reply: { kind: 'answer', text: 'Hello.' } });
+    await controller.send('hello');
+    expect(texts('.ola-ai.is-discarded .ola-result-status')).toEqual(['Discarded']);
+    expect(texts('.ola-apply')).toEqual([]);
   });
 
   it('does not disguise defects as user errors', async () => {

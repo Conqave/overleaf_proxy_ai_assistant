@@ -1,4 +1,3 @@
-import type { ProjectEdit } from '../domain/agent-action';
 import type { ProposalMessage, SystemRequestMessage, UserMessage } from '../domain/conversation';
 
 export type AgentProgress =
@@ -8,8 +7,4 @@ export type AgentProgress =
   | { readonly stage: 'searching'; readonly query: string }
   | { readonly stage: 'compiling' }
   | { readonly stage: 'opening'; readonly path: string }
-  | {
-      readonly stage: 'applied';
-      readonly change: ProjectEdit;
-      readonly message: ProposalMessage;
-    };
+  | { readonly stage: 'decided'; readonly message: ProposalMessage };

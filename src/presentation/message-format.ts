@@ -1,7 +1,10 @@
 import type { AgentProgress } from '../application/agent-progress';
 import type { ContextUsage } from '../application/handle-assistant-request';
-import type { ProjectEdit } from '../domain/agent-action';
-import { ProposalStatus, type AssistantMessage } from '../domain/conversation';
+import {
+  ProposalStatus,
+  type AssistantMessage,
+  type ProposalMessage,
+} from '../domain/conversation';
 import { DocumentOperation } from '../domain/document-command';
 
 const KIND_TITLE: Record<Exclude<AssistantMessage['kind'], 'proposal'>, string> = {
@@ -47,6 +50,8 @@ const PROPOSAL_STATUS_TEXT: Record<ProposalStatus, string | undefined> = {
   [ProposalStatus.Proposed]: undefined,
   [ProposalStatus.Applied]: 'Applied',
   [ProposalStatus.Rejected]: 'Rejected',
+  [ProposalStatus.Failed]: 'Not applied',
+  [ProposalStatus.Discarded]: 'Discarded',
 };
 
 export function proposalStatusText(status: ProposalStatus): string | undefined {
@@ -73,9 +78,7 @@ export function errorNotice(message: string): string {
   return `Error: ${message}`;
 }
 
-export function appliedNotice({ file, edit }: ProjectEdit): string {
-  const { path } = file;
-  const { command } = edit;
+export function appliedNotice({ path, command }: ProposalMessage): string {
   switch (command.operation) {
     case DocumentOperation.InsertBefore:
       return `Done. Inserted before the selected anchor in ${path}.`;
@@ -114,7 +117,7 @@ export function progressStatus(progress: AgentProgress): string {
       return 'Hans is compiling the project';
     case 'opening':
       return `Hans is opening ${progress.path}`;
-    case 'applied':
-      return 'Hans applied the change';
+    case 'decided':
+      return '';
   }
 }

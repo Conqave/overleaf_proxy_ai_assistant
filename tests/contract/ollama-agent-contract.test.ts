@@ -362,12 +362,13 @@ async function runApplication(agent: AgentPort, c: Case): Promise<ApplicationRun
       return step;
     },
   };
+  const conversation = new ConversationLog(new InMemoryConversationRepository());
   const handleRequest = new HandleAssistantRequest({
     agent: recordingAgent,
     project,
     editor,
-    conversation: new ConversationLog(new InMemoryConversationRepository()),
-    pendingChanges: new PendingChanges(),
+    conversation,
+    pendingChanges: new PendingChanges(conversation),
     lock: new OperationLock(() => new AbortController()),
     newId: sequentialIds(),
     createController: () => new AbortController(),

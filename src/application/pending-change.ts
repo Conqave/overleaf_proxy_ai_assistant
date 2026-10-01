@@ -1,81 +1,43 @@
 import type { ProjectEdit } from '../domain/agent-action';
+import {
+  ProposalStatus,
+  type ProposalDecision,
+  type ProposalMessage,
+} from '../domain/conversation';
 import { InvariantViolation } from '../domain/errors';
+import type { ConversationLog } from './conversation-log';
 import { ChangeNoLongerPendingError } from './errors';
 
-export type PendingChangeStatus =
-  'validated' | 'previewed' | 'approved' | 'applied' | 'failed' | 'rejected' | 'discarded';
-
-interface Transition {
-  readonly from: readonly PendingChangeStatus[];
-  readonly closed: readonly PendingChangeStatus[];
-  readonly to: PendingChangeStatus;
-}
-
-const OPEN: readonly PendingChangeStatus[] = ['validated', 'previewed'];
-
-const CLOSED: readonly PendingChangeStatus[] = ['applied', 'failed', 'rejected', 'discarded'];
-
-const PREVIEW: Transition = { from: ['validated'], closed: [], to: 'previewed' };
-const APPROVE: Transition = { from: ['previewed'], closed: CLOSED, to: 'approved' };
-const REJECT: Transition = { from: ['previewed'], closed: CLOSED, to: 'rejected' };
-const MARK_APPLIED: Transition = { from: ['approved'], closed: [], to: 'applied' };
-const MARK_FAILED: Transition = { from: ['approved'], closed: [], to: 'failed' };
-const DISCARD: Transition = { from: OPEN, closed: [], to: 'discarded' };
-
 export class PendingDocumentChange {
-  private status: PendingChangeStatus = 'validated';
+  private approved = false;
 
   constructor(
     readonly id: string,
     readonly change: ProjectEdit,
   ) {}
 
-  get isOpen(): boolean {
-    return OPEN.includes(this.status);
-  }
-
-  get isClosed(): boolean {
-    return CLOSED.includes(this.status);
-  }
-
-  markPreviewed(): void {
-    this.transition(PREVIEW);
+  get isApproved(): boolean {
+    return this.approved;
   }
 
   approve(): void {
-    this.transition(APPROVE);
+    if (this.approved)
+      throw new InvariantViolation(`pending change ${this.id} is already approved`);
+    this.approved = true;
   }
 
-  reject(): void {
-    this.transition(REJECT);
-  }
-
-  markApplied(): void {
-    this.transition(MARK_APPLIED);
-  }
-
-  markFailed(): void {
-    this.transition(MARK_FAILED);
-  }
-
-  discard(): void {
-    this.transition(DISCARD);
-  }
-
-  private transition({ from, closed, to }: Transition): void {
-    if (from.includes(this.status)) {
-      this.status = to;
-      return;
-    }
-    if (closed.includes(this.status)) throw new ChangeNoLongerPendingError();
-    throw new InvariantViolation(
-      `pending change ${this.id}: cannot go from ${this.status} to ${to}`,
-    );
+  withdrawApproval(): void {
+    if (!this.approved) throw new InvariantViolation(`pending change ${this.id} is not approved`);
+    this.approved = false;
   }
 }
 
+type ApplyOutcome = typeof ProposalStatus.Applied | typeof ProposalStatus.Failed;
+
 export class PendingChanges {
   private readonly changes = new Map<string, PendingDocumentChange>();
+
+  constructor(private readonly conversation: ConversationLog) {}
 
   add(change: PendingDocumentChange): void {
     if (this.changes.has(change.id)) {
@@ -84,18 +46,50 @@ export class PendingChanges {
     this.changes.set(change.id, change);
   }
 
-  get(id: string): PendingDocumentChange {
+  isPending(id: string): boolean {
+    return this.changes.has(id);
+  }
+
+  approve(id: string): PendingDocumentChange {
+    const change = this.get(id);
+    change.approve();
+    return change;
+  }
+
+  withdrawApproval(id: string): void {
+    this.get(id).withdrawApproval();
+  }
+
+  reject(id: string): ProposalMessage {
+    const change = this.get(id);
+    if (change.isApproved) {
+      throw new InvariantViolation(`pending change ${id} is being applied and cannot be rejected`);
+    }
+    return this.close(change, ProposalStatus.Rejected);
+  }
+
+  settle(id: string, outcome: ApplyOutcome): ProposalMessage {
+    const change = this.get(id);
+    if (!change.isApproved) {
+      throw new InvariantViolation(
+        `pending change ${id} was not approved before it was ${outcome}`,
+      );
+    }
+    return this.close(change, outcome);
+  }
+
+  discardAll(): ProposalMessage[] {
+    return [...this.changes.values()].map((change) => this.close(change, ProposalStatus.Discarded));
+  }
+
+  private get(id: string): PendingDocumentChange {
     const change = this.changes.get(id);
     if (!change) throw new ChangeNoLongerPendingError();
     return change;
   }
 
-  discardAll(): PendingDocumentChange[] {
-    const open = [...this.changes.values()].filter((change) => change.isOpen);
-    for (const change of open) change.discard();
-    for (const [id, change] of this.changes) {
-      if (change.isClosed) this.changes.delete(id);
-    }
-    return open;
+  private close(change: PendingDocumentChange, decision: ProposalDecision): ProposalMessage {
+    this.changes.delete(change.id);
+    return this.conversation.decideProposal(change.id, decision);
   }
 }

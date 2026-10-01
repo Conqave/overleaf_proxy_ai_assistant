@@ -102,7 +102,9 @@ export class HandleAssistantRequest {
     onProgress: (progress: AgentProgress) => void,
   ): { history: readonly ConversationMessage[]; epoch: number } {
     const { editor, conversation, pendingChanges } = this.deps;
-    if (pendingChanges.discardAll().length) editor.clearPreview();
+    const discarded = pendingChanges.discardAll();
+    if (discarded.length) editor.clearPreview();
+    for (const proposal of discarded) onProgress({ stage: 'decided', message: proposal });
     const history = conversation.messages();
     const epoch = conversation.epoch;
     conversation.append(message);
@@ -180,34 +182,22 @@ export class HandleAssistantRequest {
     }
   }
 
-  private propose(edit: ProjectEdit): ProposalMessage {
-    const change = new PendingDocumentChange(this.deps.newId(), edit);
-    this.deps.pendingChanges.add(change);
-    this.showPreview(change);
+  private propose(change: ProjectEdit): ProposalMessage {
+    const { editor, conversation, pendingChanges } = this.deps;
+    const { file, edit } = change;
+    edit.assertCurrent(editor.readDocument(file));
+    editor.showPreview(file, edit);
     const message: ProposalMessage = {
-      id: change.id,
+      id: this.deps.newId(),
       role: 'assistant',
       kind: 'proposal',
-      path: edit.file.path,
-      command: edit.edit.command,
+      path: file.path,
+      command: edit.command,
       status: ProposalStatus.Proposed,
     };
-    this.deps.conversation.append(message);
+    conversation.append(message);
+    pendingChanges.add(new PendingDocumentChange(message.id, change));
     return message;
-  }
-
-  private showPreview(change: PendingDocumentChange): void {
-    const { editor } = this.deps;
-    const { file, edit } = change.change;
-    try {
-      edit.assertCurrent(editor.readDocument(file));
-      editor.showPreview(file, edit);
-    } catch (error) {
-      change.discard();
-      editor.clearPreview();
-      throw error;
-    }
-    change.markPreviewed();
   }
 
   private reply(kind: ReplyMessage['kind'], text: string): ReplyMessage {

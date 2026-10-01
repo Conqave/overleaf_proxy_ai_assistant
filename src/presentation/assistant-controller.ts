@@ -6,6 +6,7 @@ import type { AgentProgress } from '../application/agent-progress';
 import { RequestSupersededError } from '../application/errors';
 import type { OperationLock } from '../application/operation-lock';
 import type { RejectDocumentChange } from '../application/reject-document-change';
+import { ProposalStatus } from '../domain/conversation';
 import { InvariantViolation, OperationalError } from '../domain/errors';
 import type { AssistantView, ViewEvents } from './assistant-view';
 import {
@@ -59,7 +60,6 @@ export class AssistantController implements ViewEvents {
 
   apply(changeId: string): Promise<void> {
     const view = this.requireView();
-    view.closeChangeActions(changeId);
     const onProgress = (progress: AgentProgress): void => {
       this.showProgress(view, progress);
     };
@@ -81,9 +81,8 @@ export class AssistantController implements ViewEvents {
 
   reject(changeId: string): Promise<void> {
     const view = this.requireView();
-    view.closeChangeActions(changeId);
-    return this.guard(() => {
-      view.updateMessage(this.useCases.rejectChange.execute(changeId));
+    return this.guard(async () => {
+      view.updateMessage(await this.useCases.rejectChange.execute(changeId));
     });
   }
 
@@ -116,12 +115,13 @@ export class AssistantController implements ViewEvents {
   private showProgress(view: AssistantView, progress: AgentProgress): void {
     switch (progress.stage) {
       case 'received':
-        view.closeAllChangeActions();
         view.appendMessage(progress.message);
         break;
-      case 'applied':
+      case 'decided':
         view.updateMessage(progress.message);
-        view.showNotice(appliedNotice(progress.change), 'info');
+        if (progress.message.status === ProposalStatus.Applied) {
+          view.showNotice(appliedNotice(progress.message), 'info');
+        }
         break;
       case 'thinking':
       case 'reading':

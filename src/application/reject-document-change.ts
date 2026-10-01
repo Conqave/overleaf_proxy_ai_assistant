@@ -1,6 +1,6 @@
-import { ProposalStatus, type ProposalMessage } from '../domain/conversation';
+import type { ProposalMessage } from '../domain/conversation';
 import type { EditorPort } from '../ports/editor-port';
-import type { ConversationLog } from './conversation-log';
+import type { OperationLock } from './operation-lock';
 import type { PendingChanges } from './pending-change';
 
 export class RejectDocumentChange {
@@ -8,14 +8,15 @@ export class RejectDocumentChange {
     private readonly deps: {
       editor: EditorPort;
       pendingChanges: PendingChanges;
-      conversation: ConversationLog;
+      lock: OperationLock;
     },
   ) {}
 
-  execute(changeId: string): ProposalMessage {
-    const change = this.deps.pendingChanges.get(changeId);
-    change.reject();
-    this.deps.editor.clearPreview();
-    return this.deps.conversation.decideProposal(change.id, ProposalStatus.Rejected);
+  execute(changeId: string): Promise<ProposalMessage> {
+    return this.deps.lock.run(() => {
+      const message = this.deps.pendingChanges.reject(changeId);
+      this.deps.editor.clearPreview();
+      return Promise.resolve(message);
+    });
   }
 }

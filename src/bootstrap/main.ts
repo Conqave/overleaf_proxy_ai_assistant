@@ -55,7 +55,7 @@ function compose(
   const conversation = new ConversationLog(
     new LocalStorageConversationRepository(window, identity),
   );
-  const pendingChanges = new PendingChanges();
+  const pendingChanges = new PendingChanges(conversation);
   const createController = (): AbortController => new AbortController();
   const lock = new OperationLock(createController);
 
@@ -82,7 +82,7 @@ function compose(
       review,
     }),
     lock,
-    rejectChange: new RejectDocumentChange({ editor, pendingChanges, conversation }),
+    rejectChange: new RejectDocumentChange({ editor, pendingChanges, lock }),
     startNewConversation: new StartNewConversation({
       conversation,
       pendingChanges,

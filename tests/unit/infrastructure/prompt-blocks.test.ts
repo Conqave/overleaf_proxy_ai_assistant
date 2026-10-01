@@ -98,6 +98,8 @@ describe('conversation history', () => {
     ['proposed', '[proposal left undecided]'],
     ['applied', '[proposal applied]'],
     ['rejected', '[proposal rejected]'],
+    ['failed', '[proposal failed to apply]'],
+    ['discarded', '[proposal discarded without a decision]'],
   ] as const)(
     'shows a %s proposal to the model with its outcome, place and content',
     (status, outcome) => {

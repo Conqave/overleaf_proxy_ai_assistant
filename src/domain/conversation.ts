@@ -41,6 +41,8 @@ export const ProposalStatus = {
   Proposed: 'proposed',
   Applied: 'applied',
   Rejected: 'rejected',
+  Failed: 'failed',
+  Discarded: 'discarded',
 } as const;
 export type ProposalStatus = (typeof ProposalStatus)[keyof typeof ProposalStatus];
 export type ProposalDecision = Exclude<ProposalStatus, typeof ProposalStatus.Proposed>;

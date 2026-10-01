@@ -35,6 +35,17 @@ const messages: ConversationMessage[] = [
     status: 'applied',
   },
   { id: '4', role: 'system', text: 'Compiling reports errors; fix the first error.' },
+  ...(['proposed', 'failed', 'discarded'] as const).map((status): ConversationMessage => ({
+    id: `5-${status}`,
+    role: 'assistant',
+    kind: 'proposal',
+    path: 'main.tex',
+    command: createDocumentCommand({
+      operation: 'delete',
+      target: { lineNumber: 1, lineText: 'Gone.' },
+    }),
+    status,
+  })),
 ];
 
 let storage: Storage;
