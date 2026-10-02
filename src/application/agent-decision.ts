@@ -17,6 +17,7 @@ import {
 import { assertEditShown, getShownDocument, type AgentTurn } from '../domain/agent-transcript';
 import { AgentMistakeError } from '../domain/errors';
 import { checkSeparateEdits } from '../domain/file-change';
+import { assertBibFieldsSeparated } from '../domain/bibtex-fields';
 import {
   findSearchScope,
   findTextFile,
@@ -122,28 +123,28 @@ function acceptReply(
     case 'edit': {
       checkEditCount(reply.edits.length);
       const changes = reply.edits.map((request, index) =>
-        reply.edits.length === 1
-          ? acceptEdit(request, workspace, transcript)
-          : acceptEditOfMany(request, index, reply.edits.length, workspace, transcript),
+        checkEditOfMany(index, reply.edits.length, request.path, () =>
+          acceptEdit(request, workspace, transcript),
+        ),
       );
       checkSeparateEdits(changes.map(({ file, edit }) => ({ path: file.path, edit })));
+      changes.forEach(({ file, edit }, index) => {
+        checkEditOfMany(index, changes.length, file.path, () => {
+          assertBibFieldsSeparated(file.path, edit);
+        });
+      });
       return { kind: 'edit', changes };
     }
   }
 }
 
-function acceptEditOfMany(
-  request: EditRequest,
-  index: number,
-  count: number,
-  workspace: AgentWorkspace,
-  transcript: readonly AgentTurn[],
-): ProjectEdit {
+function checkEditOfMany<T>(index: number, count: number, path: string, check: () => T): T {
+  if (count === 1) return check();
   try {
-    return acceptEdit(request, workspace, transcript);
+    return check();
   } catch (error) {
     if (!(error instanceof AgentMistakeError)) throw error;
-    throw new InvalidChangeSetEditError(index, count, request.path, error);
+    throw new InvalidChangeSetEditError(index, count, path, error);
   }
 }
 

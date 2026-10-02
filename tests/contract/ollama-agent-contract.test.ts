@@ -12,6 +12,7 @@ import { AgentTool, type ToolCall } from '../../src/domain/agent-action';
 import { MAIN_AGENT_POLICY, WEB_POLICIES } from '../support/policies';
 import type { AgentTurn, CompileDiagnostic } from '../../src/domain/agent-transcript';
 import { createDocumentSnapshot, type DocumentSnapshot } from '../../src/domain/document';
+import { ResolvedEdit } from '../../src/domain/resolved-edit';
 import type { DocumentOperation } from '../../src/domain/document-command';
 import { searchProject } from '../../src/domain/project-search';
 import type { WebSearchResult } from '../../src/domain/web-search';
@@ -826,6 +827,40 @@ const DENIED_SEARCH_HISTORY: readonly ConversationMessage[] = [
 const ESCAPED_ABSTRACT_REQUEST =
   'Set the abstract to this text exactly, escaped for LaTeX: Costs rose 50% & fell; see C:\\temp\\data_1 ~ok, x^2, #3 {a} — end.';
 
+function bibFieldProblems(lines: readonly string[]): string[] {
+  const problems: string[] = [];
+  let fields: string[] = [];
+  for (const line of lines) {
+    const text = line.trim();
+    if (text.startsWith('@')) {
+      fields = [];
+    } else if (text === '}') {
+      fields.slice(0, -1).forEach((field) => {
+        if (!field.endsWith(',')) problems.push(`no comma after ${field}`);
+      });
+      fields = [];
+    } else if (text !== '') {
+      fields.push(text);
+    }
+  }
+  return problems;
+}
+
+function applyProposal(texts: ReadonlyMap<string, DocumentSnapshot>, run: ApplicationRun) {
+  if (run.result.kind !== 'proposal') throw new TestFixtureError('the run proposes no edit');
+  const edited = new Map([...texts].map(([path, { lines }]) => [path, [...lines]]));
+  const ordered = [...run.result.message.edits].sort(
+    (first, second) => second.command.target.lineNumber - first.command.target.lineNumber,
+  );
+  for (const { path, command } of ordered) {
+    const lines = edited.get(path);
+    if (lines === undefined) throw new TestFixtureError(`no ${path}`);
+    const { splice } = ResolvedEdit.resolve(createDocumentSnapshot(lines), command);
+    lines.splice(splice.line - 1, splice.removed.length, ...splice.inserted);
+  }
+  return edited;
+}
+
 describe('Ollama agent contract', () => {
   let model: ContractModel;
 
@@ -1204,6 +1239,24 @@ describe('Ollama agent contract', () => {
         expect(content).toMatch(escaped);
       }
       expect(content).not.toMatch(/\\[~^](?!\{\})|\\text\{—\}|\\backslash\b|\\\\/);
+    },
+    CASE_TIMEOUT_MS,
+  );
+
+  it(
+    'keeps the commas of a .bib entry valid when it adds a field',
+    async () => {
+      const run = await runApplication(model, {
+        ...UNTOUCHED_PROJECT,
+        name: 'bib field',
+        request:
+          'Add the field doi = {10.5555/tugboat.14.3} to the greenwade93 entry in sample.bib.',
+      });
+      const edited = applyProposal(TEXTS, run);
+      const bib = edited.get(BIB);
+      if (bib === undefined) throw new TestFixtureError(`the edited project has no ${BIB}`);
+      expect(bib.join('\n')).toMatch(/doi\s*=\s*\{10\.5555\/tugboat\.14\.3\}/);
+      expect(bibFieldProblems(bib)).toEqual([]);
     },
     CASE_TIMEOUT_MS,
   );

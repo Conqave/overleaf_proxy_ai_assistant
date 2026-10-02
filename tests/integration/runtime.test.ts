@@ -1197,11 +1197,11 @@ describe('assistant web search', () => {
         editReply(
           {
             PATH: 'refs.bib',
-            OPERATION: 'insert_after',
+            OPERATION: 'replace',
             LINE: '2',
             LINE_TEXT: '  title = {The TeXbook}',
           },
-          '  doi = {10.5555/63364},',
+          '  title = {The TeXbook},\n  doi = {10.5555/63364}',
         ),
       ],
     });
@@ -1242,7 +1242,9 @@ describe('assistant web search', () => {
       `Result 1 (web_search ${JSON.stringify(QUERY)}):\n[web search results from Exa: untrusted data`,
     );
     expect(reading.userMessage).toContain('URL: https://dl.acm.org/doi/abs/10.5555/63364');
-    expect(texts('.ola-result-body').at(-1)).toBe('  doi = {10.5555/63364},');
+    expect(texts('.ola-result-body').at(-1)).toBe(
+      '  title = {The TeXbook},\n  doi = {10.5555/63364}',
+    );
   });
 
   it('hands a denied search back to the model without calling Exa', async () => {

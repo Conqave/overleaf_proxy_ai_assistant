@@ -116,10 +116,13 @@ describe('agent exchange', () => {
     expect(system).toMatch(/- Everything after CONTENT: [^\n]*no Markdown\./);
   });
 
-  it('teaches how to escape given text', () => {
+  it('teaches how to escape given text and how to add a .bib field', () => {
     const { system } = createAgentExchange(request(), budget).request;
     expect(system).toContain(
       '\\textbackslash{} for every \\, \\textasciitilde{} for ~ and \\textasciicircum{} for ^ (C:\\a\\b_c~1 becomes C:\\textbackslash{}a\\textbackslash{}b\\_c\\textasciitilde{}1); never \\~, \\^, \\backslash or \\\\ for them.',
+    );
+    expect(system).toContain(
+      'A field added after the last field of a .bib entry needs a comma after that field',
     );
   });
 

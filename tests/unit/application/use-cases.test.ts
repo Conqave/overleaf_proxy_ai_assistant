@@ -388,6 +388,32 @@ describe('HandleAssistantRequest', () => {
     });
   });
 
+  it('asks for the comma that keeps the fields of a .bib entry separated', async () => {
+    const field = (operation: 'insert_after' | 'replace', content: string): AgentDecision =>
+      editsOf({
+        path: 'refs.bib',
+        command: createDocumentCommand({
+          operation,
+          target: { lineNumber: 2, lineText: '  title = {Smith}' },
+          content,
+        }),
+      });
+    const bib = ['@article{smith20,', '  title = {Smith}', '}'];
+    project = new FakeProject(editor, { 'main.tex': MAIN, 'refs.bib': bib }, 'main.tex');
+    wireRequests();
+    agent.will(
+      readBib(),
+      field('insert_after', '  year = {2020}'),
+      field('replace', '  title = {Smith},\n  year = {2020}'),
+    );
+    const result = await send('add the year 2020 to smith20');
+    expect(requestAt(2).transcript[1]).toMatchObject({
+      kind: 'mistake',
+      problem: textContaining('line 2 of refs.bib (title = {Smith}) is followed by another field'),
+    });
+    expect(result.message).toMatchObject({ kind: 'proposal', edits: [{ path: 'refs.bib' }] });
+  });
+
   it('asks for a read of the lines when an edit relies only on search hits', async () => {
     agent.will(tool({ tool: 'search', query: 'smith' }), bibEdit(), readBib(), bibEdit());
     const result = await send('fix the smith entry');

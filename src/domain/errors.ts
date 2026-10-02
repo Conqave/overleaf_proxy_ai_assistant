@@ -41,6 +41,8 @@ export class UncheckedFilesError extends AgentMistakeError {}
 
 export class UnreadFileEditError extends AgentMistakeError {}
 
+export class BibFieldSeparatorError extends AgentMistakeError {}
+
 export class UnshownLinesEditError extends AgentMistakeError {}
 
 export class OverlappingEditsError extends AgentMistakeError {}
