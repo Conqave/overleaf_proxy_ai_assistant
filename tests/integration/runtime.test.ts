@@ -1207,7 +1207,9 @@ describe('assistant web search', () => {
       'tools/call',
     ]);
     expect(
-      mcp.requests.every(({ url, credentials }) => url === ENDPOINT && credentials === 'omit'),
+      mcp.requests.every(
+        ({ url, credentials }) => url === ENDPOINT && credentials === 'same-origin',
+      ),
     ).toBe(true);
     expect(mcp.toolCalls[0]?.message.params).toMatchObject({
       name: 'web_search_exa',

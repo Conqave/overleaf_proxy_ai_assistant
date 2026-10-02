@@ -168,7 +168,7 @@ export class McpClient {
         method: 'POST',
         headers,
         body: JSON.stringify(message),
-        credentials: 'omit',
+        credentials: 'same-origin',
         signal,
       });
     } catch (error) {

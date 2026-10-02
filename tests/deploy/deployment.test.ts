@@ -207,6 +207,7 @@ const OVERLEAF_CSP =
   "script-src 'nonce-Ab+/cd==' 'unsafe-inline' 'strict-dynamic' https: 'report-sample'; object-src 'none'";
 
 const SESSION_COOKIE = 'overleaf_session2=signed-in';
+const SESSION_ROUTE = '/user/personal_info';
 const OLLAMA_PATH = '/ollama/main/api/generate';
 
 interface UpstreamRequest {
@@ -240,11 +241,20 @@ describe('nginx proxy', () => {
     },
     body: '{}',
   });
+  const sessionChecks = () => overleafRequests.filter(({ url }) => url === SESSION_ROUTE);
+  const upstreamCalls = () => ollamaRequests.length + exaRequests.length;
 
   beforeAll(async () => {
     overleafServer = await listenRecording(overleafRequests, (req, res) => {
       if (req.url === '/status') {
         res.end('web is alive');
+        return;
+      }
+      if (req.url === SESSION_ROUTE) {
+        const signedInCookie =
+          req.headers.cookie === SESSION_COOKIE && req.headers.accept === 'application/json';
+        res.writeHead(signedInCookie ? 200 : 401, { 'Content-Type': 'application/json' });
+        res.end(signedInCookie ? '{"id":"1"}' : '');
         return;
       }
       res.setHeader('Content-Type', 'text/html');
@@ -334,6 +344,44 @@ describe('nginx proxy', () => {
     ).toBe(403);
     await fetch(`${base}/ollama/main/api/pull`, signedIn());
     expect(ollamaRequests).toHaveLength(count);
+  });
+
+  it('refuses requests without a signed-in Overleaf session and never reaches the upstreams', async () => {
+    const count = upstreamCalls();
+    for (const cookie of [undefined, 'overleaf_session2=expired']) {
+      for (const path of [OLLAMA_PATH, WEB_SEARCH_PATH]) {
+        const headers: Record<string, string> = {
+          'Content-Type': 'application/json',
+          Origin: base,
+        };
+        if (cookie !== undefined) headers.Cookie = cookie;
+        expect(
+          (await fetch(`${base}${path}`, { method: 'POST', headers, body: '{}' })).status,
+        ).toBe(401);
+      }
+    }
+    expect(upstreamCalls()).toBe(count);
+    expect((await fetch(`${base}/overleaf-ai-assistant/session`)).status).toBe(404);
+  });
+
+  it('checks the session with a bodiless GET to Overleaf that carries only the cookie', async () => {
+    await fetch(
+      `${base}${OLLAMA_PATH}`,
+      signedIn({ Authorization: 'Bearer user-token', 'X-Csrf-Token': 'csrf-1' }),
+    );
+    const check = itemAt(sessionChecks(), -1, 'session check');
+    expect(check).toMatchObject({ method: 'GET', body: '' });
+    expect(check.headers).toMatchObject({ cookie: SESSION_COOKIE, accept: 'application/json' });
+    for (const header of [
+      'authorization',
+      'x-csrf-token',
+      'origin',
+      'content-type',
+      'content-length',
+      'transfer-encoding',
+    ]) {
+      expect(check.headers).not.toHaveProperty(header);
+    }
   });
 
   it("forwards requests to the upstreams without the browser's Overleaf credentials", async () => {

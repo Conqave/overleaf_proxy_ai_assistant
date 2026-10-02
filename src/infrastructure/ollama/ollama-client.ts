@@ -120,7 +120,7 @@ export class OllamaClient {
     try {
       return await this.fetchFn(this.config.endpoint, {
         method: 'POST',
-        credentials: 'omit',
+        credentials: 'same-origin',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ model: this.config.model, stream: false, keep_alive: -1, ...body }),
         signal,

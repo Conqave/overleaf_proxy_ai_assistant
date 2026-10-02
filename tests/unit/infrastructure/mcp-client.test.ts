@@ -62,7 +62,7 @@ describe('McpClient', () => {
     }
     for (const request of server.requests) {
       expect(request.url).toBe(ENDPOINT);
-      expect(request.credentials).toBe('omit');
+      expect(request.credentials).toBe('same-origin');
       expect(request.headers.get('Accept')).toBe('application/json, text/event-stream');
       expect(request.headers.get('Content-Type')).toBe('application/json');
     }

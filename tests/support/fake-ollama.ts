@@ -169,8 +169,10 @@ export class FakeOllama {
         ? new Response(JSON.stringify(this.config), { status: 200 })
         : new Response('missing', { status: 404 });
     }
-    if (init?.credentials !== 'omit') {
-      throw new UnexpectedFakeCallError(`Ollama was called at ${url} with the page's cookies`);
+    if (init?.credentials !== 'same-origin') {
+      throw new UnexpectedFakeCallError(
+        `Ollama was called at ${url} without the same-origin session the proxy checks`,
+      );
     }
     if (typeof init.body !== 'string') {
       throw new UnexpectedFakeCallError(`Ollama was called at ${url} without a JSON body`);
