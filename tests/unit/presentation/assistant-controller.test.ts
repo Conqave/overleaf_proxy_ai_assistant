@@ -17,6 +17,7 @@ import {
   StartNewConversation,
 } from '../../../src/application/conversation-session';
 import { ReadContextUsage } from '../../../src/application/read-context-usage';
+import { StopOperation } from '../../../src/application/stop-operation';
 import { composeRequestHandling } from '../../support/request-handling';
 import { OperationLock } from '../../../src/application/operation-lock';
 import { PendingChanges } from '../../../src/application/pending-change';
@@ -155,6 +156,7 @@ async function openAssistantWith(
     compactConversation: new CompactConversation({ compactor, conversation, lock }),
     restoreSession: new RestoreLatestSession(sessionDeps),
     startNewConversation: new StartNewConversation(sessionDeps),
+    stopOperation: new StopOperation({ conversation, lock }),
     listSessions: new ListSessions(sessionDeps),
     openSession: new OpenSession(sessionDeps),
     deleteSession: new DeleteSession(sessionDeps),
@@ -798,6 +800,57 @@ describe('AssistantController new chat', () => {
     await controller.newConversation();
     await sending;
     expect(texts('.ola-error')).toEqual([]);
+    expect(texts('.ola-msg')).toEqual([expect.stringContaining('Ready to help')]);
+  });
+});
+
+describe('AssistantController stop', () => {
+  it('stops a running request, keeps the session and leaves a cancelled note', async () => {
+    const { window, controller, project, conversation, texts, buttons, click } =
+      await openAssistant();
+    expect(buttons('.ola-stop').every((button) => button.hidden)).toBe(true);
+    project.holdsReads = true;
+    const sending = controller.send('add the knuth84 entry');
+    await vi.waitFor(() => {
+      expect(project.reads).toEqual(['refs.bib']);
+    });
+    const sessionId = conversation.sessionId;
+    expect(buttons('.ola-send').every((button) => button.hidden)).toBe(true);
+    expect(buttons('.ola-stop').every((button) => !button.hidden && !button.disabled)).toBe(true);
+    click('.ola-stop');
+    await sending;
+    await vi.waitFor(() => {
+      expect(texts('.ola-system')).toEqual(['Cancelled: you stopped Hans before it finished.']);
+    });
+    expect(conversation.sessionId).toBe(sessionId);
+    expect(texts('.ola-user')).toEqual(['add the knuth84 entry']);
+    expect(texts('.ola-error')).toEqual([]);
+    expect(window.document.querySelector('#ola-root')?.classList.contains('is-busy')).toBe(false);
+    expect(buttons('.ola-stop').every((button) => button.hidden)).toBe(true);
+    if (sessionId === null) throw new TestFixtureError('the request started no session');
+    await controller.newConversation();
+    await controller.openSession(sessionId);
+    expect(texts('.ola-system')).toEqual(['Cancelled: you stopped Hans before it finished.']);
+  });
+
+  it('removes a web search approval that waited when Hans was stopped', async () => {
+    const { window, controller, agent, texts } = await openAssistantWith([
+      { kind: 'tool', call: { tool: 'web_search', query: 'LaTeX book DOI' } },
+    ]);
+    const sending = controller.send('find the DOI');
+    await vi.waitFor(() => {
+      expect(window.document.querySelector('.ola-approval')).not.toBeNull();
+    });
+    await controller.stop();
+    await sending;
+    expect(window.document.querySelector('.ola-approval')).toBeNull();
+    expect(texts('.ola-system')).toEqual(['Cancelled: you stopped Hans before it finished.']);
+    expect(agent.requests).toHaveLength(1);
+  });
+
+  it('adds no note when nothing runs', async () => {
+    const { controller, texts } = await openAssistant();
+    await controller.stop();
     expect(texts('.ola-msg')).toEqual([expect.stringContaining('Ready to help')]);
   });
 });

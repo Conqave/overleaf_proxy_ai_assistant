@@ -336,6 +336,7 @@ describe('IndexedDbSessionRepository', () => {
         { id: 'n4', role: 'notice', notice: { kind: 'exported', path: 'hans-sessions/a.json' } },
         { id: 'n5', role: 'notice', notice: { kind: 'imported', path: 'hans-sessions/a.json' } },
         { id: 'n6', role: 'notice', notice: { kind: 'failed', problem: 'Ollama is down.' } },
+        { id: 'n7', role: 'notice', notice: { kind: 'cancelled' } },
       ],
     };
     await repository.save(noticed);

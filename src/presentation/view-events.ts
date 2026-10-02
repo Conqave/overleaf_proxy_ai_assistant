@@ -6,6 +6,7 @@ export interface ViewEvents {
   reject(proposalId: string, index: number | null): Promise<void>;
   previewFile(proposalId: string, path: string): Promise<void>;
   undo(proposalId: string): Promise<void>;
+  stop(): Promise<void>;
   newConversation(): Promise<void>;
   showSessions(): Promise<void>;
   openSession(id: string): Promise<void>;

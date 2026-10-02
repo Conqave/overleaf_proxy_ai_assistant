@@ -353,6 +353,9 @@
 #ola-root .ola-send {
   background: #27ae60;
 }
+#ola-root .ola-stop {
+  background: #c0392b;
+}
 #ola-root .ola-typing {
   display: flex;
   align-items: center;

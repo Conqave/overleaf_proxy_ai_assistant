@@ -13,9 +13,17 @@ export class RequestInProgressError extends OperationalError {
   }
 }
 
-export class RequestSupersededError extends OperationalError {
+export abstract class OperationCancelledError extends OperationalError {}
+
+export class RequestSupersededError extends OperationCancelledError {
   constructor() {
     super('The conversation was reset before the assistant finished; the reply was dropped.');
+  }
+}
+
+export class OperationStoppedError extends OperationCancelledError {
+  constructor() {
+    super('The user stopped the assistant before it finished.');
   }
 }
 

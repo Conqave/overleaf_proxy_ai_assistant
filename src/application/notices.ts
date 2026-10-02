@@ -2,7 +2,7 @@ import type { Notice } from '../domain/conversation';
 import { OperationalError } from '../domain/errors';
 import type { AgentProgress } from './agent-progress';
 import type { ConversationLog } from './conversation-log';
-import { RequestSupersededError } from './errors';
+import { OperationCancelledError } from './errors';
 
 export function note(
   conversation: ConversationLog,
@@ -27,5 +27,5 @@ export async function recordingFailure<T>(
 }
 
 function isRecordedFailure(error: unknown): error is OperationalError {
-  return error instanceof OperationalError && !(error instanceof RequestSupersededError);
+  return error instanceof OperationalError && !(error instanceof OperationCancelledError);
 }

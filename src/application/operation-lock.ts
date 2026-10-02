@@ -41,12 +41,19 @@ export class OperationLock {
     reason: Error,
     operation: (signal: CancellationSignal) => Promise<T>,
   ): Promise<T> {
+    await this.cancel(reason);
+    return await this.run(operation);
+  }
+
+  async cancel(reason: Error): Promise<boolean> {
+    let cancelled = false;
     while (this.current !== null) {
       const { controller, finished } = this.current;
       controller.abort(reason);
+      cancelled = true;
       await finished;
     }
-    return await this.run(operation);
+    return cancelled;
   }
 
   assertHeld(): void {

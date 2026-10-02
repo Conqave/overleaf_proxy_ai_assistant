@@ -14,6 +14,7 @@ import {
 import { ExportSession, ImportSession, ListSessionExports } from '../application/session-exchange';
 import { HandleAssistantRequest } from '../application/handle-assistant-request';
 import { OperationLock } from '../application/operation-lock';
+import { StopOperation } from '../application/stop-operation';
 import { PendingChanges } from '../application/pending-change';
 import { PreviewChangeSetFile } from '../application/preview-change-set-file';
 import { ReadContextUsage } from '../application/read-context-usage';
@@ -158,6 +159,7 @@ function compose(
     compactConversation: new CompactConversation({ compactor, conversation, lock }),
     restoreSession: new RestoreLatestSession(sessionDeps),
     startNewConversation: new StartNewConversation(sessionDeps),
+    stopOperation: new StopOperation({ conversation, lock }),
     listSessions: new ListSessions(sessionDeps),
     openSession: new OpenSession(sessionDeps),
     deleteSession: new DeleteSession(sessionDeps),

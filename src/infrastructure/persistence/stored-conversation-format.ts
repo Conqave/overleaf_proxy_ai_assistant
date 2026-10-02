@@ -126,6 +126,8 @@ function parseNotice(fields: Map<string, unknown>): Notice {
       return { kind, path: parsePath(fields.get('path')) };
     case 'failed':
       return { kind, problem: getString(fields, 'problem') };
+    case 'cancelled':
+      return { kind };
     default:
       throw new UnknownStoredFormatError('unknown notice');
   }

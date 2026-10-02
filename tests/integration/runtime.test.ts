@@ -1531,6 +1531,25 @@ describe('assistant under interference', () => {
     expect(messages().at(-1)).toContain(GREETING_ANSWER);
   });
 
+  it('stops a running request with Stop and keeps the session with a cancelled note', async () => {
+    const { doc, click, messages, ollama, sessions } = await start({ replies: [{ hang: true }] });
+    typeCommand(doc, 'What is this document about?');
+    button(doc, '.ola-send').click();
+    await vi.waitFor(() => {
+      expect(ollama.prompts).toHaveLength(1);
+    }, PAGE_WAIT);
+    await click('.ola-stop', () => {
+      expect(messages()).toEqual([
+        'What is this document about?',
+        'Cancelled: you stopped Hans before it finished.',
+      ]);
+    });
+    expect(button(doc, '.ola-stop').hidden).toBe(true);
+    expect(button(doc, '.ola-send').hidden).toBe(false);
+    const reloaded = await start({ sessions });
+    expect(reloaded.messages()).toEqual(messages());
+  });
+
   it('ignores Enter while a request is running', async () => {
     const { browser, doc, click, messages, ollama, isIdle } = await start({
       replies: [{ hang: true }],

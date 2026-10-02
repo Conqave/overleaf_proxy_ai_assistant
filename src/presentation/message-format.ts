@@ -73,6 +73,8 @@ export const VIEW_TEXT = {
   inputPlaceholder:
     'Describe what you want: explain an error, improve text, insert a table or delete a line.',
   send: 'Send',
+  stop: 'Stop',
+  stopHint: 'Stop what Hans is doing; the session stays as it is',
   apply: 'Apply',
   reject: 'Reject',
   applyAll: 'Apply all',
@@ -96,6 +98,8 @@ export const VIEW_TEXT = {
 } as const;
 
 const COMPILED = 'Compiled without errors.';
+
+const CANCELLED = 'Cancelled: you stopped Hans before it finished.';
 
 export const COMPILE_FIX_NOTE = 'Hans was asked to fix the first compile error.';
 
@@ -246,6 +250,8 @@ export function noticeText(notice: Notice): NoticeText {
       return { text: importedNotice(notice.path), tone: 'info' };
     case 'failed':
       return { text: errorNotice(notice.problem), tone: 'error' };
+    case 'cancelled':
+      return { text: CANCELLED, tone: 'info' };
   }
 }
 

@@ -64,7 +64,11 @@ export class AssistantView {
       renderer,
       new WebSearchApprovalCard(dom, (id, decision) => events.decideWebSearch(id, decision)),
     );
-    this.input = new RequestInput(dom, (text) => void events.send(text));
+    this.input = new RequestInput(
+      dom,
+      (text) => void events.send(text),
+      () => void events.stop(),
+    );
 
     const panel = dom.el('section', 'ola-panel');
     const resizer = new PanelResizer(windowOf(document), panel, preferences);

@@ -88,6 +88,22 @@ describe('OperationLock', () => {
     expect(isSuperseded).toBe(true);
   });
 
+  it('cancels the running operation, waits for its end and reports that it cancelled', async () => {
+    const { lock, changes } = observedLock();
+    const reason = new RequestInProgressError();
+    const running = lock.run((signal) => rejectOnAbort(signal));
+    const cancelling = lock.cancel(reason);
+    await expect(running).rejects.toBe(reason);
+    await expect(cancelling).resolves.toBe(true);
+    expect(changes).toEqual([true, false]);
+  });
+
+  it('cancels nothing while nothing runs', async () => {
+    const { lock, changes } = observedLock();
+    await expect(lock.cancel(new RequestInProgressError())).resolves.toBe(false);
+    expect(changes).toEqual([]);
+  });
+
   it('runs a superseding operation at once while nothing runs', async () => {
     const lock = new OperationLock(() => new AbortController());
     await expect(

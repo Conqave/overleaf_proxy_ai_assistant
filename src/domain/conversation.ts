@@ -103,7 +103,8 @@ export type Notice =
   | { readonly kind: 'compiled'; readonly errorCount: number }
   | { readonly kind: 'exported'; readonly path: string }
   | { readonly kind: 'imported'; readonly path: string }
-  | { readonly kind: 'failed'; readonly problem: string };
+  | { readonly kind: 'failed'; readonly problem: string }
+  | { readonly kind: 'cancelled' };
 
 export interface NoticeMessage {
   readonly id: string;

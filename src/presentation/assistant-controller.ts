@@ -14,7 +14,7 @@ import type { HandleAssistantRequest } from '../application/handle-assistant-req
 import type { ReadContextUsage } from '../application/read-context-usage';
 import type { ContextUsage } from '../domain/context-usage';
 import type { AgentProgress } from '../application/agent-progress';
-import { RequestSupersededError } from '../application/errors';
+import { OperationCancelledError } from '../application/errors';
 import type { OperationLock } from '../application/operation-lock';
 import type { PreviewChangeSetFile } from '../application/preview-change-set-file';
 import type {
@@ -23,6 +23,7 @@ import type {
   ListSessionExports,
 } from '../application/session-exchange';
 import type { RejectChangeSet } from '../application/reject-change-set';
+import type { StopOperation } from '../application/stop-operation';
 import type { UndoChangeSet } from '../application/undo-change-set';
 import type { WebSearchApproval, WebSearchDecision } from '../application/web-search-approval';
 import type { Notice } from '../domain/conversation';
@@ -41,6 +42,7 @@ interface UseCases {
   undoChange: UndoChangeSet;
   restoreSession: RestoreLatestSession;
   startNewConversation: StartNewConversation;
+  stopOperation: StopOperation;
   compactConversation: CompactConversation;
   listSessions: ListSessions;
   openSession: OpenSession;
@@ -160,6 +162,17 @@ export class AssistantController implements ViewEvents {
         if (review?.kind === 'fix') this.showResult(view, review.result);
       } finally {
         view.setStatus('');
+      }
+    });
+  }
+
+  stop(): Promise<void> {
+    const view = this.requireView();
+    return this.guard(async () => {
+      try {
+        await this.useCases.stopOperation.execute();
+      } finally {
+        this.showConversation(view);
       }
     });
   }
@@ -303,7 +316,7 @@ export class AssistantController implements ViewEvents {
     try {
       await action();
     } catch (error) {
-      if (error instanceof RequestSupersededError) return;
+      if (error instanceof OperationCancelledError) return;
       if (!(error instanceof OperationalError)) {
         this.requireView().showNotice(INTERNAL_ERROR, 'error');
         throw error;

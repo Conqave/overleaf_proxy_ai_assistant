@@ -5,11 +5,13 @@ export class RequestInput {
   readonly element: HTMLElement;
   private readonly input: HTMLTextAreaElement;
   private readonly sendButton: HTMLButtonElement;
+  private readonly stopButton: HTMLButtonElement;
   private busy = false;
 
   constructor(
     dom: DomBuilder,
     private readonly send: (text: string) => void,
+    stop: () => void,
   ) {
     this.input = dom.el('textarea', 'ola-textarea');
     this.input.placeholder = VIEW_TEXT.inputPlaceholder;
@@ -28,13 +30,23 @@ export class RequestInput {
     this.sendButton.addEventListener('click', () => {
       this.submit();
     });
+    this.stopButton = dom.button('ola-btn ola-stop', VIEW_TEXT.stop);
+    this.stopButton.title = VIEW_TEXT.stopHint;
+    this.stopButton.hidden = true;
+    this.stopButton.addEventListener('click', () => {
+      this.stopButton.disabled = true;
+      stop();
+    });
     this.element = dom.el('div', 'ola-body');
-    this.element.append(label, this.sendButton);
+    this.element.append(label, this.sendButton, this.stopButton);
     this.showSendable();
   }
 
   setBusy(busy: boolean): void {
     this.busy = busy;
+    this.sendButton.hidden = busy;
+    this.stopButton.hidden = !busy;
+    this.stopButton.disabled = false;
     this.showSendable();
   }
 
