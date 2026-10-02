@@ -510,7 +510,7 @@ describe('IndexedDbSessionRepository', () => {
     ...(
       [
         ['without edits', []],
-        ['with more edits than a change may have', Array.from({ length: 9 }, () => STORED_EDIT)],
+        ['without edits', []],
         ['with an edit of an unknown status', [{ ...STORED_EDIT, status: 'pending' }]],
         ['with an applied edit that lost its lines', [{ ...STORED_EDIT, status: 'applied' }]],
         [
@@ -557,6 +557,18 @@ describe('IndexedDbSessionRepository', () => {
     await expect(repository.load('raw')).rejects.toMatchObject({
       cause: { name: 'UnknownStoredFormatError' },
     });
+  });
+
+  it('loads a stored change with more edits than the agent may propose now', async () => {
+    const edits = Array.from({ length: 12 }, () => STORED_EDIT);
+    await storeRaw(
+      rawRecord({ messages: [{ id: 'p', role: 'assistant', kind: 'proposal', edits }] }),
+    );
+    const [proposal] = (await repository.load('raw')).messages;
+    expect(
+      proposal?.role === 'assistant' && proposal.kind === 'proposal' && proposal.edits,
+    ).toHaveLength(12);
+    expect((await repository.list()).unreadableIds).toEqual([]);
   });
 
   it('loads a valid raw record without the fields it does not know', async () => {

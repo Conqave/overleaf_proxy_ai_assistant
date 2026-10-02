@@ -53,7 +53,7 @@ export function createChangeSet(requests: readonly EditRequest[]): readonly Prop
 }
 
 export function restoreChangeSet(edits: readonly ProposedEdit[]): readonly ProposedEdit[] {
-  checkEditCount(edits.length);
+  if (edits.length === 0) throw new InvalidChangeSetError('a change has at least one edit');
   const sequences = edits.flatMap((edit) =>
     edit.status === EditStatus.Applied ? [edit.applied.sequence] : [],
   );

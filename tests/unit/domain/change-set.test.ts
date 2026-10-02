@@ -87,4 +87,13 @@ describe('change sets', () => {
     };
     expect(() => restoreChangeSet([edit, edit])).toThrow(InvalidChangeSetError);
   });
+
+  it('restores a stored change of any size, but not an empty one', () => {
+    const many = Array.from({ length: 12 }, (_, i) => ({
+      ...request('a.tex', i + 1),
+      status: 'rejected' as const,
+    }));
+    expect(restoreChangeSet(many)).toEqual(many);
+    expect(() => restoreChangeSet([])).toThrow(InvalidChangeSetError);
+  });
 });
