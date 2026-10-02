@@ -1,95 +1,114 @@
 import type { ProjectEdit } from '../domain/agent-action';
 import {
-  ProposalStatus,
-  type ProposalDecision,
-  type ProposalMessage,
-} from '../domain/conversation';
+  decideEdits,
+  EditStatus,
+  recordAppliedEdits,
+  type EditDecision,
+} from '../domain/change-set';
+import type { ProposalMessage } from '../domain/conversation';
 import { InvariantViolation } from '../domain/errors';
+import { rebaseEdit, type EditChange } from '../domain/file-change';
 import type { ConversationLog } from './conversation-log';
 import { ChangeNoLongerPendingError } from './errors';
 
-export class PendingDocumentChange {
-  private approved = false;
-
-  constructor(
-    readonly id: string,
-    readonly change: ProjectEdit,
-  ) {}
-
-  get isApproved(): boolean {
-    return this.approved;
-  }
-
-  approve(): void {
-    if (this.approved)
-      throw new InvariantViolation(`pending change ${this.id} is already approved`);
-    this.approved = true;
-  }
-
-  withdrawApproval(): void {
-    if (!this.approved) throw new InvariantViolation(`pending change ${this.id} is not approved`);
-    this.approved = false;
-  }
+export interface PendingEdit {
+  readonly index: number;
+  readonly change: ProjectEdit;
 }
 
-type ApplyOutcome = typeof ProposalStatus.Applied | typeof ProposalStatus.Failed;
-
 export class PendingChanges {
-  private readonly changes = new Map<string, PendingDocumentChange>();
+  private readonly changeSets = new Map<string, Map<number, ProjectEdit>>();
 
   constructor(private readonly conversation: ConversationLog) {}
 
-  add(change: PendingDocumentChange): void {
-    if (this.changes.has(change.id)) {
-      throw new InvariantViolation(`duplicate pending change id ${change.id}`);
+  add(proposalId: string, changes: readonly ProjectEdit[]): void {
+    if (this.changeSets.has(proposalId)) {
+      throw new InvariantViolation(`duplicate pending change id ${proposalId}`);
     }
-    this.changes.set(change.id, change);
+    this.changeSets.set(proposalId, new Map(changes.map((change, index) => [index, change])));
   }
 
-  isPending(id: string): boolean {
-    return this.changes.has(id);
+  isPending(proposalId: string): boolean {
+    return this.changeSets.has(proposalId);
   }
 
-  approve(id: string): PendingDocumentChange {
-    const change = this.get(id);
-    change.approve();
-    return change;
+  select(proposalId: string, indexes: readonly number[] | null): readonly PendingEdit[] {
+    const pending = this.get(proposalId);
+    const chosen = indexes === null ? [...pending.keys()] : indexes;
+    return chosen.map((index) => {
+      const change = pending.get(index);
+      if (change === undefined) throw new ChangeNoLongerPendingError();
+      return { index, change };
+    });
   }
 
-  withdrawApproval(id: string): void {
-    this.get(id).withdrawApproval();
+  selectFile(proposalId: string, path: string): readonly PendingEdit[] {
+    return this.select(proposalId, null).filter(({ change }) => change.file.path === path);
   }
 
-  reject(id: string): ProposalMessage {
-    const change = this.get(id);
-    if (change.isApproved) {
-      throw new InvariantViolation(`pending change ${id} is being applied and cannot be rejected`);
-    }
-    return this.close(change, ProposalStatus.Rejected);
+  decide(proposalId: string, indexes: readonly number[], decision: EditDecision): ProposalMessage {
+    this.forget(proposalId, indexes);
+    return this.conversation.updateProposal(proposalId, (edits) =>
+      decideEdits(edits, indexes, decision),
+    );
   }
 
-  settle(id: string, outcome: ApplyOutcome): ProposalMessage {
-    const change = this.get(id);
-    if (!change.isApproved) {
-      throw new InvariantViolation(
-        `pending change ${id} was not approved before it was ${outcome}`,
-      );
-    }
-    return this.close(change, outcome);
+  recordApplied(
+    proposalId: string,
+    edits: readonly PendingEdit[],
+    planned: EditChange,
+  ): ProposalMessage {
+    const indexes = edits.map(({ index }) => index);
+    const applied = planned.applied.map(({ index, applied: splice }) => ({
+      index: indexAt(indexes, index),
+      applied: splice,
+    }));
+    this.forget(proposalId, indexes);
+    this.rebaseFile(proposalId, getSharedPath(edits), planned);
+    return this.conversation.updateProposal(proposalId, (all) => recordAppliedEdits(all, applied));
   }
 
   discardAll(): ProposalMessage[] {
-    return [...this.changes.values()].map((change) => this.close(change, ProposalStatus.Discarded));
+    return [...this.changeSets].map(([proposalId, pending]) =>
+      this.decide(proposalId, [...pending.keys()], EditStatus.Discarded),
+    );
   }
 
-  private get(id: string): PendingDocumentChange {
-    const change = this.changes.get(id);
-    if (!change) throw new ChangeNoLongerPendingError();
-    return change;
+  private rebaseFile(proposalId: string, path: string, planned: EditChange): void {
+    const pending = this.changeSets.get(proposalId);
+    if (pending === undefined) return;
+    for (const [index, change] of pending) {
+      if (change.file.path !== path) continue;
+      pending.set(index, { file: change.file, edit: rebaseEdit(change.edit, planned) });
+    }
   }
 
-  private close(change: PendingDocumentChange, decision: ProposalDecision): ProposalMessage {
-    this.changes.delete(change.id);
-    return this.conversation.decideProposal(change.id, decision);
+  private forget(proposalId: string, indexes: readonly number[]): void {
+    const pending = this.get(proposalId);
+    for (const index of indexes) {
+      if (!pending.delete(index)) throw new ChangeNoLongerPendingError();
+    }
+    if (pending.size === 0) this.changeSets.delete(proposalId);
   }
+
+  private get(proposalId: string): Map<number, ProjectEdit> {
+    const pending = this.changeSets.get(proposalId);
+    if (pending === undefined) throw new ChangeNoLongerPendingError();
+    return pending;
+  }
+}
+
+function getSharedPath(edits: readonly PendingEdit[]): string {
+  const paths = new Set(edits.map(({ change }) => change.file.path));
+  const [path] = paths;
+  if (path === undefined || paths.size > 1) {
+    throw new InvariantViolation('applied edits must belong to exactly one file');
+  }
+  return path;
+}
+
+function indexAt(indexes: readonly number[], position: number): number {
+  const index = indexes[position];
+  if (index === undefined) throw new InvariantViolation(`no edit at position ${String(position)}`);
+  return index;
 }

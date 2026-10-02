@@ -1,6 +1,12 @@
 import {
+  EditStatus,
+  isEditStatus,
+  restoreChangeSet,
+  type AppliedRecord,
+  type ProposedEdit,
+} from '../../domain/change-set';
+import {
   AssistantMessageKind,
-  isProposalStatus,
   isReplyKind,
   type CompactionSummaryMessage,
   type ConversationMessage,
@@ -16,6 +22,7 @@ import {
 } from '../../domain/agent-transcript';
 import { createDocumentCommand, type DocumentCommand } from '../../domain/document-command';
 import {
+  InvalidChangeSetError,
   InvalidCompactionSummaryError,
   InvalidDocumentCommandError,
   InvalidProjectPathError,
@@ -43,14 +50,47 @@ function parseMessage(value: unknown): ConversationMessage {
   if (role !== 'assistant') throw new UnknownStoredFormatError('unknown role');
   const kind = fields.get('kind');
   if (kind === AssistantMessageKind.Proposal) {
-    const path = parsePath(fields.get('path'));
-    const command = parseCommand(fields.get('command'));
-    const status = fields.get('status');
-    if (!isProposalStatus(status)) throw new UnknownStoredFormatError('unknown proposal status');
-    return { id, role, kind, path, command, status };
+    return { id, role, kind, edits: parseEdits(getArray(fields, 'edits')) };
   }
   if (!isReplyKind(kind)) throw new UnknownStoredFormatError('unknown message kind');
   return { id, role, kind, text: getString(fields, 'text') };
+}
+
+function parseEdits(values: readonly unknown[]): readonly ProposedEdit[] {
+  const edits = values.map(parseEdit);
+  try {
+    return restoreChangeSet(edits);
+  } catch (error) {
+    if (!(error instanceof InvalidChangeSetError)) throw error;
+    throw new UnknownStoredFormatError(`invalid change: ${error.message}`, { cause: error });
+  }
+}
+
+function parseEdit(value: unknown): ProposedEdit {
+  const fields = getFields(value);
+  const path = parsePath(fields.get('path'));
+  const command = parseCommand(fields.get('command'));
+  const status = fields.get('status');
+  if (!isEditStatus(status)) throw new UnknownStoredFormatError('unknown edit status');
+  if (status === EditStatus.Applied) {
+    return { path, command, status, applied: parseApplied(fields.get('applied')) };
+  }
+  if (fields.has('applied')) {
+    throw new UnknownStoredFormatError(`a ${status} edit keeps no applied lines`);
+  }
+  return { path, command, status };
+}
+
+function parseApplied(value: unknown): AppliedRecord {
+  const fields = getFields(value);
+  const after = getStrings(fields, 'after');
+  if (after.length === 0) throw new UnknownStoredFormatError('applied lines are empty');
+  return {
+    line: getPositiveInteger(fields, 'line'),
+    before: getStrings(fields, 'before'),
+    after,
+    sequence: getNonNegativeInteger(fields, 'sequence'),
+  };
 }
 
 function parseSummary(id: string, fields: Map<string, unknown>): CompactionSummaryMessage {
@@ -94,10 +134,7 @@ function parseRecord(value: unknown): ToolRecord {
 
 function parseReadRecord(fields: Map<string, unknown>): ToolRecord {
   const shown = getFields(fields.get('shown'));
-  const lines = getArray(fields, 'lines').map((line) => {
-    if (typeof line !== 'string') throw new UnknownStoredFormatError('a read line is not text');
-    return line;
-  });
+  const lines = getStrings(fields, 'lines');
   try {
     return createReadRecord(
       parsePath(fields.get('path')),
@@ -172,9 +209,21 @@ function getNonNegativeInteger(fields: Map<string, unknown>, key: string): numbe
 }
 
 function getLineNumber(fields: Map<string, unknown>): number {
-  const lineNumber = getNonNegativeInteger(fields, 'lineNumber');
-  if (lineNumber === 0) throw new UnknownStoredFormatError('lineNumber is not a line number');
-  return lineNumber;
+  return getPositiveInteger(fields, 'lineNumber');
+}
+
+function getPositiveInteger(fields: Map<string, unknown>, key: string): number {
+  const value = getNonNegativeInteger(fields, key);
+  if (value === 0) throw new UnknownStoredFormatError(`${key} is not a line number`);
+  return value;
+}
+
+function getStrings(fields: Map<string, unknown>, key: string): readonly string[] {
+  return getArray(fields, key).map((line) => {
+    if (typeof line !== 'string')
+      throw new UnknownStoredFormatError(`${key} holds a non-text line`);
+    return line;
+  });
 }
 
 function getBoolean(fields: Map<string, unknown>, key: string): boolean {

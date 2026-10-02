@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { AgentReply } from '../../../src/domain/agent-action';
+import type { EditRequest } from '../../../src/domain/change-set';
 import {
   InvalidAssistantResponse,
   parseAgentDecision,
@@ -97,14 +97,18 @@ describe('parseAgentDecision replies', () => {
       kind: 'reply',
       reply: {
         kind: 'edit',
-        path: 'refs.bib',
-        command: {
-          operation: 'replace',
-          target: { lineNumber: 9, lineText: '\\title{A}' },
-          lineCount: 1,
-          content: '\\title{B}',
-          reason: 'r',
-        },
+        edits: [
+          {
+            path: 'refs.bib',
+            command: {
+              operation: 'replace',
+              target: { lineNumber: 9, lineText: '\\title{A}' },
+              lineCount: 1,
+              content: '\\title{B}',
+              reason: 'r',
+            },
+          },
+        ],
       },
     });
   });
@@ -157,10 +161,15 @@ describe('parseAgentDecision edit header', () => {
     return [...head, ...(content === '' ? [] : ['CONTENT:', content])].join('\n');
   };
 
-  const parse = (raw: string): AgentReply => {
+  const parse = (raw: string): EditRequest => {
     const decision = parseAgentDecision(raw);
-    if (decision.kind !== 'reply') throw new TestFixtureError('the reply was a tool call');
-    return decision.reply;
+    if (decision.kind !== 'reply' || decision.reply.kind !== 'edit') {
+      throw new TestFixtureError('the reply was no edit');
+    }
+    const [only, ...others] = decision.reply.edits;
+    if (only === undefined || others.length)
+      throw new TestFixtureError('the reply has no single edit');
+    return only;
   };
   const editProblem = (raw: string): string => {
     try {
@@ -175,7 +184,6 @@ describe('parseAgentDecision edit header', () => {
   it('returns the validated command with its raw LaTeX content', () => {
     const content = '\\begin{tabular}{l|r}\nA & 1 \\\\\\hline\n\\end{tabular}';
     expect(parse(edit({}, content))).toMatchObject({
-      kind: 'edit',
       path: 'main.tex',
       command: {
         operation: 'insert_after',
@@ -229,7 +237,7 @@ describe('parseAgentDecision edit header', () => {
 
   it('accepts an edit without the optional REASON', () => {
     const reply = parse(edit({ REASON: null }));
-    expect(reply).toMatchObject({ kind: 'edit' });
+    expect(reply).toMatchObject({ path: 'main.tex' });
     expect(reply).not.toHaveProperty('command.reason');
     expect(parse(edit({ REASON: '' }))).not.toHaveProperty('command.reason');
   });

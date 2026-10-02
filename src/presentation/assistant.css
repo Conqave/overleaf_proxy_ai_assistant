@@ -490,30 +490,73 @@
   font-size: 11px;
   font-weight: 700;
 }
-#ola-root .ola-ai.is-applied .ola-result-status {
+#ola-root .ola-result-status.is-applied {
   background: rgba(74, 222, 128, 0.18);
   color: #86efac;
 }
-#ola-root .ola-ai.is-rejected .ola-result-status {
+#ola-root .ola-result-status.is-rejected {
   background: rgba(248, 113, 113, 0.18);
   color: #fca5a5;
 }
-#ola-root .ola-ai.is-failed .ola-result-status {
+#ola-root .ola-result-status.is-failed {
   background: rgba(251, 191, 36, 0.18);
   color: #fcd34d;
 }
-#ola-root .ola-ai.is-discarded .ola-result-status {
+#ola-root .ola-result-status.is-discarded {
   background: rgba(148, 163, 184, 0.18);
   color: #cbd5e1;
 }
-#ola-root .ola-ai.is-applied .ola-result-body,
-#ola-root .ola-ai.is-rejected .ola-result-body,
-#ola-root .ola-ai.is-failed .ola-result-body,
-#ola-root .ola-ai.is-discarded .ola-result-body {
+#ola-root .ola-result-status.is-partial {
+  background: rgba(96, 165, 250, 0.18);
+  color: #93c5fd;
+}
+#ola-root
+  :is(.ola-ai, .ola-edit):is(.is-applied, .is-rejected, .is-failed, .is-discarded)
+  .ola-result-body {
   opacity: 0.6;
 }
-#ola-root .ola-ai.is-rejected .ola-result-body {
+#ola-root :is(.ola-ai, .ola-edit).is-rejected .ola-result-body {
   text-decoration: line-through;
+}
+#ola-root .ola-change-file {
+  margin-top: 10px;
+}
+#ola-root .ola-change-file-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+  font-size: 12px;
+  font-weight: 700;
+}
+#ola-root .ola-change-path {
+  overflow-wrap: anywhere;
+}
+#ola-root .ola-preview-file {
+  flex: none;
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  border-radius: 6px;
+  padding: 3px 8px;
+  background: transparent;
+  color: #fff;
+  font-size: 11px;
+  cursor: pointer;
+}
+#ola-root .ola-edit {
+  margin-bottom: 8px;
+  padding-left: 8px;
+  border-left: 3px solid rgba(255, 255, 255, 0.18);
+}
+#ola-root .ola-edit-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 6px;
+}
+#ola-root .ola-edit-actions .ola-btn {
+  border-radius: 6px;
+  padding: 4px 8px;
+  font-size: 11px;
 }
 #ola-root .ola-result-meta {
   margin-top: 8px;
@@ -530,10 +573,10 @@
   border-radius: 8px;
   padding: 8px 10px;
 }
-#ola-root .ola-apply {
+#ola-root :is(.ola-apply, .ola-apply-edit) {
   background: #27ae60;
 }
-#ola-root .ola-reject {
+#ola-root :is(.ola-reject, .ola-reject-edit) {
   background: #e74c3c;
 }
 #ola-root .ola-error {

@@ -23,6 +23,7 @@ import {
 import { InvalidAssistantResponse } from '../../../src/infrastructure/ollama/reply-parser';
 import type { AgentStepRequest } from '../../../src/ports/agent-port';
 import { TestFixtureError } from '../../support/test-errors';
+import { editWith, proposalOf } from '../../support/proposals';
 
 const CHARS_PER_TOKEN = 2;
 
@@ -235,14 +236,14 @@ describe('summary in the agent prompt', () => {
   it('stands in for the turns it covers, with the files it lists', () => {
     const summary = createConversationSummary(null, '## Goal\nTidy the report.', [
       { id: 'u0', role: 'user', text: 'old question' },
-      {
-        id: 'p0',
-        role: 'assistant',
-        kind: 'proposal',
-        path: 'main.tex',
-        command: { operation: 'delete', target: { lineNumber: 1, lineText: 'x' }, lineCount: 1 },
-        status: 'applied',
-      },
+      proposalOf(
+        'p0',
+        editWith(
+          'main.tex',
+          { operation: 'delete', target: { lineNumber: 1, lineText: 'x' }, lineCount: 1 },
+          'applied',
+        ),
+      ),
     ]);
     const { prompt } = createAgentExchange(
       step({ summary, messages: [{ id: 'u1', role: 'user', text: 'recent question' }] }),

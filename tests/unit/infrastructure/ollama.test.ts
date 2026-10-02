@@ -519,7 +519,7 @@ describe('OllamaAgent', () => {
     expect(decision).toMatchObject({
       reply: {
         kind: 'edit',
-        command: { target: { lineText: 'f <|> g' }, content: 'h <|> g' },
+        edits: [{ command: { target: { lineText: 'f <|> g' }, content: 'h <|> g' } }],
       },
     });
   });
@@ -561,7 +561,7 @@ describe('OllamaAgent', () => {
       response: 'ACTION: edit\nPATH: missing.tex\nOPERATION: delete\nLINE: 9\nLINE_TEXT: x',
     });
     const { decision } = await agent(ollama).decide(step);
-    expect(decision).toMatchObject({ reply: { kind: 'edit', path: 'missing.tex' } });
+    expect(decision).toMatchObject({ reply: { kind: 'edit', edits: [{ path: 'missing.tex' }] } });
     expect(ollama.prompts).toHaveLength(1);
   });
 });

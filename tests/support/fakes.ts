@@ -1,8 +1,12 @@
 import type { AgentDecision } from '../../src/domain/agent-action';
 import type { CompileDiagnostic } from '../../src/domain/agent-transcript';
 import { isRequestMessage, type ConversationMessage } from '../../src/domain/conversation';
-import { createDocumentSnapshot, type DocumentSnapshot } from '../../src/domain/document';
-import type { DocumentCommand } from '../../src/domain/document-command';
+import {
+  createDocumentSnapshot,
+  isSameDocument,
+  type DocumentSnapshot,
+} from '../../src/domain/document';
+import type { FileChange } from '../../src/domain/file-change';
 import {
   createProjectFiles,
   findTextFile,
@@ -41,10 +45,10 @@ export class FakeEditor implements EditorPort {
   available = true;
   selection = '';
   cursorLine = 1;
-  preview: ResolvedEdit | null = null;
+  preview: readonly ResolvedEdit[] | null = null;
   applyFailure: Error | null = null;
   previewFailure: Error | null = null;
-  applied: DocumentCommand[] = [];
+  applied: FileChange[] = [];
   shownFileId = '';
 
   constructor(public lines: string[]) {}
@@ -61,34 +65,22 @@ export class FakeEditor implements EditorPort {
     this.ensureShowing(file);
     return this.cursorLine;
   }
-  showPreview(file: TextFile, edit: ResolvedEdit): void {
+  showPreview(file: TextFile, edits: readonly ResolvedEdit[]): void {
     this.ensureShowing(file);
     if (this.previewFailure) throw this.previewFailure;
-    this.preview = edit;
+    this.preview = edits;
   }
   clearPreview(): void {
     this.preview = null;
   }
-  apply(file: TextFile, { command }: ResolvedEdit): void {
+  apply(file: TextFile, change: FileChange): void {
     this.ensureShowing(file);
     if (this.applyFailure) throw this.applyFailure;
-    const index = command.target.lineNumber - 1;
-    const content = 'content' in command ? command.content.split('\n') : [];
-    switch (command.operation) {
-      case 'insert_before':
-        this.lines.splice(index, 0, ...content);
-        break;
-      case 'insert_after':
-        this.lines.splice(index + 1, 0, ...content);
-        break;
-      case 'replace':
-        this.lines.splice(index, command.lineCount, ...content);
-        break;
-      case 'delete':
-        this.lines.splice(index, command.lineCount);
-        break;
+    if (!isSameDocument(change.before, createDocumentSnapshot(this.lines))) {
+      throw new TestFixtureError(`the change was not made for the shown ${file.path}`);
     }
-    this.applied.push(command);
+    this.lines = [...change.after.lines];
+    this.applied.push(change);
   }
   private ensureShowing(file: TextFile): void {
     if (!this.available) throw new EditorUnavailableError('no editor');

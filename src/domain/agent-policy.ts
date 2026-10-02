@@ -6,6 +6,7 @@ export const AGENT_POLICY = {
   maxToolCalls: 6,
   maxSearchMatches: 20,
   maxConsecutiveMistakes: 3,
+  maxEditsPerChange: 8,
 } as const;
 
 export function countToolCallsLeft(transcript: readonly AgentTurn[]): number {

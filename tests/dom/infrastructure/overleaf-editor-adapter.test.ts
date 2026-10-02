@@ -1,8 +1,9 @@
 import type { EditorView } from '@codemirror/view';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { createDocumentSnapshot } from '../../../src/domain/document';
 import { createDocumentCommand } from '../../../src/domain/document-command';
 import { DocumentRangeError, InvariantViolation } from '../../../src/domain/errors';
+import { planEditChange, planUndo, type FileChange } from '../../../src/domain/file-change';
 import type { TextFile } from '../../../src/domain/project-file';
 import { ResolvedEdit } from '../../../src/domain/resolved-edit';
 import {
@@ -27,6 +28,14 @@ const lines = () => editor.state.doc.toJSON();
 const edit = (input: Parameters<typeof createDocumentCommand>[0]): ResolvedEdit =>
   ResolvedEdit.resolve(createDocumentSnapshot(lines()), createDocumentCommand(input));
 const results = { lineNumber: 6, lineText: 'The results are shown below.' };
+const changeOf = (...edits: ResolvedEdit[]): FileChange => planEditChange(edits).change;
+
+function applyEdits(...edits: ResolvedEdit[]): FileChange {
+  const change = changeOf(...edits);
+  adapter.apply(shown, change);
+  expect(lines()).toEqual(change.after.lines);
+  return change;
+}
 
 function captureWindowErrors(): { errors: unknown[]; stop: () => void } {
   const errors: unknown[] = [];
@@ -143,15 +152,15 @@ describe('OverleafEditorBridge', () => {
 describe('OverleafEditorAdapter', () => {
   it('refuses to read or change a file the editor does not show', () => {
     const other: TextFile = { id: 'doc-other', path: 'refs.bib', kind: 'text' };
-    const change = edit({ operation: 'delete', target: results, lineCount: 1 });
+    const deletion = edit({ operation: 'delete', target: results, lineCount: 1 });
     expect(() => adapter.readDocument(other)).toThrow(EditorShowsOtherFileError);
     expect(() => adapter.readSelection(other)).toThrow(EditorShowsOtherFileError);
     expect(() => adapter.readCursorLine(other)).toThrow(EditorShowsOtherFileError);
     expect(() => {
-      adapter.showPreview(other, change);
+      adapter.showPreview(other, [deletion]);
     }).toThrow(EditorShowsOtherFileError);
     expect(() => {
-      adapter.apply(other, change);
+      adapter.apply(other, changeOf(deletion));
     }).toThrow(EditorShowsOtherFileError);
     expect(lines()).toEqual(FIXTURE_DOCUMENT.split('\n'));
   });
@@ -175,37 +184,33 @@ describe('OverleafEditorAdapter', () => {
   });
 
   it('inserts before the target line', () => {
-    adapter.apply(shown, edit({ operation: 'insert_before', target: results, content: 'A\nB' }));
+    applyEdits(edit({ operation: 'insert_before', target: results, content: 'A\nB' }));
     expect(lines().slice(5, 8)).toEqual(['A', 'B', 'The results are shown below.']);
   });
 
   it('inserts after the target line', () => {
-    adapter.apply(shown, edit({ operation: 'insert_after', target: results, content: 'After.' }));
+    applyEdits(edit({ operation: 'insert_after', target: results, content: 'After.' }));
     expect(lines().slice(5, 7)).toEqual(['The results are shown below.', 'After.']);
   });
 
   it('replaces the target line', () => {
-    adapter.apply(
-      shown,
-      edit({ operation: 'replace', target: results, lineCount: 1, content: 'New.' }),
-    );
+    applyEdits(edit({ operation: 'replace', target: results, lineCount: 1, content: 'New.' }));
     expect(lines()[5]).toBe('New.');
     expect(lines()).toHaveLength(7);
   });
 
   it('deletes the target line with its line break', () => {
-    adapter.apply(shown, edit({ operation: 'delete', target: results, lineCount: 1 }));
+    applyEdits(edit({ operation: 'delete', target: results, lineCount: 1 }));
     expect(lines()).toEqual(FIXTURE_DOCUMENT.split('\n').filter((l) => l !== results.lineText));
   });
 
   it('deletes the last and the only line without leaving an empty line', () => {
     const last = { lineNumber: 7, lineText: '\\end{document}' };
-    adapter.apply(shown, edit({ operation: 'delete', target: last, lineCount: 1 }));
+    applyEdits(edit({ operation: 'delete', target: last, lineCount: 1 }));
     expect(lines().at(-1)).toBe('The results are shown below.');
     editor.destroy();
     editor = open('only');
-    adapter.apply(
-      shown,
+    applyEdits(
       edit({ operation: 'delete', target: { lineNumber: 1, lineText: 'only' }, lineCount: 1 }),
     );
     expect(lines()).toEqual(['']);
@@ -213,16 +218,13 @@ describe('OverleafEditorAdapter', () => {
 
   it('replaces a range of lines', () => {
     const section = { lineNumber: 5, lineText: '\\section{Results}' };
-    adapter.apply(
-      shown,
-      edit({ operation: 'replace', target: section, lineCount: 2, content: 'X\nY\nZ' }),
-    );
+    applyEdits(edit({ operation: 'replace', target: section, lineCount: 2, content: 'X\nY\nZ' }));
     expect(lines().slice(4)).toEqual(['X', 'Y', 'Z', '\\end{document}']);
   });
 
   it('deletes a range of lines, also up to the end of the document', () => {
     const intro = { lineNumber: 3, lineText: '\\section{Introduction}' };
-    adapter.apply(shown, edit({ operation: 'delete', target: intro, lineCount: 2 }));
+    applyEdits(edit({ operation: 'delete', target: intro, lineCount: 2 }));
     expect(lines()).toEqual([
       '\\documentclass{article}',
       '\\begin{document}',
@@ -231,13 +233,49 @@ describe('OverleafEditorAdapter', () => {
       '\\end{document}',
     ]);
     const results2 = { lineNumber: 3, lineText: '\\section{Results}' };
-    adapter.apply(shown, edit({ operation: 'delete', target: results2, lineCount: 3 }));
+    applyEdits(edit({ operation: 'delete', target: results2, lineCount: 3 }));
     expect(lines()).toEqual(['\\documentclass{article}', '\\begin{document}']);
+  });
+
+  it('applies several edits in one transaction, as the planned change says', () => {
+    const before = lines();
+    const dispatch = vi.spyOn(editor, 'dispatch');
+    const begin = { lineNumber: 2, lineText: '\\begin{document}' };
+    const intro = { lineNumber: 3, lineText: '\\section{Introduction}' };
+    applyEdits(
+      edit({ operation: 'replace', target: intro, lineCount: 1, content: '\\section{Intro}' }),
+      edit({ operation: 'insert_after', target: results, content: 'More.' }),
+      edit({ operation: 'insert_before', target: begin, content: 'Begin.' }),
+    );
+    expect(dispatch).toHaveBeenCalledTimes(1);
+    expect(lines()).toEqual([
+      before[0],
+      'Begin.',
+      before[1],
+      '\\section{Intro}',
+      ...before.slice(3, 6),
+      'More.',
+      before[6],
+    ]);
+  });
+
+  it('restores the document with the undo of an applied change', () => {
+    const before = lines();
+    const intro = { lineNumber: 3, lineText: '\\section{Introduction}' };
+    const planned = planEditChange([
+      edit({ operation: 'delete', target: intro, lineCount: 1 }),
+      edit({ operation: 'replace', target: results, lineCount: 1, content: 'A\nB' }),
+    ]);
+    adapter.apply(shown, planned.change);
+    const undoOrder = [...planned.applied].reverse().map(({ applied }) => applied);
+    const undo = planUndo('main.tex', createDocumentSnapshot(lines()), undoOrder);
+    adapter.apply(shown, undo);
+    expect(lines()).toEqual(before);
   });
 
   it('refuses a range that runs past the end of the document', () => {
     expect(() => {
-      adapter.apply(shown, edit({ operation: 'delete', target: results, lineCount: 3 }));
+      applyEdits(edit({ operation: 'delete', target: results, lineCount: 3 }));
     }).toThrow(DocumentRangeError);
     expect(lines()).toEqual(FIXTURE_DOCUMENT.split('\n'));
   });
@@ -247,10 +285,10 @@ describe('OverleafEditorAdapter', () => {
     const line = editor.state.doc.line(6);
     editor.dispatch({ changes: { from: line.from, to: line.to, insert: 'Edited meanwhile.' } });
     expect(() => {
-      adapter.apply(shown, stale);
+      adapter.apply(shown, changeOf(stale));
     }).toThrow(InvariantViolation);
     expect(() => {
-      adapter.showPreview(shown, stale);
+      adapter.showPreview(shown, [stale]);
     }).toThrow(InvariantViolation);
     expect(lines()[5]).toBe('Edited meanwhile.');
   });
@@ -259,7 +297,7 @@ describe('OverleafEditorAdapter', () => {
     editor.destroy();
     expect(() => adapter.readDocument(shown)).toThrow(EditorUnavailableError);
     expect(() => {
-      adapter.apply(shown, edit({ operation: 'delete', target: results, lineCount: 1 }));
+      applyEdits(edit({ operation: 'delete', target: results, lineCount: 1 }));
     }).toThrow(EditorUnavailableError);
     expect(() => {
       adapter.clearPreview();
@@ -271,33 +309,30 @@ describe('OverleafEditorAdapter', () => {
       Array.from(editor.dom.querySelectorAll(selector), (node) => node.textContent);
 
     it('marks the target and shows added lines without changing the document', () => {
-      adapter.showPreview(
-        shown,
+      adapter.showPreview(shown, [
         edit({ operation: 'insert_after', target: results, content: 'X\nY' }),
-      );
+      ]);
       expect(rendered('.ola-preview-target')).toEqual([results.lineText]);
       expect(rendered('.ola-preview-added')).toEqual(['XY']);
       expect(lines()).toEqual(FIXTURE_DOCUMENT.split('\n'));
     });
 
     it('strikes through a line that a replace or delete would remove', () => {
-      adapter.showPreview(
-        shown,
+      adapter.showPreview(shown, [
         edit({ operation: 'replace', target: results, lineCount: 1, content: 'Z' }),
-      );
+      ]);
       expect(rendered('.ola-preview-removed')).toEqual([results.lineText]);
       expect(rendered('.ola-preview-added')).toEqual(['Z']);
-      adapter.showPreview(shown, edit({ operation: 'delete', target: results, lineCount: 1 }));
+      adapter.showPreview(shown, [edit({ operation: 'delete', target: results, lineCount: 1 })]);
       expect(rendered('.ola-preview-removed')).toEqual([results.lineText]);
       expect(rendered('.ola-preview-added')).toEqual([]);
     });
 
     it('strikes through every line of a range and shows the replacement after it', () => {
       const intro = { lineNumber: 3, lineText: '\\section{Introduction}' };
-      adapter.showPreview(
-        shown,
+      adapter.showPreview(shown, [
         edit({ operation: 'replace', target: intro, lineCount: 2, content: 'New' }),
-      );
+      ]);
       expect(rendered('.ola-preview-removed')).toEqual([
         '\\section{Introduction}',
         'This report describes the experiment.',
@@ -305,11 +340,20 @@ describe('OverleafEditorAdapter', () => {
       expect(rendered('.ola-preview-added')).toEqual(['New']);
     });
 
+    it('shows every edit of the file at once', () => {
+      const intro = { lineNumber: 3, lineText: '\\section{Introduction}' };
+      adapter.showPreview(shown, [
+        edit({ operation: 'replace', target: intro, lineCount: 1, content: 'Intro' }),
+        edit({ operation: 'insert_after', target: results, content: 'More' }),
+      ]);
+      expect(rendered('.ola-preview-removed')).toEqual(['\\section{Introduction}']);
+      expect(rendered('.ola-preview-added')).toEqual(['Intro', 'More']);
+    });
+
     it('is removed by clearPreview', () => {
-      adapter.showPreview(
-        shown,
+      adapter.showPreview(shown, [
         edit({ operation: 'insert_before', target: results, content: 'P' }),
-      );
+      ]);
       adapter.clearPreview();
       expect(rendered('.ola-preview-target, .ola-preview-added')).toEqual([]);
     });

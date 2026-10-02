@@ -9,6 +9,7 @@ import {
 } from '../../../src/domain/conversation-view';
 import { createDocumentCommand } from '../../../src/domain/document-command';
 import { InvalidCompactionSummaryError } from '../../../src/domain/errors';
+import { editWith, proposalOf } from '../../support/proposals';
 
 const user = (id: string): ExchangeMessage => ({ id, role: 'user', text: id });
 const answer = (id: string): ExchangeMessage => ({
@@ -22,17 +23,15 @@ const read = (id: string, path: string): ExchangeMessage => ({
   role: 'tool',
   record: { tool: 'read_file', path, shown: { first: 1, last: 1 }, totalLines: 1, lines: ['x'] },
 });
-const proposal = (id: string, path: string, status: 'applied' | 'rejected'): ExchangeMessage => ({
-  id,
-  role: 'assistant',
-  kind: 'proposal',
-  path,
-  command: createDocumentCommand({
-    operation: 'delete',
-    target: { lineNumber: 1, lineText: 'x' },
-  }),
-  status,
-});
+const proposal = (id: string, path: string, status: 'applied' | 'rejected'): ExchangeMessage =>
+  proposalOf(
+    id,
+    editWith(
+      path,
+      createDocumentCommand({ operation: 'delete', target: { lineNumber: 1, lineText: 'x' } }),
+      status,
+    ),
+  );
 
 function summary(id: string, coveredUntilId: string, coveredTurns = 1): CompactionSummaryMessage {
   return createCompactionSummaryMessage({

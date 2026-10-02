@@ -2,13 +2,13 @@ import { AgentTool } from './agent-action';
 import {
   AssistantMessageKind,
   isRequestMessage,
-  ProposalStatus,
   type CompactionSummaryMessage,
   type ConversationMessage,
   type ConversationSummary,
   type ExchangeMessage,
   type FileActivity,
 } from './conversation';
+import { EditStatus } from './change-set';
 import { InvalidCompactionSummaryError, InvalidProjectPathError } from './errors';
 import { createProjectPath } from './project-file';
 
@@ -118,12 +118,10 @@ function collectFileActivity(
     if (message.role === 'tool' && message.record.tool === AgentTool.ReadFile) {
       read.add(message.record.path);
     }
-    if (
-      message.role === 'assistant' &&
-      message.kind === AssistantMessageKind.Proposal &&
-      message.status === ProposalStatus.Applied
-    ) {
-      edited.add(message.path);
+    if (message.role === 'assistant' && message.kind === AssistantMessageKind.Proposal) {
+      for (const edit of message.edits) {
+        if (edit.status === EditStatus.Applied) edited.add(edit.path);
+      }
     }
   }
   return Object.freeze({ read: Object.freeze([...read]), edited: Object.freeze([...edited]) });

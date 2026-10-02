@@ -1,7 +1,7 @@
-import { isSameDocument, type DocumentSnapshot } from './document';
+import { assertSameDocument, type DocumentSnapshot } from './document';
 import { DocumentOperation, type DocumentCommand } from './document-command';
 import { resolveTarget } from './document-target';
-import { DocumentConflictError, DocumentRangeError } from './errors';
+import { DocumentRangeError } from './errors';
 import type { LineSplice } from './file-change';
 
 export class ResolvedEdit {
@@ -50,10 +50,6 @@ export class ResolvedEdit {
   }
 
   assertCurrent(current: DocumentSnapshot): void {
-    if (!isSameDocument(this.document, current)) {
-      throw new DocumentConflictError(
-        'The document changed after the suggestion was made. Ask again to get a fresh suggestion.',
-      );
-    }
+    assertSameDocument(this.document, current);
   }
 }

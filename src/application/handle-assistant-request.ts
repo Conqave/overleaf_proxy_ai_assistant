@@ -7,15 +7,17 @@ import {
   type ToolResult,
   type ToolTurn,
 } from '../domain/agent-transcript';
-import {
-  ProposalStatus,
-  type ProposalMessage,
-  type ToolMessage,
-  type ReplyMessage,
-  type SystemRequestMessage,
-  type UserMessage,
+import { createChangeSet } from '../domain/change-set';
+import type {
+  ProposalMessage,
+  ReplyMessage,
+  SystemRequestMessage,
+  ToolMessage,
+  UserMessage,
 } from '../domain/conversation';
 import { viewConversation, type ConversationView } from '../domain/conversation-view';
+import { InvariantViolation } from '../domain/errors';
+import type { TextFile } from '../domain/project-file';
 import type {
   AgentPort,
   AgentRequest,
@@ -39,7 +41,7 @@ import type { ConversationCompactor } from './conversation-compactor';
 import type { ConversationLog } from './conversation-log';
 import { AgentMistakeLimitError, EmptyRequestError } from './errors';
 import type { OperationLock } from './operation-lock';
-import { PendingDocumentChange, type PendingChanges } from './pending-change';
+import type { PendingChanges } from './pending-change';
 import { ProjectTools } from './project-tools';
 import { showProjectFile } from './show-project-file';
 
@@ -63,7 +65,6 @@ export type AgentResult =
   | {
       readonly kind: 'proposal';
       readonly message: ProposalMessage;
-      readonly changeId: string;
       readonly contextUsage: ContextUsage;
     };
 
@@ -236,29 +237,33 @@ export class HandleAssistantRequest {
       case 'question':
         return { kind: 'reply', message: this.reply('clarification', reply.text), contextUsage };
       case 'edit': {
-        await showProjectFile(this.deps.project, reply.change.file, onProgress, signal);
+        const [first] = reply.changes;
+        if (first === undefined) throw new InvariantViolation('an accepted edit has no changes');
+        await showProjectFile(this.deps.project, first.file, onProgress, signal);
         this.deps.conversation.ensureCurrent(epoch);
-        const message = this.propose(reply.change);
-        return { kind: 'proposal', message, changeId: message.id, contextUsage };
+        return { kind: 'proposal', message: this.propose(first.file, reply.changes), contextUsage };
       }
     }
   }
 
-  private propose(change: ProjectEdit): ProposalMessage {
+  private propose(shown: TextFile, changes: readonly ProjectEdit[]): ProposalMessage {
     const { editor, conversation, pendingChanges } = this.deps;
-    const { file, edit } = change;
-    edit.assertCurrent(editor.readDocument(file));
-    editor.showPreview(file, edit);
+    const previewed = changes
+      .filter(({ file }) => file.path === shown.path)
+      .map(({ edit }) => edit);
+    const current = editor.readDocument(shown);
+    for (const edit of previewed) edit.assertCurrent(current);
+    editor.showPreview(shown, previewed);
     const message: ProposalMessage = {
       id: this.deps.newId(),
       role: 'assistant',
       kind: 'proposal',
-      path: file.path,
-      command: edit.command,
-      status: ProposalStatus.Proposed,
+      edits: createChangeSet(
+        changes.map(({ file, edit }) => ({ path: file.path, command: edit.command })),
+      ),
     };
     conversation.append(message);
-    pendingChanges.add(new PendingDocumentChange(message.id, change));
+    pendingChanges.add(message.id, changes);
     return message;
   }
 

@@ -1,4 +1,4 @@
-import { ApplyDocumentChange } from '../application/apply-document-change';
+import { ApplyChangeSet } from '../application/apply-change-set';
 import { CompactConversation } from '../application/compact-conversation';
 import { ConversationCompactor } from '../application/conversation-compactor';
 import { ConversationLog } from '../application/conversation-log';
@@ -12,7 +12,8 @@ import {
 import { HandleAssistantRequest } from '../application/handle-assistant-request';
 import { OperationLock } from '../application/operation-lock';
 import { PendingChanges } from '../application/pending-change';
-import { RejectDocumentChange } from '../application/reject-document-change';
+import { PreviewChangeSetFile } from '../application/preview-change-set-file';
+import { RejectChangeSet } from '../application/reject-change-set';
 import { ReviewAppliedChange } from '../application/review-applied-change';
 import { createUuid } from '../infrastructure/browser/uuid';
 import { OllamaAgent } from '../infrastructure/ollama/ollama-agent';
@@ -88,19 +89,20 @@ function compose(
   });
   const review = new ReviewAppliedChange({ project, conversation, handleRequest });
   const sessionDeps = { sessions, conversation, pendingChanges, editor, lock };
+  const changeSetDeps = { project, editor, pendingChanges, review };
 
   const controller = new AssistantController({
     handleRequest,
-    applyChange: new ApplyDocumentChange({
-      editor,
+    applyChange: new ApplyChangeSet({ ...changeSetDeps, conversation, lock }),
+    lock,
+    rejectChange: new RejectChangeSet({ ...changeSetDeps, lock }),
+    previewChange: new PreviewChangeSetFile({
       project,
+      editor,
       pendingChanges,
       conversation,
       lock,
-      review,
     }),
-    lock,
-    rejectChange: new RejectDocumentChange({ editor, pendingChanges, lock }),
     compactConversation: new CompactConversation({ compactor, conversation, lock }),
     restoreSession: new RestoreLatestSession(sessionDeps),
     startNewConversation: new StartNewConversation(sessionDeps),

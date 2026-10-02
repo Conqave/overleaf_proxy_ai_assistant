@@ -1,6 +1,6 @@
+import { EditStatus, type ProposedEdit } from '../../domain/change-set';
 import {
   AssistantMessageKind,
-  ProposalStatus,
   type AssistantMessage,
   type ConversationSummary,
   type ExchangeMessage,
@@ -62,16 +62,25 @@ function assistantText(message: AssistantMessage): string {
   return describeProposal(message);
 }
 
-const PROPOSAL_OUTCOME: Record<ProposalStatus, string> = {
-  [ProposalStatus.Proposed]: '[proposal left undecided]',
-  [ProposalStatus.Applied]: '[proposal applied]',
-  [ProposalStatus.Rejected]: '[proposal rejected]',
-  [ProposalStatus.Failed]: '[proposal failed to apply]',
-  [ProposalStatus.Discarded]: '[proposal discarded without a decision]',
+const EDIT_OUTCOME: Record<EditStatus, string> = {
+  [EditStatus.Proposed]: 'left undecided',
+  [EditStatus.Applied]: 'applied',
+  [EditStatus.Rejected]: 'rejected',
+  [EditStatus.Failed]: 'failed to apply',
+  [EditStatus.Discarded]: 'discarded without a decision',
 };
 
-function describeProposal({ status, path, command }: ProposalMessage): string {
-  const proposed = `${PROPOSAL_OUTCOME[status]} ${path} ${describeLines(command)}: ${command.operation}`;
+function describeProposal({ edits }: ProposalMessage): string {
+  const [only] = edits;
+  if (only !== undefined && edits.length === 1) return describeEdit(only, 'proposal');
+  return lines(
+    `[change of ${String(edits.length)} edits]`,
+    ...edits.map((edit, index) => describeEdit(edit, `edit ${String(index + 1)}`)),
+  );
+}
+
+function describeEdit({ status, path, command }: ProposedEdit, label: string): string {
+  const proposed = `[${label} ${EDIT_OUTCOME[status]}] ${path} ${describeLines(command)}: ${command.operation}`;
   const summary = command.reason === undefined ? proposed : `${proposed} (${command.reason})`;
   switch (command.operation) {
     case DocumentOperation.InsertBefore:

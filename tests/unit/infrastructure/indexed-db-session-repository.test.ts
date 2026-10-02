@@ -17,32 +17,59 @@ import { readStoredSessions, settled, storeRawSession } from '../../support/sess
 
 const SCOPE = { userId: 'user-1', projectId: 'project-1' };
 
+const STORED_EDIT = {
+  path: 'main.tex',
+  command: { operation: 'delete', target: { lineNumber: 1, lineText: 'x' }, lineCount: 1 },
+  status: 'proposed',
+};
+const STORED_APPLIED = { line: 1, before: ['x', 'y'], after: ['y'], sequence: 0 };
+const STORED_APPLIED_EDIT = { ...STORED_EDIT, status: 'applied', applied: STORED_APPLIED };
+
 const messages: ConversationMessage[] = [
   { id: '1', role: 'user', text: 'add a table' },
   {
     id: '2',
     role: 'assistant',
     kind: 'proposal',
-    path: 'main.tex',
-    command: createDocumentCommand({
-      operation: 'insert_after',
-      target: { lineNumber: 4, lineText: 'Numbers.' },
-      content: '\\begin{table}\n\\end{table}',
-      reason: 'Adds a table.',
-    }),
-    status: 'rejected',
+    edits: [
+      {
+        path: 'main.tex',
+        command: createDocumentCommand({
+          operation: 'insert_after',
+          target: { lineNumber: 4, lineText: 'Numbers.' },
+          content: '\\begin{table}\n\\end{table}',
+          reason: 'Adds a table.',
+        }),
+        status: 'rejected',
+      },
+    ],
   },
   {
     id: '3',
     role: 'assistant',
     kind: 'proposal',
-    path: 'chapters/results.tex',
-    command: createDocumentCommand({
-      operation: 'delete',
-      target: { lineNumber: 2, lineText: 'Old.' },
-      lineCount: 2,
-    }),
-    status: 'applied',
+    edits: [
+      {
+        path: 'chapters/results.tex',
+        command: createDocumentCommand({
+          operation: 'delete',
+          target: { lineNumber: 2, lineText: 'Old.' },
+          lineCount: 2,
+        }),
+        status: 'applied',
+        applied: { line: 2, before: ['Old.', 'Older.', 'Kept.'], after: ['Kept.'], sequence: 0 },
+      },
+      {
+        path: 'main.tex',
+        command: createDocumentCommand({
+          operation: 'replace',
+          target: { lineNumber: 1, lineText: 'Title.' },
+          content: 'New title.',
+        }),
+        status: 'applied',
+        applied: { line: 1, before: ['Title.'], after: ['New title.'], sequence: 1 },
+      },
+    ],
   },
   { id: '4', role: 'system', text: 'Compiling reports errors; fix the first error.' },
   { id: '5', role: 'assistant', kind: 'explanation', text: 'It **compiles**.' },
@@ -105,12 +132,16 @@ const messages: ConversationMessage[] = [
     id: `6-${status}`,
     role: 'assistant',
     kind: 'proposal',
-    path: 'main.tex',
-    command: createDocumentCommand({
-      operation: 'delete',
-      target: { lineNumber: 1, lineText: 'Gone.' },
-    }),
-    status,
+    edits: [
+      {
+        path: 'main.tex',
+        command: createDocumentCommand({
+          operation: 'delete',
+          target: { lineNumber: 1, lineText: 'Gone.' },
+        }),
+        status,
+      },
+    ],
   })),
 ];
 
@@ -295,6 +326,33 @@ describe('IndexedDbSessionRepository', () => {
           },
         ],
       },
+    ]),
+    ...(
+      [
+        ['without edits', []],
+        ['with more edits than a change may have', Array.from({ length: 9 }, () => STORED_EDIT)],
+        ['with an edit of an unknown status', [{ ...STORED_EDIT, status: 'pending' }]],
+        ['with an applied edit that lost its lines', [{ ...STORED_EDIT, status: 'applied' }]],
+        [
+          'with a rejected edit that keeps applied lines',
+          [{ ...STORED_EDIT, status: 'rejected', applied: STORED_APPLIED }],
+        ],
+        [
+          'with applied lines that are empty',
+          [{ ...STORED_EDIT, status: 'applied', applied: { ...STORED_APPLIED, after: [] } }],
+        ],
+        [
+          'with applied lines at line zero',
+          [{ ...STORED_EDIT, status: 'applied', applied: { ...STORED_APPLIED, line: 0 } }],
+        ],
+        [
+          'with two applied edits of one sequence number',
+          [STORED_APPLIED_EDIT, STORED_APPLIED_EDIT],
+        ],
+      ] as const
+    ).map(([name, edits]): [string, Record<string, unknown>] => [
+      `with a change ${name}`,
+      { messages: [{ id: 'p', role: 'assistant', kind: 'proposal', edits }] },
     ]),
   ])('lists a session %s as unreadable and does not load it', async (_name, overrides) => {
     await repository.save(session('a'));

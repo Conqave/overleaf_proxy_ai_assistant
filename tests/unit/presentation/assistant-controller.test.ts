@@ -1,6 +1,6 @@
 import { JSDOM } from 'jsdom';
 import { describe, expect, it, vi } from 'vitest';
-import { ApplyDocumentChange } from '../../../src/application/apply-document-change';
+import { ApplyChangeSet } from '../../../src/application/apply-change-set';
 import { CompactConversation } from '../../../src/application/compact-conversation';
 import { ConversationCompactor } from '../../../src/application/conversation-compactor';
 import { ConversationLog } from '../../../src/application/conversation-log';
@@ -14,8 +14,10 @@ import {
 import { HandleAssistantRequest } from '../../../src/application/handle-assistant-request';
 import { OperationLock } from '../../../src/application/operation-lock';
 import { PendingChanges } from '../../../src/application/pending-change';
-import { RejectDocumentChange } from '../../../src/application/reject-document-change';
+import { PreviewChangeSetFile } from '../../../src/application/preview-change-set-file';
+import { RejectChangeSet } from '../../../src/application/reject-change-set';
 import { ReviewAppliedChange } from '../../../src/application/review-applied-change';
+import type { AgentDecision } from '../../../src/domain/agent-action';
 import type { CompileDiagnostic } from '../../../src/domain/agent-transcript';
 import { createDocumentCommand } from '../../../src/domain/document-command';
 import { InvariantViolation } from '../../../src/domain/errors';
@@ -39,7 +41,38 @@ import { TestFixtureError } from '../../support/test-errors';
 
 const BIB = ['@article{smith20}', '}'];
 
-async function openAssistant(...stored: ConversationSession[]) {
+const READ_BIB: AgentDecision = { kind: 'tool', call: { tool: 'read_file', path: 'refs.bib' } };
+
+const ADD_BOOK = {
+  path: 'refs.bib',
+  command: createDocumentCommand({
+    operation: 'insert_after',
+    target: { lineNumber: 2, lineText: '}' },
+    content: '@book{knuth84}',
+    reason: 'Adds the missing entry.',
+  }),
+};
+
+const CITE_BOOK = {
+  path: 'main.tex',
+  command: createDocumentCommand({
+    operation: 'replace',
+    target: { lineNumber: 1, lineText: '\\cite{knuth84}' },
+    content: '\\cite{knuth84, smith20}',
+  }),
+};
+
+function openAssistant(...stored: ConversationSession[]) {
+  return openAssistantWith(
+    [READ_BIB, { kind: 'reply', reply: { kind: 'edit', edits: [ADD_BOOK] } }],
+    ...stored,
+  );
+}
+
+async function openAssistantWith(
+  decisions: readonly AgentDecision[],
+  ...stored: ConversationSession[]
+) {
   const { window } = new JSDOM('<!doctype html><html><head></head><body></body></html>');
   const editor = new FakeEditor([]);
   const project = new FakeProject(
@@ -47,22 +80,7 @@ async function openAssistant(...stored: ConversationSession[]) {
     { 'main.tex': ['\\cite{knuth84}'], 'refs.bib': BIB },
     'main.tex',
   );
-  const agent = new FakeAgent().will(
-    { kind: 'tool', call: { tool: 'read_file', path: 'refs.bib' } },
-    {
-      kind: 'reply',
-      reply: {
-        kind: 'edit',
-        path: 'refs.bib',
-        command: createDocumentCommand({
-          operation: 'insert_after',
-          target: { lineNumber: 2, lineText: '}' },
-          content: '@book{knuth84}',
-          reason: 'Adds the missing entry.',
-        }),
-      },
-    },
-  );
+  const agent = new FakeAgent().will(...decisions);
   const sessions = new InMemorySessionRepository(...stored);
   const conversation = new ConversationLog({
     sessions,
@@ -93,18 +111,19 @@ async function openAssistant(...stored: ConversationSession[]) {
   });
   const review = new ReviewAppliedChange({ project, conversation, handleRequest });
   const sessionDeps = { sessions, conversation, pendingChanges, editor, lock };
+  const changeSetDeps = { project, editor, pendingChanges, review };
   const controller = new AssistantController({
     handleRequest,
     lock,
-    applyChange: new ApplyDocumentChange({
-      editor,
+    applyChange: new ApplyChangeSet({ ...changeSetDeps, conversation, lock }),
+    rejectChange: new RejectChangeSet({ ...changeSetDeps, lock }),
+    previewChange: new PreviewChangeSetFile({
       project,
+      editor,
       pendingChanges,
       conversation,
       lock,
-      review,
     }),
-    rejectChange: new RejectDocumentChange({ editor, pendingChanges, lock }),
     compactConversation: new CompactConversation({ compactor, conversation, lock }),
     restoreSession: new RestoreLatestSession(sessionDeps),
     startNewConversation: new StartNewConversation(sessionDeps),
@@ -208,7 +227,7 @@ describe('AssistantController context usage', () => {
     const { controller, project, agent, changeId, texts } = await proposeBibEdit();
     project.willCompile([{ level: 'error', message: 'Missing } inserted.' }]);
     agent.will({ kind: 'reply', reply: { kind: 'answer', text: 'Add a closing brace.' } });
-    await controller.apply(changeId);
+    await controller.apply(changeId, null);
     expect(texts('.ola-context')).toEqual(['Context 3.0k / 98.3k']);
   });
 });
@@ -217,7 +236,7 @@ describe('AssistantController apply', () => {
   it('reports the applied file and a clean compilation', async () => {
     const { controller, project, changeId, texts } = await proposeBibEdit();
     project.willCompile([]);
-    await controller.apply(changeId);
+    await controller.apply(changeId, null);
     expect(texts('.ola-system')).toEqual([
       'Done. Inserted after the selected anchor in refs.bib.',
       'Compiled without errors.',
@@ -227,7 +246,7 @@ describe('AssistantController apply', () => {
   it('keeps the applied proposal as a card marked applied', async () => {
     const { controller, project, changeId, texts } = await proposeBibEdit();
     project.willCompile([]);
-    await controller.apply(changeId);
+    await controller.apply(changeId, null);
     expect(texts('.ola-ai.is-applied .ola-result-status')).toEqual(['Applied']);
     expect(texts('.ola-ai.is-applied .ola-result-meta')).toEqual(['refs.bib, anchor line 2: }']);
     expect(texts('.ola-apply')).toEqual([]);
@@ -237,7 +256,7 @@ describe('AssistantController apply', () => {
 describe('AssistantController reject', () => {
   it('keeps the rejected proposal as a card marked rejected instead of a notice', async () => {
     const { controller, changeId, texts } = await proposeBibEdit();
-    await controller.reject(changeId);
+    await controller.reject(changeId, null);
     expect(texts('.ola-ai.is-rejected .ola-result-status')).toEqual(['Rejected']);
     expect(texts('.ola-ai.is-rejected .ola-result-meta')).toEqual(['refs.bib, anchor line 2: }']);
     expect(texts('.ola-ai.is-rejected .ola-result-body')).toEqual(['@book{knuth84}']);
@@ -249,14 +268,14 @@ describe('AssistantController reject', () => {
     const { controller, project, agent, changeId, texts } = await proposeBibEdit();
     project.willCompile([{ level: 'error', message: 'Missing } inserted.' }]);
     agent.will({ kind: 'reply', reply: { kind: 'answer', text: 'Add a closing brace.' } });
-    await controller.apply(changeId);
+    await controller.apply(changeId, null);
     expect(texts('.ola-result-body').at(-1)).toBe('Add a closing brace.');
   });
 
   it('shows expected failures, marks the proposal not applied and continues', async () => {
     const { controller, editor, changeId, texts } = await proposeBibEdit();
     editor.lines[1] = 'Edited meanwhile.';
-    await expect(controller.apply(changeId)).resolves.toBeUndefined();
+    await expect(controller.apply(changeId, null)).resolves.toBeUndefined();
     expect(texts('.ola-error')).toEqual([
       expect.stringContaining('The document changed after the suggestion was made.'),
     ]);
@@ -269,7 +288,7 @@ describe('AssistantController reject', () => {
     const { window, controller, project, changeId, texts } = await proposeBibEdit();
     project.switchTo('main.tex');
     project.failure.openFile = new FileOpenTimeoutError('refs.bib did not open in time.');
-    await controller.apply(changeId);
+    await controller.apply(changeId, null);
     expect(texts('.ola-error')).toEqual(['Error: refs.bib did not open in time.']);
     expect(texts('.ola-result-status')).toEqual([]);
     const buttons = Array.from(window.document.querySelectorAll('.ola-result-actions button'));
@@ -291,10 +310,94 @@ describe('AssistantController reject', () => {
     const { controller, editor, changeId, texts } = await proposeBibEdit();
     const defect = new InvariantViolation('broken');
     editor.applyFailure = defect;
-    await expect(controller.apply(changeId)).rejects.toBe(defect);
+    await expect(controller.apply(changeId, null)).rejects.toBe(defect);
     expect(texts('.ola-error')).toEqual([
       'Unexpected internal error. Details are in the browser console.',
     ]);
+  });
+});
+
+describe('AssistantController change sets', () => {
+  async function proposeTwoFiles() {
+    const assistant = await openAssistantWith([
+      READ_BIB,
+      { kind: 'reply', reply: { kind: 'edit', edits: [CITE_BOOK, ADD_BOOK] } },
+    ]);
+    await assistant.controller.send('cite knuth84 and add its entry');
+    const proposal = assistant.conversation.messages().at(-1);
+    if (proposal?.role !== 'assistant' || proposal.kind !== 'proposal') {
+      throw new TestFixtureError('the controller did not show a proposal');
+    }
+    const clickInFile = (file: number, selector: string) => {
+      const group = assistant.window.document.querySelectorAll('.ola-change-file')[file];
+      const button = group?.querySelector(selector);
+      if (!(button instanceof assistant.window.HTMLButtonElement)) {
+        throw new TestFixtureError(`file ${String(file)} shows no ${selector} button`);
+      }
+      button.click();
+    };
+    return { ...assistant, changeId: proposal.id, clickInFile };
+  }
+
+  it('shows the edits of several files in one card grouped by file', async () => {
+    const { texts, buttons } = await proposeTwoFiles();
+    expect(texts('.ola-ai .ola-result-title')).toEqual(['Proposed changes: 2 edits in 2 files']);
+    expect(texts('.ola-change-path')).toEqual(['main.tex', 'refs.bib']);
+    expect(texts('.ola-edit .ola-result-meta')).toEqual([
+      'line 1: \\cite{knuth84}',
+      'anchor line 2: }',
+    ]);
+    expect(texts('.ola-preview-file')).toEqual(['Show in editor', 'Show in editor']);
+    expect(texts('.ola-edit-actions button')).toEqual(['Apply', 'Reject', 'Apply', 'Reject']);
+    expect(texts('.ola-result-actions button')).toEqual(['Apply all', 'Reject all']);
+    expect(buttons('.ola-ai button').every((button) => !button.disabled)).toBe(true);
+  });
+
+  it('applies one edit, keeps the other open and compiles after the last decision', async () => {
+    const { window, project, editor, texts, click, clickInFile } = await proposeTwoFiles();
+    project.willCompile([]);
+    clickInFile(1, '.ola-apply-edit');
+    await vi.waitFor(() => {
+      expect(texts('.ola-ai > .ola-result-status')).toEqual(['1 applied · 1 open']);
+    });
+    expect(editor.lines).toEqual([...BIB, '@book{knuth84}']);
+    expect(texts('.ola-system')).toEqual(['Done. Inserted after the selected anchor in refs.bib.']);
+    expect(texts('.ola-edit.is-applied .ola-result-status')).toEqual(['Applied']);
+    expect(texts('.ola-preview-file')).toEqual(['Show in editor']);
+    click('.ola-reject-edit');
+    await vi.waitFor(() => {
+      expect(texts('.ola-system')).toContain('Compiled without errors.');
+    });
+    expect(texts('.ola-ai > .ola-result-status')).toEqual(['1 applied · 1 rejected']);
+    expect(window.document.querySelectorAll('.ola-ai button')).toHaveLength(0);
+    expect(project.savedDocument('main.tex')).toEqual(['\\cite{knuth84}']);
+  });
+
+  it('applies all files at once and reports a file that changed meanwhile', async () => {
+    const { controller, project, editor, changeId, texts } = await proposeTwoFiles();
+    project.switchTo('refs.bib');
+    editor.lines[0] = '@article{changed}';
+    project.switchTo('main.tex');
+    project.willCompile([]);
+    await controller.apply(changeId, null);
+    expect(texts('.ola-system')).toEqual([
+      'Done. Line replaced in main.tex.',
+      'Compiled without errors.',
+    ]);
+    expect(texts('.ola-error')).toEqual([
+      'Not applied in refs.bib: The document changed after the suggestion was made. Ask again to get a fresh suggestion.',
+    ]);
+    expect(texts('.ola-ai > .ola-result-status')).toEqual(['1 applied · 1 not applied']);
+  });
+
+  it('previews the edits of another file on demand', async () => {
+    const { project, editor, texts, clickInFile } = await proposeTwoFiles();
+    clickInFile(1, '.ola-preview-file');
+    await vi.waitFor(() => {
+      expect(editor.preview?.map(({ command }) => command.target.lineNumber)).toEqual([2]);
+    });
+    expect(project.opened).toEqual(['refs.bib']);
+    expect(texts('.ola-error')).toEqual([]);
   });
 });
 
@@ -318,7 +421,7 @@ describe('AssistantView while an operation runs', () => {
     const { window, controller, project, changeId, texts } = await proposeBibEdit();
     const compiled = Promise.withResolvers<readonly CompileDiagnostic[]>();
     project.willCompile(new PendingStep(() => compiled.promise));
-    const applying = controller.apply(changeId);
+    const applying = controller.apply(changeId, null);
     const input = window.document.querySelector('textarea');
     if (input === null) throw new TestFixtureError('the view has no input');
     expect(window.document.querySelector('#ola-root')?.classList.contains('is-busy')).toBe(true);
@@ -419,7 +522,7 @@ describe('AssistantController sessions', () => {
     await controller.showSessions();
     const compiled = Promise.withResolvers<readonly CompileDiagnostic[]>();
     project.willCompile(new PendingStep(() => compiled.promise));
-    const applying = controller.apply(changeId);
+    const applying = controller.apply(changeId, null);
     expect(buttons('.ola-session-btn').every((button) => button.disabled)).toBe(true);
     compiled.resolve([]);
     await applying;
@@ -430,7 +533,7 @@ describe('AssistantController sessions', () => {
     const { controller, project, changeId, texts } = await proposeBibEdit();
     const compiled = Promise.withResolvers<readonly CompileDiagnostic[]>();
     project.willCompile(new PendingStep(() => compiled.promise));
-    const applying = controller.apply(changeId);
+    const applying = controller.apply(changeId, null);
     await controller.openSession('session-1');
     expect(texts('.ola-error')).toEqual([
       'Error: The assistant is still working on the previous request.',

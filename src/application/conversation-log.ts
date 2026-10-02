@@ -1,10 +1,8 @@
+import { decideEdits, EditStatus, findPendingEdits, type ProposedEdit } from '../domain/change-set';
 import {
   AssistantMessageKind,
-  decideProposal,
   isUndecidedProposal,
-  ProposalStatus,
   type ConversationMessage,
-  type ProposalDecision,
   type ProposalMessage,
 } from '../domain/conversation';
 import { InvariantViolation } from '../domain/errors';
@@ -72,19 +70,24 @@ export class ConversationLog {
     this.update(startSession(this.deps.newId(), message, now));
   }
 
-  decideProposal(id: string, decision: ProposalDecision): ProposalMessage {
-    const session = this.current;
-    const proposal = session?.messages.find((message) => message.id === id);
-    if (
-      session === null ||
-      proposal?.role !== 'assistant' ||
-      proposal.kind !== AssistantMessageKind.Proposal
-    ) {
+  findProposal(id: string): ProposalMessage {
+    const proposal = this.current?.messages.find((message) => message.id === id);
+    if (proposal?.role !== 'assistant' || proposal.kind !== AssistantMessageKind.Proposal) {
       throw new InvariantViolation(`the conversation has no proposal ${id}`);
     }
-    const decided = decideProposal(proposal, decision);
-    this.update(replaceInSession(session, decided, this.deps.now()));
-    return decided;
+    return proposal;
+  }
+
+  updateProposal(
+    id: string,
+    update: (edits: readonly ProposedEdit[]) => readonly ProposedEdit[],
+  ): ProposalMessage {
+    const proposal = this.findProposal(id);
+    const session = this.current;
+    if (session === null) throw new InvariantViolation('a proposal is shown without a session');
+    const updated = { ...proposal, edits: update(proposal.edits) };
+    this.update(replaceInSession(session, updated, this.deps.now()));
+    return updated;
   }
 
   async takePersistenceFailure(): Promise<PersistenceError | null> {
@@ -96,7 +99,16 @@ export class ConversationLog {
 
   private discardUndecidedProposals(session: ConversationSession): void {
     const messages = session.messages.map((message) =>
-      isUndecidedProposal(message) ? decideProposal(message, ProposalStatus.Discarded) : message,
+      isUndecidedProposal(message)
+        ? {
+            ...message,
+            edits: decideEdits(
+              message.edits,
+              findPendingEdits(message.edits),
+              EditStatus.Discarded,
+            ),
+          }
+        : message,
     );
     this.update({ ...session, messages });
   }

@@ -1,7 +1,13 @@
 import type { SessionList } from '../application/conversation-session';
 import {
+  EditStatus,
+  findPendingEdits,
+  groupEditsByPath,
+  type FileEdits,
+  type ProposedEdit,
+} from '../domain/change-set';
+import {
   AssistantMessageKind,
-  ProposalStatus,
   type AssistantMessage,
   type ChatMessage,
   type CompactionSummaryMessage,
@@ -15,11 +21,14 @@ import css from './assistant.css?raw';
 import { InvariantViolation } from '../domain/errors';
 import { MarkdownRenderer } from './markdown-renderer';
 import {
+  changeSetStatusText,
   compactionFiles,
   compactionNotice,
+  editLinesMeta,
+  editStatusText,
+  getSharedStatus,
   messageMeta,
   messageTitle,
-  proposalStatusText,
   sessionDetails,
   VIEW_TEXT,
 } from './message-format';
@@ -28,8 +37,9 @@ type ShownMessage = ChatMessage | CompactionSummaryMessage;
 
 export interface ViewEvents {
   send(text: string): Promise<void>;
-  apply(changeId: string): Promise<void>;
-  reject(changeId: string): Promise<void>;
+  apply(proposalId: string, index: number | null): Promise<void>;
+  reject(proposalId: string, index: number | null): Promise<void>;
+  previewFile(proposalId: string, path: string): Promise<void>;
   newConversation(): Promise<void>;
   showSessions(): Promise<void>;
   openSession(id: string): Promise<void>;
@@ -59,7 +69,7 @@ export class AssistantView {
   private compactable = false;
   private readonly messageNodes = new Map<string, HTMLElement>();
   private busy = false;
-  private readonly actionNodes = new Map<string, HTMLElement>();
+  private readonly proposalCards = new Map<string, HTMLElement>();
 
   static isMounted(document: Document): boolean {
     return document.getElementById(ROOT_ID) !== null;
@@ -148,7 +158,7 @@ export class AssistantView {
   showConversation(messages: readonly ConversationMessage[]): void {
     this.chat.textContent = '';
     this.messageNodes.clear();
-    this.actionNodes.clear();
+    this.proposalCards.clear();
     const chat = messages.filter((message): message is ShownMessage => message.role !== 'tool');
     if (!chat.length) {
       this.showWelcome();
@@ -157,9 +167,9 @@ export class AssistantView {
     for (const message of chat) this.appendMessage(message);
   }
 
-  appendMessage(message: ShownMessage, changeId?: string): void {
+  appendMessage(message: ShownMessage): void {
     this.chat.querySelector('.ola-welcome')?.remove();
-    const node = this.renderMessage(message, changeId);
+    const node = this.renderMessage(message);
     this.messageNodes.set(message.id, node);
     this.append(node);
   }
@@ -168,7 +178,7 @@ export class AssistantView {
     const shown = this.messageNodes.get(message.id);
     if (shown === undefined)
       throw new InvariantViolation(`the chat shows no message ${message.id}`);
-    this.actionNodes.delete(message.id);
+    this.proposalCards.delete(message.id);
     const node = this.renderMessage(message);
     shown.replaceWith(node);
     this.messageNodes.set(message.id, node);
@@ -203,8 +213,8 @@ export class AssistantView {
     this.root.classList.toggle('is-busy', busy);
     this.sendButton.disabled = busy;
     this.compactButton.disabled = busy || !this.compactable;
-    for (const actions of this.actionNodes.values()) {
-      for (const action of actions.querySelectorAll('button')) action.disabled = busy;
+    for (const card of this.proposalCards.values()) {
+      for (const action of card.querySelectorAll('button')) action.disabled = busy;
     }
     this.setSessionButtonsBusy();
   }
@@ -236,7 +246,7 @@ export class AssistantView {
     void this.events.send(this.input.value);
   }
 
-  private renderMessage(message: ShownMessage, changeId?: string): HTMLElement {
+  private renderMessage(message: ShownMessage): HTMLElement {
     switch (message.role) {
       case 'summary':
         return this.renderSummary(message);
@@ -245,17 +255,16 @@ export class AssistantView {
       case 'system':
         return this.el('div', 'ola-msg ola-system', message.text);
       case 'assistant':
-        return this.renderAssistant(message, changeId);
+        return this.renderAssistant(message);
     }
   }
 
-  private renderAssistant(message: AssistantMessage, changeId?: string): HTMLElement {
+  private renderAssistant(message: AssistantMessage): HTMLElement {
     const node = this.el('div', 'ola-msg ola-ai');
     node.append(this.el('div', 'ola-result-title', messageTitle(message)));
     switch (message.kind) {
       case AssistantMessageKind.Proposal:
-        node.append(...this.renderProposal(message));
-        node.classList.toggle(`is-${message.status}`, message.status !== ProposalStatus.Proposed);
+        this.renderProposal(node, message);
         break;
       case AssistantMessageKind.Explanation:
       case AssistantMessageKind.Clarification:
@@ -263,21 +272,10 @@ export class AssistantView {
     }
     const meta = messageMeta(message);
     if (meta !== undefined) node.append(this.el('div', 'ola-result-meta', meta));
-    if (changeId !== undefined) {
-      const actions = this.el('div', 'ola-result-actions');
-      const apply = this.el('button', 'ola-btn ola-apply', VIEW_TEXT.apply);
-      const reject = this.el('button', 'ola-btn ola-reject', VIEW_TEXT.reject);
-      apply.type = reject.type = 'button';
-      apply.disabled = reject.disabled = this.busy;
-      apply.addEventListener('click', () => {
-        void this.events.apply(changeId);
-      });
-      reject.addEventListener('click', () => {
-        void this.events.reject(changeId);
-      });
-      actions.append(apply, reject);
-      node.append(actions);
-      this.actionNodes.set(changeId, actions);
+    if (message.kind === AssistantMessageKind.Proposal) {
+      const actions = this.renderCardActions(message);
+      if (actions !== null) node.append(actions);
+      this.proposalCards.set(message.id, node);
     }
     return node;
   }
@@ -306,11 +304,75 @@ export class AssistantView {
     if (hiddenBelow > this.chat.scrollTop) this.chat.scrollTop = hiddenBelow;
   }
 
-  private renderProposal(message: ProposalMessage): HTMLElement[] {
-    const { command } = message;
+  private renderProposal(node: HTMLElement, message: ProposalMessage): void {
+    const { edits } = message;
+    const shared = getSharedStatus(edits);
+    if (shared !== null && shared !== EditStatus.Proposed) node.classList.add(`is-${shared}`);
+    const status = changeSetStatusText(edits);
+    if (status !== undefined) {
+      const badge = this.el('div', 'ola-result-status', status);
+      badge.classList.add(`is-${shared === null ? 'partial' : shared}`);
+      node.append(badge);
+    }
+    const [only] = edits;
+    if (only !== undefined && edits.length === 1) {
+      node.append(...this.renderEditBody(only));
+      return;
+    }
+    for (const group of groupEditsByPath(edits)) node.append(this.renderFileEdits(message, group));
+  }
+
+  private renderFileEdits(message: ProposalMessage, group: FileEdits): HTMLElement {
+    const section = this.el('div', 'ola-change-file');
+    const head = this.el('div', 'ola-change-file-head');
+    head.append(this.el('span', 'ola-change-path', group.path));
+    const isOpen = group.indexes.some(
+      (index) => message.edits[index]?.status === EditStatus.Proposed,
+    );
+    if (isOpen) {
+      const show = this.actionButton('ola-preview-file', VIEW_TEXT.showFile, () =>
+        this.events.previewFile(message.id, group.path),
+      );
+      show.title = VIEW_TEXT.showFileHint;
+      head.append(show);
+    }
+    section.append(head);
+    for (const index of group.indexes) {
+      const edit = message.edits[index];
+      if (edit === undefined)
+        throw new InvariantViolation(`the change has no edit ${String(index)}`);
+      section.append(this.renderEdit(message.id, index, edit));
+    }
+    return section;
+  }
+
+  private renderEdit(proposalId: string, index: number, edit: ProposedEdit): HTMLElement {
+    const row = this.el('div', `ola-edit is-${edit.status}`);
+    const status = editStatusText(edit.status);
+    if (status !== undefined) {
+      const badge = this.el('div', 'ola-result-status', status);
+      badge.classList.add(`is-${edit.status}`);
+      row.append(badge);
+    }
+    row.append(...this.renderEditBody(edit));
+    row.append(this.el('div', 'ola-result-meta', editLinesMeta(edit.command)));
+    if (edit.status === EditStatus.Proposed) {
+      const actions = this.el('div', 'ola-edit-actions');
+      actions.append(
+        this.actionButton('ola-btn ola-apply-edit', VIEW_TEXT.apply, () =>
+          this.events.apply(proposalId, index),
+        ),
+        this.actionButton('ola-btn ola-reject-edit', VIEW_TEXT.reject, () =>
+          this.events.reject(proposalId, index),
+        ),
+      );
+      row.append(actions);
+    }
+    return row;
+  }
+
+  private renderEditBody({ command }: ProposedEdit): HTMLElement[] {
     const parts: HTMLElement[] = [];
-    const status = proposalStatusText(message.status);
-    if (status !== undefined) parts.push(this.el('div', 'ola-result-status', status));
     if (command.reason !== undefined) {
       parts.push(this.el('div', 'ola-result-reason', command.reason));
     }
@@ -324,6 +386,37 @@ export class AssistantView {
         break;
     }
     return parts;
+  }
+
+  private renderCardActions(message: ProposalMessage): HTMLElement | null {
+    if (findPendingEdits(message.edits).length === 0) return null;
+    const isSingle = message.edits.length === 1;
+    const actions = this.el('div', 'ola-result-actions');
+    actions.append(
+      this.actionButton('ola-btn ola-apply', isSingle ? VIEW_TEXT.apply : VIEW_TEXT.applyAll, () =>
+        this.events.apply(message.id, null),
+      ),
+      this.actionButton(
+        'ola-btn ola-reject',
+        isSingle ? VIEW_TEXT.reject : VIEW_TEXT.rejectAll,
+        () => this.events.reject(message.id, null),
+      ),
+    );
+    return actions;
+  }
+
+  private actionButton(
+    className: string,
+    text: string,
+    onClick: () => Promise<void>,
+  ): HTMLButtonElement {
+    const button = this.el('button', className, text);
+    button.type = 'button';
+    button.disabled = this.busy;
+    button.addEventListener('click', () => {
+      void onClick();
+    });
+    return button;
   }
 
   private renderSession(session: SessionSummary, currentId: string | null): HTMLElement {

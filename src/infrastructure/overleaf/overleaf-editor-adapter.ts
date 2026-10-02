@@ -1,9 +1,10 @@
 import { createDocumentSnapshot, type DocumentSnapshot } from '../../domain/document';
+import type { FileChange } from '../../domain/file-change';
 import type { TextFile } from '../../domain/project-file';
 import type { ResolvedEdit } from '../../domain/resolved-edit';
 import type { EditorPort } from '../../ports/editor-port';
 import { EditorShowsOtherFileError, EditorUnavailableError } from '../../ports/errors';
-import { createChange } from './document-change';
+import { createSpliceChange } from './document-change';
 import type { OpenEditor, OverleafEditorBridge } from './overleaf-editor-bridge';
 
 export class OverleafEditorAdapter implements EditorPort {
@@ -24,9 +25,12 @@ export class OverleafEditorAdapter implements EditorPort {
     return state.doc.lineAt(state.selection.main.head).number;
   }
 
-  showPreview(file: TextFile, edit: ResolvedEdit): void {
+  showPreview(file: TextFile, edits: readonly ResolvedEdit[]): void {
     const { view, preview } = this.editor(file);
-    preview.show(view, edit.command);
+    preview.show(
+      view,
+      edits.map(({ command }) => command),
+    );
   }
 
   clearPreview(): void {
@@ -34,10 +38,11 @@ export class OverleafEditorAdapter implements EditorPort {
     editor?.preview.clear(editor.view);
   }
 
-  apply(file: TextFile, edit: ResolvedEdit): void {
+  apply(file: TextFile, change: FileChange): void {
     const { view } = this.editor(file);
+    const { doc } = view.state;
     view.dispatch({
-      changes: createChange(view.state.doc, edit.command),
+      changes: change.splices.map((splice) => createSpliceChange(doc, splice)),
       scrollIntoView: true,
       userEvent: 'input',
     });

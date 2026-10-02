@@ -253,11 +253,15 @@ describe('agent exchange', () => {
           kind: 'reply',
           reply: {
             kind: 'edit',
-            path: 'main.tex',
-            command: createDocumentCommand({
-              operation: 'delete',
-              target: { lineNumber: 9, lineText: 'x' },
-            }),
+            edits: [
+              {
+                path: 'main.tex',
+                command: createDocumentCommand({
+                  operation: 'delete',
+                  target: { lineNumber: 9, lineText: 'x' },
+                }),
+              },
+            ],
           },
         },
         problem: 'Line 9 does not exist; the document has 2 lines.',

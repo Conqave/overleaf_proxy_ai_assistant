@@ -1,4 +1,4 @@
-import type { DocumentCommand } from './document-command';
+import type { EditRequest } from './change-set';
 import type { ResolvedEdit } from './resolved-edit';
 import { createProjectPath, type TextFile } from './project-file';
 import { InvalidProjectPathError, InvalidToolCallError } from './errors';
@@ -110,7 +110,7 @@ export interface ProjectEdit {
 export type AgentReply =
   | { readonly kind: 'answer'; readonly text: string }
   | { readonly kind: 'question'; readonly text: string }
-  | { readonly kind: 'edit'; readonly path: string; readonly command: DocumentCommand };
+  | { readonly kind: 'edit'; readonly edits: readonly EditRequest[] };
 
 export type AgentDecision =
   | { readonly kind: 'tool'; readonly call: ToolCall }

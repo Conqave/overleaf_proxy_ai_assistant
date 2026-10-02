@@ -1,6 +1,7 @@
 import type { Extension, Range, Text } from '@codemirror/state';
 import type { Decoration, DecorationSet, EditorView } from '@codemirror/view';
 import { DocumentOperation, type DocumentCommand } from '../../domain/document-command';
+import { InvariantViolation } from '../../domain/errors';
 import type { CodeMirrorApi } from './codemirror-api';
 import { getAffectedLines, type AffectedLines } from './document-change';
 
@@ -12,7 +13,7 @@ const PREVIEW_CLASS = {
 
 export interface ChangePreview {
   readonly extension: Extension;
-  show(view: EditorView, command: DocumentCommand): void;
+  show(view: EditorView, commands: readonly DocumentCommand[]): void;
   clear(view: EditorView): void;
 }
 
@@ -64,11 +65,11 @@ export function createChangePreview(cm: CodeMirrorApi): ChangePreview {
     },
   });
 
-  function decorationsFor(
+  function rangesFor(
     doc: Text,
     { first, last }: AffectedLines,
     command: DocumentCommand,
-  ): DecorationSet {
+  ): Range<Decoration>[] {
     const ranges: Range<Decoration>[] = [];
     if (
       command.operation === DocumentOperation.InsertBefore ||
@@ -92,18 +93,24 @@ export function createChangePreview(cm: CodeMirrorApi): ChangePreview {
       });
       ranges.push(added.range(before ? first.from : last.to));
     }
-    return cm.Decoration.set(ranges, true);
+    return ranges;
   }
 
   return {
     extension: [field, theme],
-    show(view, command) {
+    show(view, commands) {
       const { doc } = view.state;
-      const affected = getAffectedLines(doc, command);
+      const affected = commands.map((command) => ({
+        command,
+        lines: getAffectedLines(doc, command),
+      }));
+      const ranges = affected.flatMap(({ command, lines }) => rangesFor(doc, lines, command));
+      if (affected.length === 0) throw new InvariantViolation('a preview shows at least one edit');
+      const firstLine = Math.min(...affected.map(({ lines }) => lines.first.from));
       view.dispatch({
         effects: [
-          setPreview.of(decorationsFor(doc, affected, command)),
-          cm.EditorView.scrollIntoView(affected.first.from, { y: 'center' }),
+          setPreview.of(cm.Decoration.set(ranges, true)),
+          cm.EditorView.scrollIntoView(firstLine, { y: 'center' }),
         ],
       });
     },

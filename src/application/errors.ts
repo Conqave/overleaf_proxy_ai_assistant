@@ -48,3 +48,11 @@ export class FailureRecordingError extends NamedError {
     super('Recording the outcome of a failed operation failed as well.', { cause: recordingError });
   }
 }
+
+export class InvalidChangeSetEditError extends NamedError {
+  constructor(index: number, count: number, path: string, mistake: Error) {
+    super(`edit ${String(index + 1)} of ${String(count)} (${path}): ${mistake.message}`, {
+      cause: mistake,
+    });
+  }
+}

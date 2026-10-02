@@ -419,7 +419,9 @@ function turnBlock(
 function describeDecision(decision: AgentDecision): string {
   if (decision.kind === 'tool') return describeCall(decision.call);
   const { reply } = decision;
-  return reply.kind === 'edit' ? `${A.Edit} ${reply.path}` : reply.kind;
+  if (reply.kind !== 'edit') return reply.kind;
+  const paths = new Set(reply.edits.map(({ path }) => path));
+  return `${A.Edit} ${[...paths].join(', ')}`;
 }
 
 function describeCall(call: ToolCall): string {

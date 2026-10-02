@@ -5,12 +5,14 @@ import {
   type ProjectEdit,
   type ToolCall,
 } from '../domain/agent-action';
+import type { EditRequest } from '../domain/change-set';
 import { checkToolCall } from '../domain/agent-policy';
 import { assertEditShown, getShownDocument, type AgentTurn } from '../domain/agent-transcript';
 import {
   DocumentRangeError,
   DocumentTargetNotFoundError,
   NotATextFileError,
+  OverlappingEditsError,
   ProjectFileNotFoundError,
   ReadRangeError,
   RepeatedToolCallError,
@@ -18,10 +20,12 @@ import {
   UnreadFileEditError,
   UnshownLinesEditError,
 } from '../domain/errors';
+import { checkSeparateEdits } from '../domain/file-change';
 import { findTextFile, listTextFiles, type TextFile } from '../domain/project-file';
 import { ResolvedEdit } from '../domain/resolved-edit';
 import type { ReadRange } from '../domain/read-window';
 import type { AgentWorkspace } from '../ports/agent-port';
+import { InvalidChangeSetEditError } from './errors';
 
 export type ProjectToolRun =
   | {
@@ -40,7 +44,7 @@ export type AcceptedDecision =
   | { readonly kind: 'tool'; readonly call: ToolCall; readonly run: ProjectToolRun }
   | { readonly kind: 'answer'; readonly text: string }
   | { readonly kind: 'question'; readonly text: string }
-  | { readonly kind: 'edit'; readonly change: ProjectEdit };
+  | { readonly kind: 'edit'; readonly changes: readonly ProjectEdit[] };
 
 export type AgentMistake =
   | ToolBudgetExhaustedError
@@ -51,7 +55,9 @@ export type AgentMistake =
   | UnshownLinesEditError
   | ReadRangeError
   | DocumentTargetNotFoundError
-  | DocumentRangeError;
+  | DocumentRangeError
+  | OverlappingEditsError
+  | InvalidChangeSetEditError;
 
 export function isAgentMistake(error: unknown): error is AgentMistake {
   return (
@@ -63,7 +69,9 @@ export function isAgentMistake(error: unknown): error is AgentMistake {
     error instanceof UnshownLinesEditError ||
     error instanceof ReadRangeError ||
     error instanceof DocumentTargetNotFoundError ||
-    error instanceof DocumentRangeError
+    error instanceof DocumentRangeError ||
+    error instanceof OverlappingEditsError ||
+    error instanceof InvalidChangeSetEditError
   );
 }
 
@@ -98,11 +106,40 @@ function acceptReply(
     case 'question':
       return { kind: reply.kind, text: reply.text };
     case 'edit': {
-      const file = findTextFile(workspace.files, reply.path);
-      const shown = getShownDocument(workspace.openFile, transcript, file.path, reply.command);
-      const edit = ResolvedEdit.resolve(shown.document, reply.command);
-      assertEditShown(file.path, shown, edit.command, transcript);
-      return { kind: 'edit', change: { file, edit } };
+      const changes = reply.edits.map((request, index) =>
+        reply.edits.length === 1
+          ? acceptEdit(request, workspace, transcript)
+          : acceptEditOfMany(request, index, reply.edits.length, workspace, transcript),
+      );
+      checkSeparateEdits(changes.map(({ file, edit }) => ({ path: file.path, edit })));
+      return { kind: 'edit', changes };
     }
   }
+}
+
+function acceptEditOfMany(
+  request: EditRequest,
+  index: number,
+  count: number,
+  workspace: AgentWorkspace,
+  transcript: readonly AgentTurn[],
+): ProjectEdit {
+  try {
+    return acceptEdit(request, workspace, transcript);
+  } catch (error) {
+    if (!isAgentMistake(error)) throw error;
+    throw new InvalidChangeSetEditError(index, count, request.path, error);
+  }
+}
+
+function acceptEdit(
+  { path, command }: EditRequest,
+  workspace: AgentWorkspace,
+  transcript: readonly AgentTurn[],
+): ProjectEdit {
+  const file = findTextFile(workspace.files, path);
+  const shown = getShownDocument(workspace.openFile, transcript, file.path, command);
+  const edit = ResolvedEdit.resolve(shown.document, command);
+  assertEditShown(file.path, shown, edit.command, transcript);
+  return { file, edit };
 }

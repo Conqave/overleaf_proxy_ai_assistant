@@ -33,6 +33,8 @@ export class UnshownLinesEditError extends NamedError {}
 
 export class OverlappingEditsError extends NamedError {}
 
+export class InvalidChangeSetError extends NamedError {}
+
 export class UndoConflictError extends OperationalError {}
 
 export class ReadRangeError extends NamedError {}

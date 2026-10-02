@@ -525,8 +525,11 @@ function expectEdit(
   const { result } = run;
   expect(result.kind).toBe('proposal');
   if (result.kind !== 'proposal') return;
-  expect(result.message.path).toBe(expected.path);
-  const { command } = result.message;
+  expect(result.message.edits).toHaveLength(1);
+  const [edit] = result.message.edits;
+  if (edit === undefined) return;
+  expect(edit.path).toBe(expected.path);
+  const { command } = edit;
   if (expected.operation.startsWith('insert') && command.operation.startsWith('insert')) {
     const actual = { ...expected, operation: command.operation, line: command.target.lineNumber };
     expect(gap(texts, actual)).toBe(gap(texts, expected));

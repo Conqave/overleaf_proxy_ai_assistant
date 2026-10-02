@@ -140,7 +140,7 @@ function parseEditReply(rows: readonly string[]): AgentReply {
     content,
     reason: getOptionalField(fields, EditField.Reason),
   });
-  return { kind: 'edit', path, command };
+  return { kind: 'edit', edits: [{ path, command }] };
 }
 
 function parseEditPath(value: string): string {

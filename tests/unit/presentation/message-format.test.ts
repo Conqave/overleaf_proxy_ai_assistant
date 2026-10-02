@@ -6,21 +6,19 @@ import {
 } from '../../../src/domain/document-command';
 import {
   appliedNotice,
+  changeSetStatusText,
+  conflictNotice,
   contextUsageText,
+  editStatusText,
   messageMeta,
+  messageTitle,
   progressStatus,
-  proposalStatusText,
   sessionDetails,
 } from '../../../src/presentation/message-format';
+import { editWith, proposalOf } from '../../support/proposals';
 
-const proposal = (input: DocumentCommandInput, path = 'chapters/a.tex'): ProposalMessage => ({
-  id: '1',
-  role: 'assistant',
-  kind: 'proposal',
-  path,
-  command: createDocumentCommand(input),
-  status: 'proposed',
-});
+const proposal = (input: DocumentCommandInput, path = 'chapters/a.tex'): ProposalMessage =>
+  proposalOf('1', editWith(path, createDocumentCommand(input), 'proposed'));
 const target = { lineNumber: 3, lineText: '\\section{A}' };
 
 describe('messageMeta', () => {
@@ -41,26 +39,71 @@ describe('messageMeta', () => {
 });
 
 describe('appliedNotice', () => {
-  it('reports how many lines changed in which file', () => {
-    const replaced = proposal(
-      { operation: 'replace', target, lineCount: 1, content: 'x' },
-      'refs.bib',
+  const replaced = {
+    path: 'refs.bib',
+    command: createDocumentCommand({ operation: 'replace', target, lineCount: 1, content: 'x' }),
+  };
+  const deleted = {
+    path: 'main.tex',
+    command: createDocumentCommand({ operation: 'delete', target, lineCount: 4 }),
+  };
+
+  it('reports how many lines of one edit changed in which file', () => {
+    expect(appliedNotice({ applied: [replaced], conflicts: [] })).toBe(
+      'Done. Line replaced in refs.bib.',
     );
-    const deleted = proposal({ operation: 'delete', target, lineCount: 4 }, 'main.tex');
-    expect(appliedNotice(replaced)).toBe('Done. Line replaced in refs.bib.');
-    expect(appliedNotice(deleted)).toBe('Done. 4 lines deleted in main.tex.');
+    expect(appliedNotice({ applied: [deleted], conflicts: [] })).toBe(
+      'Done. 4 lines deleted in main.tex.',
+    );
+  });
+
+  it('counts the edits of several files and says nothing when none was applied', () => {
+    expect(appliedNotice({ applied: [replaced, deleted, deleted], conflicts: [] })).toBe(
+      'Done. Applied 3 edits in refs.bib, main.tex.',
+    );
+    expect(appliedNotice({ applied: [], conflicts: [] })).toBeUndefined();
   });
 });
 
-describe('proposalStatusText', () => {
+describe('conflictNotice', () => {
+  it('names the file that was left unchanged and why', () => {
+    expect(conflictNotice({ path: 'refs.bib', problem: 'It changed.' })).toBe(
+      'Not applied in refs.bib: It changed.',
+    );
+  });
+});
+
+describe('edit statuses', () => {
   it.each([
     ['proposed', undefined],
     ['applied', 'Applied'],
     ['rejected', 'Rejected'],
     ['failed', 'Not applied'],
     ['discarded', 'Discarded'],
-  ] as const)('labels a %s proposal', (status, text) => {
-    expect(proposalStatusText(status)).toBe(text);
+  ] as const)('labels a %s edit', (status, text) => {
+    expect(editStatusText(status)).toBe(text);
+  });
+
+  it('labels a change by its shared status or counts its statuses', () => {
+    const command = createDocumentCommand({ operation: 'delete', target });
+    const of = (...statuses: ('proposed' | 'applied' | 'rejected')[]) =>
+      statuses.map((status) => editWith('main.tex', command, status));
+    expect(changeSetStatusText(of('applied', 'applied'))).toBe('Applied');
+    expect(changeSetStatusText(of('proposed', 'proposed'))).toBeUndefined();
+    expect(changeSetStatusText(of('proposed', 'rejected', 'applied', 'applied'))).toBe(
+      '2 applied · 1 rejected · 1 open',
+    );
+  });
+});
+
+describe('messageTitle', () => {
+  it('names the operation of one edit and counts the edits and files of a change', () => {
+    const command = createDocumentCommand({ operation: 'delete', target });
+    expect(messageTitle(proposalOf('1', editWith('a.tex', command, 'proposed')))).toBe(
+      'Proposed deletion',
+    );
+    const edits = ['a.tex', 'a.tex', 'b.tex'].map((path) => editWith(path, command, 'proposed'));
+    expect(messageTitle(proposalOf('2', ...edits))).toBe('Proposed changes: 3 edits in 2 files');
   });
 });
 

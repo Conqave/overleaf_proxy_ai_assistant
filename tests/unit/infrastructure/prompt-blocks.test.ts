@@ -8,6 +8,7 @@ import { createAgentExchange } from '../../../src/infrastructure/ollama/agent-pr
 import type { AgentStepRequest } from '../../../src/ports/agent-port';
 import { viewConversation } from '../../../src/domain/conversation-view';
 import { TestFixtureError } from '../../support/test-errors';
+import { editWith, proposalOf } from '../../support/proposals';
 
 const budget = 20_480;
 const conversation = Array.from({ length: 15 }, (_, i) => ({
@@ -145,24 +146,53 @@ describe('conversation history', () => {
   ] as const)(
     'shows a %s proposal to the model with its outcome, place and content',
     (status, outcome) => {
-      const proposal = {
-        id: 'p',
-        role: 'assistant' as const,
-        kind: 'proposal' as const,
-        path: 'main.tex',
-        command: createDocumentCommand({
-          operation: 'replace',
-          target: { lineNumber: 2, lineText: 'Body.' },
-          content: 'New body.',
-          reason: 'Clearer.',
-        }),
-        status,
-      };
+      const proposal = proposalOf(
+        'p',
+        editWith(
+          'main.tex',
+          createDocumentCommand({
+            operation: 'replace',
+            target: { lineNumber: 2, lineText: 'Body.' },
+            content: 'New body.',
+            reason: 'Clearer.',
+          }),
+          status,
+        ),
+      );
       expect(promptOf({ conversation: viewConversation([proposal]) })).toContain(
         `[assistant] ${outcome} main.tex line 2: replace (Clearer.)\nNew body.`,
       );
     },
   );
+});
+
+describe('change history', () => {
+  it('shows the model the outcome of every edit of a change', () => {
+    const replace = createDocumentCommand({
+      operation: 'replace',
+      target: { lineNumber: 2, lineText: '\\label{sec:old}' },
+      content: '\\label{sec:new}',
+    });
+    const remove = createDocumentCommand({
+      operation: 'delete',
+      target: { lineNumber: 7, lineText: 'Old.' },
+      lineCount: 2,
+      reason: 'Drops the old note.',
+    });
+    const change = proposalOf(
+      'p',
+      editWith('chapters/results.tex', replace, 'applied'),
+      editWith('main.tex', remove, 'rejected'),
+    );
+    expect(promptOf({ conversation: viewConversation([change]) })).toContain(
+      [
+        '[assistant] [change of 2 edits]',
+        '[edit 1 applied] chapters/results.tex line 2: replace',
+        '\\label{sec:new}',
+        '[edit 2 rejected] main.tex lines 7-8: delete (Drops the old note.)',
+      ].join('\n'),
+    );
+  });
 });
 
 describe('compaction', () => {

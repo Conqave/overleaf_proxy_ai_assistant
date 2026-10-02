@@ -1,12 +1,8 @@
-import type { AgentProgress } from '../application/agent-progress';
+import type { AgentProgress, ApplyReport, FileConflict } from '../application/agent-progress';
 import type { ContextUsage } from '../application/handle-assistant-request';
-import {
-  ProposalStatus,
-  type AssistantMessage,
-  type CompactionSummaryMessage,
-  type ProposalMessage,
-} from '../domain/conversation';
-import { DocumentOperation } from '../domain/document-command';
+import { EditStatus, type EditRequest, type ProposedEdit } from '../domain/change-set';
+import type { AssistantMessage, CompactionSummaryMessage } from '../domain/conversation';
+import { DocumentOperation, type DocumentCommand } from '../domain/document-command';
 import type { SessionSummary } from '../domain/session';
 
 const KIND_TITLE: Record<Exclude<AssistantMessage['kind'], 'proposal'>, string> = {
@@ -47,6 +43,10 @@ export const VIEW_TEXT = {
   send: 'Send',
   apply: 'Apply',
   reject: 'Reject',
+  applyAll: 'Apply all',
+  rejectAll: 'Reject all',
+  showFile: 'Show in editor',
+  showFileHint: 'Open this file and preview its open edits',
   contextHint: 'Tokens of the last prompt sent to the model / context window of the model',
   welcomeTitle: 'Ready to help with this document',
   welcomeCopy:
@@ -58,35 +58,82 @@ export const INTERNAL_ERROR = 'Unexpected internal error. Details are in the bro
 
 export function messageTitle(message: AssistantMessage): string {
   if (message.kind !== 'proposal') return KIND_TITLE[message.kind];
-  return PROPOSAL_TITLE[message.command.operation];
+  const [only] = message.edits;
+  if (only !== undefined && message.edits.length === 1)
+    return PROPOSAL_TITLE[only.command.operation];
+  const files = new Set(message.edits.map(({ path }) => path)).size;
+  return `Proposed changes: ${countOf(message.edits.length, 'edit')} in ${countOf(files, 'file')}`;
 }
 
-const PROPOSAL_STATUS_TEXT: Record<ProposalStatus, string | undefined> = {
-  [ProposalStatus.Proposed]: undefined,
-  [ProposalStatus.Applied]: 'Applied',
-  [ProposalStatus.Rejected]: 'Rejected',
-  [ProposalStatus.Failed]: 'Not applied',
-  [ProposalStatus.Discarded]: 'Discarded',
+const EDIT_STATUS_TEXT: Record<EditStatus, string | undefined> = {
+  [EditStatus.Proposed]: undefined,
+  [EditStatus.Applied]: 'Applied',
+  [EditStatus.Rejected]: 'Rejected',
+  [EditStatus.Failed]: 'Not applied',
+  [EditStatus.Discarded]: 'Discarded',
 };
 
-export function proposalStatusText(status: ProposalStatus): string | undefined {
-  return PROPOSAL_STATUS_TEXT[status];
+const EDIT_STATUS_COUNT: Record<EditStatus, string> = {
+  [EditStatus.Proposed]: 'open',
+  [EditStatus.Applied]: 'applied',
+  [EditStatus.Rejected]: 'rejected',
+  [EditStatus.Failed]: 'not applied',
+  [EditStatus.Discarded]: 'discarded',
+};
+
+const STATUS_COUNT_ORDER: readonly EditStatus[] = [
+  EditStatus.Applied,
+  EditStatus.Rejected,
+  EditStatus.Failed,
+  EditStatus.Discarded,
+  EditStatus.Proposed,
+];
+
+export function editStatusText(status: EditStatus): string | undefined {
+  return EDIT_STATUS_TEXT[status];
+}
+
+export function getSharedStatus(edits: readonly ProposedEdit[]): EditStatus | null {
+  const statuses = new Set(edits.map(({ status }) => status));
+  const [shared] = statuses;
+  return statuses.size === 1 && shared !== undefined ? shared : null;
+}
+
+export function changeSetStatusText(edits: readonly ProposedEdit[]): string | undefined {
+  const shared = getSharedStatus(edits);
+  if (shared !== null) return editStatusText(shared);
+  return STATUS_COUNT_ORDER.map((status) => ({
+    status,
+    count: edits.filter((edit) => edit.status === status).length,
+  }))
+    .filter(({ count }) => count > 0)
+    .map(({ status, count }) => `${String(count)} ${EDIT_STATUS_COUNT[status]}`)
+    .join(' · ');
 }
 
 export function messageMeta(message: AssistantMessage): string | undefined {
   if (message.kind !== 'proposal') return undefined;
-  const { command, path } = message;
+  const [only] = message.edits;
+  if (only === undefined || message.edits.length > 1) return undefined;
+  return `${only.path}, ${editLinesMeta(only.command)}`;
+}
+
+export function editLinesMeta(command: DocumentCommand): string {
   const { lineNumber, lineText } = command.target;
   const first = String(lineNumber);
   switch (command.operation) {
     case DocumentOperation.InsertBefore:
     case DocumentOperation.InsertAfter:
-      return `${path}, anchor line ${first}: ${lineText}`;
+      return `anchor line ${first}: ${lineText}`;
     case DocumentOperation.Replace:
     case DocumentOperation.Delete:
-      if (command.lineCount === 1) return `${path}, line ${first}: ${lineText}`;
-      return `${path}, lines ${first}–${String(lineNumber + command.lineCount - 1)}, starting: ${lineText}`;
+      if (command.lineCount === 1) return `line ${first}: ${lineText}`;
+      return `lines ${first}–${String(lineNumber + command.lineCount - 1)}, starting: ${lineText}`;
   }
+}
+
+function countOf(count: number, noun: string): string {
+  return count === 1 ? `1 ${noun}` : `${String(count)} ${noun}s`;
 }
 
 const SESSION_DATE_FORMAT = new Intl.DateTimeFormat(undefined, {
@@ -103,7 +150,15 @@ export function errorNotice(message: string): string {
   return `Error: ${message}`;
 }
 
-export function appliedNotice({ path, command }: ProposalMessage): string {
+export function appliedNotice({ applied }: ApplyReport): string | undefined {
+  const [only] = applied;
+  if (only === undefined) return undefined;
+  if (applied.length === 1) return singleEditNotice(only);
+  const paths = [...new Set(applied.map(({ path }) => path))];
+  return `Done. Applied ${countOf(applied.length, 'edit')} in ${paths.join(', ')}.`;
+}
+
+function singleEditNotice({ path, command }: EditRequest): string {
   switch (command.operation) {
     case DocumentOperation.InsertBefore:
       return `Done. Inserted before the selected anchor in ${path}.`;
@@ -118,6 +173,10 @@ export function appliedNotice({ path, command }: ProposalMessage): string {
         ? `Done. Line deleted in ${path}.`
         : `Done. ${String(command.lineCount)} lines deleted in ${path}.`;
   }
+}
+
+export function conflictNotice({ path, problem }: FileConflict): string {
+  return `Not applied in ${path}: ${problem}`;
 }
 
 export function contextUsageText({ promptTokens, contextTokens }: ContextUsage): string {
@@ -159,6 +218,7 @@ export function progressStatus(progress: AgentProgress): string {
     case 'compacting':
       return 'Hans is summarising the earlier conversation';
     case 'decided':
+    case 'applied':
     case 'compacted':
       return '';
   }

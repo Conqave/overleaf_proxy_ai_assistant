@@ -1,4 +1,5 @@
-import type { ApplyDocumentChange } from '../application/apply-document-change';
+import type { ApplyChangeSet } from '../application/apply-change-set';
+import type { ChangeSetOutcome } from '../application/change-set-outcome';
 import type { CompactConversation } from '../application/compact-conversation';
 import type { ConversationLog } from '../application/conversation-log';
 import type {
@@ -16,13 +17,14 @@ import type {
 import type { AgentProgress } from '../application/agent-progress';
 import { RequestSupersededError } from '../application/errors';
 import type { OperationLock } from '../application/operation-lock';
-import type { RejectDocumentChange } from '../application/reject-document-change';
-import { ProposalStatus } from '../domain/conversation';
+import type { PreviewChangeSetFile } from '../application/preview-change-set-file';
+import type { RejectChangeSet } from '../application/reject-change-set';
 import { InvariantViolation, OperationalError } from '../domain/errors';
 import type { AssistantView, ViewEvents } from './assistant-view';
 import {
   appliedNotice,
   COMPILED,
+  conflictNotice,
   contextUsageText,
   errorNotice,
   INTERNAL_ERROR,
@@ -31,9 +33,10 @@ import {
 
 export interface UseCases {
   handleRequest: HandleAssistantRequest;
-  applyChange: ApplyDocumentChange;
+  applyChange: ApplyChangeSet;
   lock: Pick<OperationLock, 'onChange'>;
-  rejectChange: RejectDocumentChange;
+  rejectChange: RejectChangeSet;
+  previewChange: PreviewChangeSetFile;
   restoreSession: RestoreLatestSession;
   startNewConversation: StartNewConversation;
   compactConversation: CompactConversation;
@@ -91,31 +94,52 @@ export class AssistantController implements ViewEvents {
     });
   }
 
-  apply(changeId: string): Promise<void> {
+  apply(proposalId: string, index: number | null): Promise<void> {
+    return this.decide((onProgress) =>
+      this.useCases.applyChange.execute(proposalId, indexesOf(index), onProgress),
+    );
+  }
+
+  reject(proposalId: string, index: number | null): Promise<void> {
+    return this.decide((onProgress) =>
+      this.useCases.rejectChange.execute(proposalId, indexesOf(index), onProgress),
+    );
+  }
+
+  previewFile(proposalId: string, path: string): Promise<void> {
     const view = this.requireView();
-    const onProgress = (progress: AgentProgress): void => {
-      this.showProgress(view, progress);
-    };
     return this.guard(async () => {
       try {
-        const outcome = await this.useCases.applyChange.execute(changeId, onProgress);
-        switch (outcome.kind) {
-          case 'compiled':
-            view.showNotice(COMPILED, 'info');
-            break;
-          case 'fix':
-            this.showResult(view, outcome.result);
-        }
+        await this.useCases.previewChange.execute(proposalId, path, (progress) => {
+          this.showProgress(view, progress);
+        });
       } finally {
         view.setStatus('');
       }
     });
   }
 
-  reject(changeId: string): Promise<void> {
+  private decide(
+    decision: (onProgress: (progress: AgentProgress) => void) => Promise<ChangeSetOutcome>,
+  ): Promise<void> {
     const view = this.requireView();
     return this.guard(async () => {
-      view.updateMessage(await this.useCases.rejectChange.execute(changeId));
+      try {
+        const { message, review } = await decision((progress) => {
+          this.showProgress(view, progress);
+        });
+        view.updateMessage(message);
+        if (review === null) return;
+        switch (review.kind) {
+          case 'compiled':
+            view.showNotice(COMPILED, 'info');
+            break;
+          case 'fix':
+            this.showResult(view, review.result);
+        }
+      } finally {
+        view.setStatus('');
+      }
     });
   }
 
@@ -189,7 +213,7 @@ export class AssistantController implements ViewEvents {
         this.showContextUsage(view, result.contextUsage);
         break;
       case 'proposal':
-        view.appendMessage(result.message, result.changeId);
+        view.appendMessage(result.message);
         this.showContextUsage(view, result.contextUsage);
     }
   }
@@ -201,10 +225,15 @@ export class AssistantController implements ViewEvents {
         break;
       case 'decided':
         view.updateMessage(progress.message);
-        if (progress.message.status === ProposalStatus.Applied) {
-          view.showNotice(appliedNotice(progress.message), 'info');
+        break;
+      case 'applied': {
+        const notice = appliedNotice(progress.report);
+        if (notice !== undefined) view.showNotice(notice, 'info');
+        for (const conflict of progress.report.conflicts) {
+          view.showNotice(conflictNotice(conflict), 'error');
         }
         break;
+      }
       case 'compacted':
         view.appendMessage(progress.message);
         break;
@@ -243,4 +272,8 @@ export class AssistantController implements ViewEvents {
     if (!this.view) throw new InvariantViolation('AssistantController used before attach()');
     return this.view;
   }
+}
+
+function indexesOf(index: number | null): readonly number[] | null {
+  return index === null ? null : [index];
 }

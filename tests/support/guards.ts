@@ -25,6 +25,10 @@ export function anInstanceOf(type: abstract new (...args: never[]) => unknown): 
   return expect.any(type);
 }
 
+export function objectContaining(fields: Record<string, unknown>): unknown {
+  return expect.objectContaining(fields);
+}
+
 export function textContaining(text: string): unknown {
   return expect.stringContaining(text);
 }
