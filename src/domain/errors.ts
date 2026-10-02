@@ -31,6 +31,10 @@ export class UnreadFileEditError extends NamedError {}
 
 export class UnshownLinesEditError extends NamedError {}
 
+export class OverlappingEditsError extends NamedError {}
+
+export class UndoConflictError extends OperationalError {}
+
 export class ReadRangeError extends NamedError {}
 
 export class InvalidToolRecordError extends NamedError {}

@@ -1,6 +1,6 @@
 import { AgentTool, type AgentDecision, type ToolCall } from './agent-action';
 import { isSameDocument, type DocumentSnapshot } from './document';
-import { DocumentOperation, type DocumentCommand } from './document-command';
+import { getCommandLines, type DocumentCommand } from './document-command';
 import {
   InvalidToolRecordError,
   InvariantViolation,
@@ -169,7 +169,7 @@ export function getShownDocument(
   if (hits.length === 0) {
     throw new UnreadFileEditError(`${path} must be read with read_file before it can be edited`);
   }
-  const { first, last } = getEditedLines(command);
+  const { first, last } = getCommandLines(command);
   throw new UnreadFileEditError(
     `${path} was not read: the search results show only its matching ${describeLineNumbers(hits)}, and search hits are not enough to edit a file; read lines ${String(Math.max(1, first - READ_MARGIN_LINES))} to ${String(last + READ_MARGIN_LINES)} of ${path} with read_file (PATH, START_LINE and END_LINE) first, then send the edit`,
   );
@@ -183,7 +183,7 @@ export function assertEditShown(
   command: DocumentCommand,
   transcript: readonly AgentTurn[],
 ): void {
-  const { first, last } = getEditedLines(command);
+  const { first, last } = getCommandLines(command);
   for (let line = first; line <= last; line += 1) {
     if (!shown.spans.some((span) => span.first <= line && line <= span.last)) {
       const hint = findSearchHits(transcript, path).includes(line)
@@ -208,16 +208,4 @@ function findSearchHits(transcript: readonly AgentTurn[], path: string): number[
 function describeLineNumbers(lineNumbers: readonly number[]): string {
   const listed = lineNumbers.map(String).join(', ');
   return lineNumbers.length === 1 ? `line ${listed}` : `lines ${listed}`;
-}
-
-function getEditedLines(command: DocumentCommand): LineSpan {
-  const first = command.target.lineNumber;
-  switch (command.operation) {
-    case DocumentOperation.InsertBefore:
-    case DocumentOperation.InsertAfter:
-      return { first, last: first };
-    case DocumentOperation.Replace:
-    case DocumentOperation.Delete:
-      return { first, last: first + command.lineCount - 1 };
-  }
 }

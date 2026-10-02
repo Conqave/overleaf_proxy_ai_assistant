@@ -2,6 +2,7 @@ import { isSameDocument, type DocumentSnapshot } from './document';
 import { DocumentOperation, type DocumentCommand } from './document-command';
 import { resolveTarget } from './document-target';
 import { DocumentConflictError, DocumentRangeError } from './errors';
+import type { LineSplice } from './file-change';
 
 export class ResolvedEdit {
   private constructor(
@@ -23,6 +24,29 @@ export class ResolvedEdit {
       }
     }
     return new ResolvedEdit(Object.freeze({ ...command, target }), document);
+  }
+
+  get splice(): LineSplice {
+    const { command, document } = this;
+    const line = command.target.lineNumber;
+    switch (command.operation) {
+      case DocumentOperation.InsertBefore:
+        return { line, removed: [], inserted: command.content.split('\n') };
+      case DocumentOperation.InsertAfter:
+        return { line: line + 1, removed: [], inserted: command.content.split('\n') };
+      case DocumentOperation.Replace:
+        return {
+          line,
+          removed: document.lines.slice(line - 1, line - 1 + command.lineCount),
+          inserted: command.content.split('\n'),
+        };
+      case DocumentOperation.Delete:
+        return {
+          line,
+          removed: document.lines.slice(line - 1, line - 1 + command.lineCount),
+          inserted: command.lineCount === document.lines.length ? [''] : [],
+        };
+    }
   }
 
   assertCurrent(current: DocumentSnapshot): void {

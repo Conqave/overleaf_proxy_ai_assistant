@@ -1,5 +1,6 @@
 import { createDocumentTarget, type DocumentTarget } from './document-target';
 import { InvalidDocumentCommandError } from './errors';
+import type { LineSpan } from './read-window';
 
 export const DocumentOperation = {
   InsertBefore: 'insert_before',
@@ -100,4 +101,16 @@ function parseTarget(value: unknown): DocumentTarget {
   }
   const fields = new Map(Object.entries(value));
   return createDocumentTarget(fields.get('lineNumber'), fields.get('lineText'));
+}
+
+export function getCommandLines(command: DocumentCommand): LineSpan {
+  const first = command.target.lineNumber;
+  switch (command.operation) {
+    case DocumentOperation.InsertBefore:
+    case DocumentOperation.InsertAfter:
+      return { first, last: first };
+    case DocumentOperation.Replace:
+    case DocumentOperation.Delete:
+      return { first, last: first + command.lineCount - 1 };
+  }
 }
