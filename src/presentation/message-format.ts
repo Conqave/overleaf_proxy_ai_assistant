@@ -89,6 +89,10 @@ export const VIEW_TEXT = {
 } as const;
 
 export const COMPILED = 'Compiled without errors.';
+
+export function compiledWithErrorsNotice(errorCount: number): string {
+  return `Compiled with ${countOf(errorCount, 'error')}; see the PDF pane for details.`;
+}
 export const INTERNAL_ERROR = 'Unexpected internal error. Details are in the browser console.';
 
 export function messageTitle(message: AssistantMessage): string {

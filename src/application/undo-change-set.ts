@@ -5,6 +5,7 @@ import {
   hasPendingEdits,
   recordUndoneEdits,
 } from '../domain/change-set';
+import type { CompileDiagnostic } from '../domain/agent-transcript';
 import type { ProposalMessage, UndoMessage, UndoRefusal } from '../domain/conversation';
 import { NotATextFileError, ProjectFileNotFoundError, UndoConflictError } from '../domain/errors';
 import { planUndo, type FileChange } from '../domain/file-change';
@@ -21,6 +22,7 @@ import { showProjectFile } from './show-project-file';
 interface UndoOutcome {
   readonly message: ProposalMessage;
   readonly notice: UndoMessage;
+  readonly diagnostics: readonly CompileDiagnostic[] | null;
 }
 
 interface UndoRun {
@@ -71,7 +73,10 @@ export class UndoChangeSet {
         }
         throw error;
       }
-      return { message, notice: this.record(proposalId, undone, refused) };
+      const notice = this.record(proposalId, undone, refused);
+      if (undone.length === 0) return { message, notice, diagnostics: null };
+      onProgress({ stage: 'compiling' });
+      return { message, notice, diagnostics: await project.compile(signal) };
     });
   }
 

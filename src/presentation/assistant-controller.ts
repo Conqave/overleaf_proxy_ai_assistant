@@ -25,11 +25,13 @@ import type {
 import type { RejectChangeSet } from '../application/reject-change-set';
 import type { UndoChangeSet } from '../application/undo-change-set';
 import type { WebSearchApproval, WebSearchDecision } from '../application/web-search-approval';
+import { DiagnosticLevel, type CompileDiagnostic } from '../domain/agent-transcript';
 import { InvariantViolation, OperationalError } from '../domain/errors';
 import type { AssistantView, ViewEvents } from './assistant-view';
 import {
   appliedNotice,
   COMPILED,
+  compiledWithErrorsNotice,
   conflictNotice,
   contextUsageText,
   errorNotice,
@@ -137,7 +139,7 @@ export class AssistantController implements ViewEvents {
     const view = this.requireView();
     return this.guard(async () => {
       try {
-        const { message, notice } = await this.useCases.undoChange.execute(
+        const { message, notice, diagnostics } = await this.useCases.undoChange.execute(
           proposalId,
           (progress) => {
             this.showProgress(view, progress);
@@ -145,6 +147,7 @@ export class AssistantController implements ViewEvents {
         );
         view.updateMessage(message);
         view.appendMessage(notice);
+        if (diagnostics !== null) this.showCompiled(view, diagnostics);
       } finally {
         view.setStatus('');
       }
@@ -179,6 +182,12 @@ export class AssistantController implements ViewEvents {
         view.setStatus('');
       }
     });
+  }
+
+  private showCompiled(view: AssistantView, diagnostics: readonly CompileDiagnostic[]): void {
+    const errors = diagnostics.filter(({ level }) => level === DiagnosticLevel.Error).length;
+    if (errors === 0) view.showNotice(COMPILED, 'info');
+    else view.showNotice(compiledWithErrorsNotice(errors), 'error');
   }
 
   newConversation(): Promise<void> {

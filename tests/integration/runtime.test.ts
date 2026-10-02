@@ -933,7 +933,8 @@ describe('assistant agent', () => {
     expect(editorText().split('\n')[3]).toBe(EXPERIMENT_LINE);
     expect(texts('.ola-ai.is-undone > .ola-result-status')).toEqual(['Undone']);
     expect(texts('.ola-undo')).toEqual([]);
-    expect(ide.compileCount).toBe(1);
+    expect(ide.compileCount).toBe(2);
+    expect(texts('.ola-system').at(-1)).toBe('Compiled without errors.');
     await send('Is the word still bold?');
     expect(itemAt(ollama.prompts, 1, 'prompt').userMessage).toContain(
       '[editor] The user undid the applied edits of an earlier change in main.tex',

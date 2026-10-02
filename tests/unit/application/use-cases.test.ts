@@ -2052,7 +2052,11 @@ describe('change sets', () => {
     const changeId = await proposeBatch();
     await apply.execute(changeId, null, record);
     progress = [];
-    const { message, notice } = await undo.execute(changeId, record);
+    project.willCompile([]);
+    const { message, notice, diagnostics } = await undo.execute(changeId, record);
+    expect(diagnostics).toEqual([]);
+    expect(project.compileCalls).toBe(2);
+    expect(progress.at(-1)).toEqual({ stage: 'compiling' });
     expect(project.savedDocument('main.tex')).toEqual(MAIN);
     expect(editor.lines).toEqual(BIB);
     expect(statuses()).toEqual(['undone', 'undone', 'undone']);
@@ -2078,6 +2082,7 @@ describe('change sets', () => {
     await apply.execute(changeId, [1], record);
     await apply.execute(changeId, [0], record);
     await reject.execute(changeId, [2], record);
+    project.willCompile([]);
     await undo.execute(changeId, record);
     expect(editor.lines).toEqual(MAIN);
     expect(statuses()).toEqual(['undone', 'undone', 'rejected']);
@@ -2088,6 +2093,7 @@ describe('change sets', () => {
     const changeId = await proposeBatch();
     await apply.execute(changeId, null, record);
     editor.lines[3] = '@book{knuth84, edited}';
+    project.willCompile([]);
     const { notice } = await undo.execute(changeId, record);
     expect(notice.undone).toEqual(['main.tex']);
     expect(notice.refused).toEqual([
@@ -2100,6 +2106,17 @@ describe('change sets', () => {
     expect(editor.lines).toEqual([...BIB, '@book{knuth84, edited}']);
     expect(project.savedDocument('main.tex')).toEqual(MAIN);
     expect(statuses()).toEqual(['undone', 'undone', 'applied']);
+  });
+
+  it('compiles nothing when every file of the undo was refused', async () => {
+    project.willCompile([]);
+    const changeId = await proposeEdit(readBib(), bibEdit());
+    await apply.execute(changeId, null, record);
+    editor.lines[3] = 'changed by hand';
+    const { notice, diagnostics } = await undo.execute(changeId, record);
+    expect(notice.undone).toEqual([]);
+    expect(diagnostics).toBeNull();
+    expect(project.compileCalls).toBe(1);
   });
 
   it('refuses to undo a turn with open edits or nothing applied', async () => {

@@ -698,7 +698,9 @@ describe('AssistantController change sets', () => {
     project.willCompile([]);
     await controller.apply(changeId, null);
     expect(texts('.ola-undo')).toEqual(['Undo this turn']);
+    project.willCompile([{ level: 'error', message: 'Undefined control sequence.' }]);
     await controller.undo(changeId);
+    expect(texts('.ola-error').at(-1)).toBe('Compiled with 1 error; see the PDF pane for details.');
     expect(editor.lines).toEqual(BIB);
     expect(project.savedDocument('main.tex')).toEqual(['\\cite{knuth84}']);
     expect(texts('.ola-ai > .ola-result-status')).toEqual(['Undone']);
@@ -730,7 +732,9 @@ describe('AssistantController change sets', () => {
     project.willCompile([]);
     await controller.apply(changeId, null);
     editor.lines[2] = '@book{knuth84, edited}';
+    project.willCompile([]);
     await controller.undo(changeId);
+    expect(texts('.ola-system').at(-1)).toBe('Compiled without errors.');
     expect(editor.lines).toEqual([...BIB, '@book{knuth84, edited}']);
     expect(texts('.ola-undo-notice > div')).toEqual([
       'Undone in main.tex: the edits of this change were taken back; other edits stay.',
