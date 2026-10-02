@@ -30,7 +30,13 @@ import type { Notice } from '../domain/conversation';
 import { InvariantViolation, OperationalError } from '../domain/errors';
 import type { AssistantView } from './assistant-view';
 import type { ViewEvents } from './view-events';
-import { contextUsageText, INTERNAL_ERROR, noticeText, progressStatus } from './message-format';
+import {
+  contextUsageText,
+  INTERNAL_ERROR,
+  keptViewNotice,
+  noticeText,
+  progressStatus,
+} from './message-format';
 
 interface UseCases {
   handleRequest: HandleAssistantRequest;
@@ -271,6 +277,7 @@ export class AssistantController implements ViewEvents {
         break;
       case 'proposal':
         view.appendMessage(result.message);
+        if (!result.previewShown) view.showNotice(keptViewNotice(result.message), 'info');
         this.showContextUsage(view, result.contextUsage);
     }
   }

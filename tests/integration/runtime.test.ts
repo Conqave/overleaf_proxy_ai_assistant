@@ -1403,9 +1403,9 @@ describe('assistant compact button', () => {
 });
 
 describe('assistant under interference', () => {
-  it('reopens the file of the edit when the user switched files while the model was thinking', async () => {
+  it('keeps the file the user opened while the model was thinking and previews on demand', async () => {
     const switched = Promise.withResolvers<undefined>();
-    const { send, ollama, ide, editorText, preview } = await start({
+    const { send, click, messages, ollama, ide, editorText, preview } = await start({
       replies: [{ ...boldExperimentEdit, heldUntil: switched.promise }],
     });
     const sending = send('Make the word experiment bold.');
@@ -1418,9 +1418,16 @@ describe('assistant under interference', () => {
     }, PAGE_WAIT);
     switched.resolve(undefined);
     await sending;
+    expect(ide.store.get('editor.open_doc_id')).toBe(REFS_DOC_ID);
+    expect(editorText()).toBe(REFS_TEXT);
+    expect(preview()).toEqual([]);
+    expect(messages().at(-1)).toBe(
+      'You opened another file while Hans worked, so Hans left it open; use Show in editor to preview the change in main.tex.',
+    );
+    await click('.ola-preview-file', () => {
+      expect(preview()).toEqual([BOLD_EXPERIMENT]);
+    });
     expect(ide.store.get('editor.open_doc_id')).toBe(FIXTURE_DOC_ID);
-    expect(editorText()).toBe(FIXTURE_DOCUMENT);
-    expect(preview()).toEqual([BOLD_EXPERIMENT]);
   });
 
   it('refuses to apply a suggestion after the user edited its document', async () => {

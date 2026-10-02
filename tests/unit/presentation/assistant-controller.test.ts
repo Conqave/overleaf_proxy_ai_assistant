@@ -629,7 +629,7 @@ describe('AssistantController reject', () => {
     expect(texts('.ola-error')).toEqual(['Error: refs.bib did not open in time.']);
     expect(texts('.ola-result-status')).toEqual([]);
     const buttons = Array.from(window.document.querySelectorAll('.ola-result-actions button'));
-    expect(buttons.map((node) => node.textContent)).toEqual(['Apply', 'Reject']);
+    expect(buttons.map((node) => node.textContent)).toEqual(['Apply', 'Reject', 'Show in editor']);
     expect(
       buttons.every((node) => node instanceof window.HTMLButtonElement && !node.disabled),
     ).toBe(true);

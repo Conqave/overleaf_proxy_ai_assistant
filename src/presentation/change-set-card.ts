@@ -142,7 +142,8 @@ export class ChangeSetCard {
       return actions;
     }
     if (findPendingEdits(message.edits).length === 0) return null;
-    const isSingle = message.edits.length === 1;
+    const [only] = message.edits;
+    const isSingle = only !== undefined && message.edits.length === 1;
     const actions = this.dom.el('div', 'ola-result-actions');
     actions.append(
       this.actionButton(
@@ -158,6 +159,13 @@ export class ChangeSetCard {
         () => this.events.reject(message.id, null),
       ),
     );
+    if (isSingle) {
+      const show = this.actionButton('ola-btn ola-preview-file', VIEW_TEXT.showFile, busy, () =>
+        this.events.previewFile(message.id, only.path),
+      );
+      show.title = VIEW_TEXT.showFileHint;
+      actions.append(show);
+    }
     return actions;
   }
 

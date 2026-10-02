@@ -5,6 +5,7 @@ import { EditStatus, type EditRequest, type ProposedEdit } from '../domain/chang
 import type {
   AssistantMessage,
   CompactionSummaryMessage,
+  ProposalMessage,
   UndoMessage,
   UndoRefusal,
   Notice,
@@ -278,6 +279,11 @@ function singleEditNotice({ path, command }: EditRequest): string {
         ? `Done. Line deleted in ${path}.`
         : `Done. ${String(command.lineCount)} lines deleted in ${path}.`;
   }
+}
+
+export function keptViewNotice({ edits }: ProposalMessage): string {
+  const paths = [...new Set(edits.map(({ path }) => path))];
+  return `You opened another file while Hans worked, so Hans left it open; use Show in editor to preview the change in ${paths.join(', ')}.`;
 }
 
 export function undoNotice({ undone }: UndoMessage): string {

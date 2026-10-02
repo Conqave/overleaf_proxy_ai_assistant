@@ -233,6 +233,7 @@ export class FakeProject implements ProjectPort {
   switchTo(path: string): void {
     this.savedDocuments.set(this.openPath, [...this.editor.lines]);
     this.openPath = path;
+    this.shownBinaryPath = null;
     this.show(path);
   }
   savedDocument(path: string): readonly string[] {
@@ -253,7 +254,8 @@ export class FakeProject implements ProjectPort {
     if (file === undefined) throw new TestFixtureError(`the project has no ${path}`);
     return file;
   }
-  isShown(file: TextFile): boolean {
+  isShown(file: ProjectFile): boolean {
+    if (file.kind === ProjectFileKind.Binary) return file.path === this.shownBinaryPath;
     return this.shownBinaryPath === null && file.path === this.openPath;
   }
   readFile(file: TextFile, signal: CancellationSignal): Promise<DocumentSnapshot> {

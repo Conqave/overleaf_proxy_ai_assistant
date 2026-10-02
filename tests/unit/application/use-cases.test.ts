@@ -142,11 +142,19 @@ const answer = (text: string): AgentDecision => ({
 });
 
 function editOf(path: string, lines: readonly string[], lineNumber: number): AgentDecision {
-  return editAt(path, lineNumber, itemAt(lines, lineNumber - 1, 'line'));
+  return editsOf(insertionOf(path, lines, lineNumber));
+}
+
+function insertionOf(path: string, lines: readonly string[], lineNumber: number): EditRequest {
+  return insertionAt(path, lineNumber, itemAt(lines, lineNumber - 1, 'line'));
 }
 
 function editAt(path: string, lineNumber: number, lineText: string): AgentDecision {
-  return editsOf({
+  return editsOf(insertionAt(path, lineNumber, lineText));
+}
+
+function insertionAt(path: string, lineNumber: number, lineText: string): EditRequest {
+  return {
     path,
     command: createDocumentCommand({
       operation: 'insert_after',
@@ -154,7 +162,7 @@ function editAt(path: string, lineNumber: number, lineText: string): AgentDecisi
       content: 'Added.',
       reason: 'Adds detail.',
     }),
-  });
+  };
 }
 
 function editsOf(...edits: EditRequest[]): AgentDecision {
@@ -284,6 +292,18 @@ describe('HandleAssistantRequest', () => {
     expect(result.kind).toBe('proposal');
     expect(project.opened).toEqual(['main.tex']);
     expect(editor.preview).toHaveLength(1);
+  });
+
+  it('keeps the file the user opened instead of the binary file of the request', async () => {
+    project.showBinaryFile('figures/plot.png');
+    agent.onDecide = () => {
+      project.switchTo('refs.bib');
+    };
+    agent.will(tool({ tool: 'read_file', path: 'main.tex' }), mainEdit());
+    const result = await send('In main.tex, add a sentence.');
+    expect(project.opened).toEqual([]);
+    expect(project.shownFile().path).toBe('refs.bib');
+    expect(result).toMatchObject({ kind: 'proposal', previewShown: false });
   });
 
   it('reports the context usage of the decision that ended the request', async () => {
@@ -649,14 +669,51 @@ describe('HandleAssistantRequest', () => {
     await expect(send('add more')).resolves.toMatchObject({ message: { text: 'Done.' } });
   });
 
-  it('reopens the target file when the user switched files during the request', async () => {
+  it('opens the file of an edit to preview it while the user stays on the request file', async () => {
+    project.switchTo('refs.bib');
+    agent.will(tool({ tool: 'read_file', path: 'main.tex' }), mainEdit());
+    const result = await send('add more');
+    expect(project.opened).toEqual(['main.tex']);
+    expect(result).toMatchObject({ kind: 'proposal', previewShown: true });
+    expect(result.message).toHaveProperty('edits.0.command', editor.preview?.[0]?.command);
+  });
+
+  it('keeps the file the user switched to during the request and previews nothing', async () => {
     agent.onDecide = () => {
       project.switchTo('refs.bib');
     };
     agent.will(mainEdit());
     const result = await send('add more');
-    expect(project.opened).toEqual(['main.tex']);
-    expect(result.message).toHaveProperty('edits.0.command', editor.preview?.[0]?.command);
+    expect(project.opened).toEqual([]);
+    expect(project.shownFile().path).toBe('refs.bib');
+    expect(editor.preview).toBeNull();
+    expect(result).toMatchObject({ kind: 'proposal', previewShown: false });
+    expect(project.reads.at(-1)).toBe('main.tex');
+    expect(pendingChanges.selectFile(changeIdOf(result), 'main.tex')).toHaveLength(1);
+  });
+
+  it('previews the edits of the file the user switched to during the request', async () => {
+    agent.onDecide = () => {
+      project.switchTo('refs.bib');
+    };
+    agent.will(
+      readBib(),
+      editsOf(insertionOf('main.tex', MAIN, 4), insertionOf('refs.bib', BIB, 3)),
+    );
+    const result = await send('add more');
+    expect(project.opened).toEqual([]);
+    expect(result).toMatchObject({ kind: 'proposal', previewShown: true });
+    expect(editor.preview?.map(({ command }) => command.target.lineNumber)).toEqual([3]);
+  });
+
+  it('drops an edit of a file the user left when that file changed meanwhile', async () => {
+    agent.onDecide = () => {
+      editor.lines[0] = '\\section{Introduction}';
+      project.switchTo('refs.bib');
+    };
+    agent.will(mainEdit());
+    await expect(send('add more')).rejects.toThrow(DocumentConflictError);
+    expect(editor.preview).toBeNull();
   });
 
   it('drops an edit whose file changed before it was opened', async () => {

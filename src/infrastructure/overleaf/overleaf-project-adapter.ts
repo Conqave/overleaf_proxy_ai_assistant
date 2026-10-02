@@ -59,8 +59,10 @@ export class OverleafProjectAdapter implements ProjectPort {
     return file;
   }
 
-  isShown(file: TextFile): boolean {
-    return this.shownBinaryFileId() === null && this.openDocId() === file.id;
+  isShown(file: ProjectFile): boolean {
+    const binaryId = this.shownBinaryFileId();
+    if (file.kind === ProjectFileKind.Binary) return binaryId === file.id;
+    return binaryId === null && this.openDocId() === file.id;
   }
 
   async readFile(file: TextFile, cancel: CancellationSignal): Promise<DocumentSnapshot> {

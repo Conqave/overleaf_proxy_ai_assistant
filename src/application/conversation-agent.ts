@@ -10,7 +10,8 @@ import type {
 } from '../domain/conversation';
 import { viewConversation, type ConversationView } from '../domain/conversation-view';
 import { InvariantViolation } from '../domain/errors';
-import { ProjectFileKind, type TextFile } from '../domain/project-file';
+import { ProjectFileKind, type ProjectFile, type TextFile } from '../domain/project-file';
+import type { ResolvedEdit } from '../domain/resolved-edit';
 import type { ContextUsage } from '../domain/context-usage';
 import type { AgentWorkspace, ConversationRequest } from '../ports/agent-port';
 import type { CancellationSignal } from '../ports/cancellation';
@@ -29,6 +30,11 @@ interface RequestRun {
   readonly onProgress: (progress: AgentProgress) => void;
 }
 
+interface Workspace {
+  readonly view: AgentWorkspace;
+  readonly shown: ProjectFile;
+}
+
 export const COMPILE_FIX_REQUEST =
   'Compiling the project after the applied change reports errors; fix the first error.';
 
@@ -41,8 +47,14 @@ export type AgentResult =
   | {
       readonly kind: 'proposal';
       readonly message: ProposalMessage;
+      readonly previewShown: boolean;
       readonly contextUsage: ContextUsage;
     };
+
+interface Proposal {
+  readonly message: ProposalMessage;
+  readonly previewShown: boolean;
+}
 
 export class ConversationAgent {
   constructor(
@@ -105,7 +117,7 @@ export class ConversationAgent {
     const turnIds = new Set([request.message.id]);
     const { reply, contextUsage } = await this.deps.loop.run({
       request,
-      workspace,
+      workspace: workspace.view,
       host: {
         viewHistory: () => this.viewHistory(turnIds),
         recordLookup: (turn) => {
@@ -125,7 +137,7 @@ export class ConversationAgent {
         onProgress(progress);
       },
     });
-    return await this.answer(reply, contextUsage, run);
+    return await this.answer(reply, contextUsage, workspace.shown, run);
   }
 
   private viewHistory(turnIds: ReadonlySet<string>): ConversationView {
@@ -134,30 +146,37 @@ export class ConversationAgent {
     return viewConversation(history, conversation.imported);
   }
 
-  private async readWorkspace(signal: CancellationSignal): Promise<AgentWorkspace> {
+  private async readWorkspace(signal: CancellationSignal): Promise<Workspace> {
     const { project, editor } = this.deps;
     const files = project.listFiles();
     const shown = project.shownFile();
     if (shown.kind === ProjectFileKind.Binary) {
-      return { files, openFile: { kind: ProjectFileKind.Binary, path: shown.path } };
+      return {
+        view: { files, openFile: { kind: ProjectFileKind.Binary, path: shown.path } },
+        shown,
+      };
     }
     await project.openFile(shown, signal);
     return {
-      files,
-      openFile: {
-        kind: ProjectFileKind.Text,
-        path: shown.path,
-        document: editor.readDocument(shown),
-        cursorLine: editor.readCursorLine(shown),
-        selection: editor.readSelection(shown),
+      view: {
+        files,
+        openFile: {
+          kind: ProjectFileKind.Text,
+          path: shown.path,
+          document: editor.readDocument(shown),
+          cursorLine: editor.readCursorLine(shown),
+          selection: editor.readSelection(shown),
+        },
       },
+      shown,
     };
   }
 
   private async answer(
     reply: AcceptedReply,
     contextUsage: ContextUsage,
-    { signal, onProgress }: RequestRun,
+    requestFile: ProjectFile,
+    run: RequestRun,
   ): Promise<AgentResult> {
     switch (reply.kind) {
       case 'answer':
@@ -165,23 +184,35 @@ export class ConversationAgent {
       case 'question':
         return { kind: 'reply', message: this.reply('clarification', reply.text), contextUsage };
       case 'edit': {
-        const [first] = reply.changes;
-        if (first === undefined) throw new InvariantViolation('an accepted edit has no changes');
-        await showProjectFile(this.deps.project, first.file, onProgress, signal);
-        ensureNotCancelled(signal);
-        return { kind: 'proposal', message: this.propose(first.file, reply.changes), contextUsage };
+        const proposal = await this.propose(reply.changes, requestFile, run);
+        return { kind: 'proposal', ...proposal, contextUsage };
       }
     }
   }
 
-  private propose(shown: TextFile, changes: readonly ProjectEdit[]): ProposalMessage {
-    const { editor, conversation, pendingChanges } = this.deps;
-    const previewed = changes
-      .filter(({ file }) => file.path === shown.path)
-      .map(({ edit }) => edit);
-    const current = editor.readDocument(shown);
-    for (const edit of previewed) edit.assertCurrent(current);
-    editor.showPreview(shown, previewed);
+  private async propose(
+    changes: readonly ProjectEdit[],
+    requestFile: ProjectFile,
+    { signal, onProgress }: RequestRun,
+  ): Promise<Proposal> {
+    const { project, editor, conversation, pendingChanges } = this.deps;
+    const [first] = changes;
+    if (first === undefined) throw new InvariantViolation('an accepted edit has no changes');
+    if (project.isShown(requestFile)) {
+      await showProjectFile(project, first.file, onProgress, signal);
+      ensureNotCancelled(signal);
+    }
+    const shown = changes.map(({ file }) => file).find((file) => project.isShown(file));
+    if (shown === undefined) {
+      const current = await project.readFile(first.file, signal);
+      ensureNotCancelled(signal);
+      for (const edit of editsOf(changes, first.file)) edit.assertCurrent(current);
+    } else {
+      const previewed = editsOf(changes, shown);
+      const current = editor.readDocument(shown);
+      for (const edit of previewed) edit.assertCurrent(current);
+      editor.showPreview(shown, previewed);
+    }
     const message: ProposalMessage = {
       id: this.deps.newId(),
       role: 'assistant',
@@ -192,7 +223,7 @@ export class ConversationAgent {
     };
     conversation.append(message);
     pendingChanges.add(message.id, changes);
-    return message;
+    return { message, previewShown: shown !== undefined };
   }
 
   private reply(kind: ReplyMessage['kind'], text: string): ReplyMessage {
@@ -200,4 +231,8 @@ export class ConversationAgent {
     this.deps.conversation.append(message);
     return message;
   }
+}
+
+function editsOf(changes: readonly ProjectEdit[], file: TextFile): readonly ResolvedEdit[] {
+  return changes.filter((change) => change.file.path === file.path).map(({ edit }) => edit);
 }
