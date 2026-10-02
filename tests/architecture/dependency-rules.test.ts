@@ -98,12 +98,14 @@ describe('dependency rules', () => {
     expect(violations).toEqual([]);
   });
 
-  it('src imports third-party code at runtime only in the Markdown renderer', () => {
+  it('src imports third-party code at runtime only in the MCP client and the Markdown renderer', () => {
     expect(
       edges
         .filter((edge) => edge.layer === null && !edge.typeOnly)
         .map((e) => `${e.from} -> ${e.target}`),
     ).toEqual([
+      `infrastructure${path.sep}mcp${path.sep}mcp-client.ts -> eventsource-parser`,
+      `infrastructure${path.sep}mcp${path.sep}mcp-client.ts -> eventsource-parser/stream`,
       `presentation${path.sep}markdown-renderer.ts -> dompurify`,
       `presentation${path.sep}markdown-renderer.ts -> marked`,
     ]);

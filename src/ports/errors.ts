@@ -53,3 +53,13 @@ export class EditsNotSavedError extends OperationalError {}
 export class NoOpenTextFileError extends OperationalError {}
 
 export class ProjectTreeOutdatedError extends OperationalError {}
+
+export abstract class WebSearchError extends OperationalError {}
+
+export class WebSearchUnavailableError extends WebSearchError {}
+
+export class WebSearchRejectedError extends WebSearchError {}
+
+export class WebSearchContractError extends WebSearchError {}
+
+export class WebSearchTimeoutError extends WebSearchError {}

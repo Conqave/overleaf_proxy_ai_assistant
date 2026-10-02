@@ -33,6 +33,7 @@
   },
   "dependencies": {
     "dompurify": "^3.4.16",
+    "eventsource-parser": "^4.1.1",
     "marked": "^18.0.14"
   }
 }

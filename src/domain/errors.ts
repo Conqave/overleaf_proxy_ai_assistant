@@ -58,3 +58,5 @@ export class NotATextFileError extends OperationalError {}
 export class InvalidCompactionSummaryError extends NamedError {}
 
 export class ForeignProjectExportError extends OperationalError {}
+
+export class InvalidWebSearchResultError extends NamedError {}
