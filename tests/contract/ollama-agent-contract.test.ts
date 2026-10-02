@@ -19,7 +19,7 @@ import { OllamaAgent } from '../../src/infrastructure/ollama/ollama-agent';
 import { OllamaClient } from '../../src/infrastructure/ollama/ollama-client';
 import { OllamaSummarizer } from '../../src/infrastructure/ollama/ollama-summarizer';
 import { parseExaSearchResults } from '../../src/infrastructure/mcp/exa-search-results';
-import type { ConversationMessage } from '../../src/domain/conversation';
+import type { ConversationMessage, ImportedHistory } from '../../src/domain/conversation';
 import type { ContextUsage } from '../../src/domain/context-usage';
 import type { AgentPort } from '../../src/ports/agent-port';
 import {
@@ -597,6 +597,7 @@ async function runApplication(
   { agent, summarizer }: ContractModel,
   c: Case,
   history: readonly ConversationMessage[] = [],
+  imported: ImportedHistory | null = null,
 ): Promise<ApplicationRun> {
   const editor = new FakeEditor([]);
   editor.selection = c.selection;
@@ -626,7 +627,7 @@ async function runApplication(
     newId: sequentialIds('session'),
     now: ticking(),
   });
-  if (history.length > 0) conversation.show(storedSession('history', history));
+  if (history.length > 0) conversation.show({ ...storedSession('history', history), imported });
   const newId = sequentialIds();
   const webSearch = new FakeWebSearch().will(WEB_RESULTS, WEB_RESULTS, WEB_RESULTS);
   const approval = new WebSearchApproval({ conversation, newId });
@@ -717,6 +718,8 @@ function expectEdit(
   }
 }
 
+const ABSTRACT_LINE = lineOf(MAIN, 'Your abstract.');
+const AUTHOR_LINE = lineOf(MAIN, '\\author{');
 const POLISH_TEXTS: ReadonlyMap<string, DocumentSnapshot> = new Map([
   ...TEXTS,
   [
@@ -740,6 +743,65 @@ const POLISH_HISTORY: readonly ConversationMessage[] = [
 const POLISH_WORDS = /[ąćęłńóśźż]|\b(się|jest|nie|mogę|dodaję|zmieniam|pomóc|cześć|witaj)\b/i;
 const POLISH_REASON = /[ąćęłńóśźż]|\b(usuwam|usunięcie|akapit|akapitu)\b/i;
 const ENGLISH_WORDS = /\b(the|you|is|are|and|help|hello|hi|this|to)\b/i;
+
+const UNDONE_ABSTRACT = 'This report describes a physics lab experiment.';
+const UNDONE_ABSTRACT_HISTORY: readonly ConversationMessage[] = [
+  { id: 'a-s', role: 'user', text: 'Cześć! Wyjaśnij krótko strukturę dokumentu.' },
+  {
+    id: 'a-t',
+    role: 'assistant',
+    kind: 'explanation',
+    text: 'Dokument ma tytuł, abstrakt, wstęp i sekcję z przykładami: rysunkiem, tabelą, listami, wzorami i bibliografią.',
+  },
+  { id: 'a-0', role: 'user', text: `Zmień abstrakt na: ${UNDONE_ABSTRACT}` },
+  {
+    id: 'a-1',
+    role: 'assistant',
+    kind: 'proposal',
+    edits: [
+      {
+        path: MAIN,
+        command: {
+          operation: 'replace',
+          target: { lineNumber: ABSTRACT_LINE, lineText: 'Your abstract.' },
+          lineCount: 1,
+          content: UNDONE_ABSTRACT,
+          reason: 'Zmieniam abstrakt.',
+        },
+        status: 'undone',
+      },
+    ],
+  },
+  { id: 'a-2', role: 'undo', proposalId: 'a-1', undone: [MAIN], refused: [] },
+  { id: 'a-3', role: 'user', text: 'Zmień autora na Anna Nowak.' },
+  {
+    id: 'a-4',
+    role: 'assistant',
+    kind: 'proposal',
+    edits: [
+      {
+        path: MAIN,
+        command: {
+          operation: 'replace',
+          target: { lineNumber: AUTHOR_LINE, lineText: '\\author{You}' },
+          lineCount: 1,
+          content: '\\author{Anna Nowak}',
+          reason: 'Zmieniam autora.',
+        },
+        status: 'rejected',
+      },
+    ],
+  },
+];
+const LOREM_SENTENCES = [
+  'Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.',
+  'Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat.',
+  'Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur.',
+  'Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum.',
+];
+const LOREM_TEXT = Array.from({ length: 280 }, (_, index) =>
+  itemAt(LOREM_SENTENCES, index % LOREM_SENTENCES.length, 'sentence'),
+).join(' ');
 
 const LAMPORT_REQUEST = "Find the DOI of Lamport's LaTeX book on the web.";
 const DENIED_SEARCH_HISTORY: readonly ConversationMessage[] = [
@@ -999,6 +1061,27 @@ describe('Ollama agent contract', () => {
     },
     CASE_TIMEOUT_MS,
   );
+  it(
+    'answers a long summary request instead of re-proposing an undone edit',
+    async () => {
+      const run = await runApplication(
+        model,
+        {
+          ...UNTOUCHED_PROJECT,
+          name: 'long summary request',
+          request: `Przeczytaj ten tekst i powiedz w jednym zdaniu o czym jest. ${LOREM_TEXT}`,
+        },
+        UNDONE_ABSTRACT_HISTORY,
+        { path: 'hans-sessions/earlier.json', lastMessageId: 'a-4' },
+      );
+      expect(run.result.message).toMatchObject({ kind: 'explanation' });
+      expect(run.result.message).not.toMatchObject({
+        text: textMatching(/physics lab experiment/i),
+      });
+    },
+    CASE_TIMEOUT_MS,
+  );
+
   it(
     'greets in English in a new session although the document is Polish',
     async () => {
