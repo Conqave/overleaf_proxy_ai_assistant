@@ -21,6 +21,8 @@ import {
 
 export const EXA_SEARCH_TOOL = 'web_search_exa';
 export const EXA_SEARCH_TIMEOUT_MS = 30_000;
+const MAX_REFUSAL_CHARS = 300;
+const SHORTENED_MARK = '…';
 
 export class ExaWebSearch implements WebSearchPort {
   constructor(private readonly client: McpClient) {}
@@ -36,7 +38,9 @@ export class ExaWebSearch implements WebSearchPort {
       (deadline) => this.callSearch(query, deadline),
     );
     if (result.isError) {
-      throw new WebSearchRejectedError(`Exa refused the web search: ${result.texts.join(' ')}`);
+      throw new WebSearchRejectedError(
+        `Exa refused the web search: ${quoteRefusal(result.texts.join(' '))}`,
+      );
     }
     return parseExaSearchResults(result.texts);
   }
@@ -59,4 +63,12 @@ export class ExaWebSearch implements WebSearchPort {
       throw error;
     }
   }
+}
+
+function quoteRefusal(text: string): string {
+  const flat = text.replace(/\s+/g, ' ').trim();
+  if (flat.length <= MAX_REFUSAL_CHARS) return JSON.stringify(flat);
+  return JSON.stringify(
+    `${flat.slice(0, MAX_REFUSAL_CHARS - SHORTENED_MARK.length)}${SHORTENED_MARK}`,
+  );
 }
