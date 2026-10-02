@@ -152,6 +152,15 @@ describe('messageTitle', () => {
     const edits = ['a.tex', 'a.tex', 'b.tex'].map((path) => editWith(path, command, 'proposed'));
     expect(messageTitle(proposalOf('2', ...edits))).toBe('Proposed changes: 3 edits in 2 files');
   });
+
+  it('titles a plain reply as an answer and a question as a request for detail', () => {
+    expect(messageTitle({ id: '3', role: 'assistant', kind: 'explanation', text: 'x' })).toBe(
+      'Answer',
+    );
+    expect(messageTitle({ id: '4', role: 'assistant', kind: 'clarification', text: 'x' })).toBe(
+      'Hans needs a little more detail',
+    );
+  });
 });
 
 describe('contextUsageText', () => {

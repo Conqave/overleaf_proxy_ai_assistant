@@ -19,7 +19,7 @@ import { PATH_SEPARATOR } from '../domain/project-file';
 import { WebSearchStatus, type WebSearchResult } from '../domain/web-search';
 
 const KIND_TITLE: Record<Exclude<AssistantMessage['kind'], 'proposal'>, string> = {
-  explanation: 'Explanation',
+  explanation: 'Answer',
   clarification: 'Hans needs a little more detail',
 };
 
