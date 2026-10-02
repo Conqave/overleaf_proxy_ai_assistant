@@ -95,16 +95,23 @@ function commandInput(root: ParentNode): HTMLTextAreaElement {
   return found;
 }
 
+function typeCommand(doc: Document, text: string): void {
+  const input = commandInput(doc);
+  const window = doc.defaultView;
+  if (window === null) throw new TestFixtureError('the page has no window');
+  input.value = text;
+  input.dispatchEvent(new window.Event('input'));
+}
+
 function session(browser: Browser, ide: FakeOverleafIde, sessions: IDBFactory) {
   const doc = browser.document;
   const texts = (selector: string) =>
     Array.from(doc.querySelectorAll(selector)).map((node) => node.textContent);
   const messages = () => texts('.ola-msg');
-  const isIdle = () =>
-    !element(doc, '#ola-root').classList.contains('is-busy') && !button(doc, '.ola-send').disabled;
+  const isIdle = () => !element(doc, '#ola-root').classList.contains('is-busy');
   const send = async (request: string) => {
     const before = messages().length;
-    commandInput(doc).value = request;
+    typeCommand(doc, request);
     button(doc, '.ola-send').click();
     await vi.waitFor(() => {
       expect(messages().length).toBeGreaterThan(before);
@@ -158,7 +165,7 @@ async function sendPastTimeouts(
   waitedMs: number,
 ): Promise<void> {
   vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
-  commandInput(doc).value = request;
+  typeCommand(doc, request);
   button(doc, '.ola-send').click();
   await vi.waitFor(waiting, PAGE_WAIT);
   await vi.advanceTimersByTimeAsync(waitedMs);
@@ -389,7 +396,7 @@ describe('assistant panel', () => {
       replies: [{ hang: true }],
     });
     expect(typingBubble(doc).hidden).toBe(true);
-    commandInput(doc).value = 'What is this document about?';
+    typeCommand(doc, 'What is this document about?');
     button(doc, '.ola-send').click();
     await vi.waitFor(() => {
       expect(ollama.prompts).toHaveLength(1);
@@ -407,11 +414,17 @@ describe('assistant panel', () => {
 });
 
 describe('assistant conversation', () => {
-  it('asks for a command when the input is empty', async () => {
-    const { send, messages, ollama } = await start({});
-    await send('  ');
-    expect(messages().at(-1)).toBe('Error: Please enter a command for the assistant.');
+  it('keeps Send disabled for a blank command and adds no error', async () => {
+    const { browser, doc, messages, ollama } = await start({});
+    expect(button(doc, '.ola-send').disabled).toBe(true);
+    typeCommand(doc, '  \n ');
+    expect(button(doc, '.ola-send').disabled).toBe(true);
+    button(doc, '.ola-send').click();
+    commandInput(doc).dispatchEvent(new browser.window.KeyboardEvent('keydown', { key: 'Enter' }));
+    expect(messages()).toEqual([expect.stringContaining('Ready to help')]);
     expect(ollama.prompts).toHaveLength(0);
+    typeCommand(doc, 'hello');
+    expect(button(doc, '.ola-send').disabled).toBe(false);
   });
 
   it('sends a greeting to the model like any other message', async () => {
@@ -579,7 +592,7 @@ describe('assistant sessions', () => {
     const { doc, ollama, showSessions, click, texts, messages } = await twoSessions();
     ollama.reply({ hang: true });
     await showSessions();
-    commandInput(doc).value = 'And the conclusion?';
+    typeCommand(doc, 'And the conclusion?');
     button(doc, '.ola-send').click();
     await vi.waitFor(() => {
       expect(ollama.prompts).toHaveLength(3);
@@ -1123,7 +1136,7 @@ describe('assistant subagent', () => {
         reply('ACTION: answer', 'TEXT:', 'The key greenwade93 is not defined in refs.bib.'),
       ],
     });
-    commandInput(doc).value = 'are all my citations defined?';
+    typeCommand(doc, 'are all my citations defined?');
     button(doc, '.ola-send').click();
     await vi.waitFor(() => {
       expect(texts('.ola-status')).toEqual(['Hans: subagent reviewing 2 files…']);
@@ -1205,7 +1218,7 @@ describe('assistant web search', () => {
         ),
       ],
     });
-    commandInput(doc).value = "find the DOI of Lamport's LaTeX book and add it to refs.bib";
+    typeCommand(doc, "find the DOI of Lamport's LaTeX book and add it to refs.bib");
     button(doc, '.ola-send').click();
     await waitForApproval(doc);
     expect(texts('.ola-approval-query')).toEqual([QUERY]);
@@ -1256,7 +1269,7 @@ describe('assistant web search', () => {
         reply('ACTION: answer', 'TEXT:', 'I could not look up the DOI.'),
       ],
     });
-    commandInput(doc).value = 'find the DOI of the LaTeX book';
+    typeCommand(doc, 'find the DOI of the LaTeX book');
     button(doc, '.ola-send').click();
     await waitForApproval(doc);
     button(doc, '.ola-deny-search').click();
@@ -1478,7 +1491,7 @@ describe('assistant under interference', () => {
     const { doc, send, click, texts, messages, ollama } = await start({
       replies: [{ hang: true }],
     });
-    commandInput(doc).value = 'What is this document about?';
+    typeCommand(doc, 'What is this document about?');
     button(doc, '.ola-send').click();
     await vi.waitFor(() => {
       expect(ollama.prompts).toHaveLength(1);
@@ -1496,7 +1509,7 @@ describe('assistant under interference', () => {
     const { browser, doc, click, messages, ollama, isIdle } = await start({
       replies: [{ hang: true }],
     });
-    commandInput(doc).value = 'What is this document about?';
+    typeCommand(doc, 'What is this document about?');
     button(doc, '.ola-send').click();
     await vi.waitFor(() => {
       expect(ollama.prompts).toHaveLength(1);

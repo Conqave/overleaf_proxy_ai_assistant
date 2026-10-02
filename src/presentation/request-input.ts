@@ -13,6 +13,9 @@ export class RequestInput {
   ) {
     this.input = dom.el('textarea', 'ola-textarea');
     this.input.placeholder = VIEW_TEXT.inputPlaceholder;
+    this.input.addEventListener('input', () => {
+      this.showSendable();
+    });
     this.input.addEventListener('keydown', (event) => {
       if (event.key === 'Enter' && !event.shiftKey) {
         event.preventDefault();
@@ -27,20 +30,30 @@ export class RequestInput {
     });
     this.element = dom.el('div', 'ola-body');
     this.element.append(label, this.sendButton);
+    this.showSendable();
   }
 
   setBusy(busy: boolean): void {
     this.busy = busy;
-    this.sendButton.disabled = busy;
+    this.showSendable();
   }
 
   clear(): void {
     this.input.value = '';
     this.input.focus();
+    this.showSendable();
+  }
+
+  private canSend(): boolean {
+    return !this.busy && this.input.value.trim() !== '';
+  }
+
+  private showSendable(): void {
+    this.sendButton.disabled = !this.canSend();
   }
 
   private submit(): void {
-    if (this.busy) return;
+    if (!this.canSend()) return;
     this.send(this.input.value);
   }
 }
