@@ -70,6 +70,7 @@ export class AssistantView {
   private readonly input: HTMLTextAreaElement;
   private readonly sendButton: HTMLButtonElement;
   private readonly status: HTMLElement;
+  private readonly typing: HTMLElement;
   private readonly contextUsage: HTMLElement;
   private readonly markdown: MarkdownRenderer;
   private readonly compactButton: HTMLButtonElement;
@@ -137,8 +138,15 @@ export class AssistantView {
     this.chat = this.el('div', 'ola-chat');
 
     this.status = this.el('div', 'ola-status is-empty');
-    const labelRow = this.el('div', 'ola-label-row');
-    labelRow.append(this.el('span', undefined, VIEW_TEXT.inputLabel), this.status);
+    this.status.setAttribute('role', 'status');
+    this.status.setAttribute('aria-live', 'polite');
+    const dots = this.el('span', 'ola-typing-dots');
+    dots.setAttribute('aria-hidden', 'true');
+    dots.append(this.el('span'), this.el('span'), this.el('span'));
+    this.typing = this.el('div', 'ola-typing');
+    this.typing.hidden = true;
+    this.typing.append(dots, this.status);
+    this.chat.append(this.typing);
     this.input = this.el('textarea', 'ola-textarea');
     this.input.placeholder = VIEW_TEXT.inputPlaceholder;
     this.input.addEventListener('keydown', (event) => {
@@ -148,7 +156,7 @@ export class AssistantView {
       }
     });
     const label = this.el('label', 'ola-label');
-    label.append(labelRow, this.input);
+    label.append(this.el('span', undefined, VIEW_TEXT.inputLabel), this.input);
 
     this.sendButton = this.el('button', 'ola-btn ola-send', VIEW_TEXT.send);
     this.sendButton.type = 'button';
@@ -165,7 +173,7 @@ export class AssistantView {
   }
 
   showConversation(messages: readonly ConversationMessage[]): void {
-    this.chat.textContent = '';
+    this.chat.replaceChildren(this.typing);
     this.messageNodes.clear();
     this.proposalCards.clear();
     const chat = messages.filter((message): message is ShownMessage => message.role !== 'tool');
@@ -220,6 +228,8 @@ export class AssistantView {
   setBusy(busy: boolean): void {
     this.busy = busy;
     this.root.classList.toggle('is-busy', busy);
+    this.typing.hidden = !busy;
+    if (busy) this.scrollToBottom();
     this.sendButton.disabled = busy;
     this.compactButton.disabled = busy || !this.compactable;
     for (const card of this.proposalCards.values()) {
@@ -533,7 +543,11 @@ export class AssistantView {
   }
 
   private append(node: HTMLElement): void {
-    this.chat.appendChild(node);
+    this.chat.insertBefore(node, this.typing);
+    this.scrollToBottom();
+  }
+
+  private scrollToBottom(): void {
     this.chat.scrollTop = this.chat.scrollHeight;
   }
 

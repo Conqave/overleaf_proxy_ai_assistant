@@ -347,6 +347,10 @@ function dragCorner({ browser, doc }: Session, from: number, to: number): void {
   }
 }
 
+function typingBubble(doc: Document): HTMLElement {
+  return element(doc, '.ola-chat > .ola-typing:last-child');
+}
+
 describe('assistant panel', () => {
   it('resizes by dragging its corner and keeps the size over a reload', async () => {
     const opened = await start({});
@@ -361,6 +365,27 @@ describe('assistant panel', () => {
       },
     });
     expect(panelSize(reloaded.doc)).toEqual({ width: '460px', height: '672px' });
+  });
+
+  it('shows a typing bubble while Hans works and removes it when the work ends', async () => {
+    const { doc, send, click, texts, messages, ollama } = await start({
+      replies: [{ hang: true }],
+    });
+    expect(typingBubble(doc).hidden).toBe(true);
+    commandInput(doc).value = 'What is this document about?';
+    button(doc, '.ola-send').click();
+    await vi.waitFor(() => {
+      expect(ollama.prompts).toHaveLength(1);
+    }, PAGE_WAIT);
+    expect(typingBubble(doc).hidden).toBe(false);
+    expect(texts('.ola-typing .ola-status')).toEqual(['Hans is thinking']);
+    await click('.ola-new-chat', () => {
+      expect(typingBubble(doc).hidden).toBe(true);
+    });
+    ollama.reply(greetingReply);
+    await send('hi');
+    expect(messages().at(-1)).toContain(GREETING_ANSWER);
+    expect(typingBubble(doc).hidden).toBe(true);
   });
 });
 

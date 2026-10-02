@@ -306,13 +306,6 @@
   font-size: 12px;
   font-weight: 700;
 }
-#ola-root .ola-label-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  min-height: 20px;
-}
 #ola-root .ola-textarea {
   width: 100%;
   min-height: 92px;
@@ -344,14 +337,62 @@
 #ola-root .ola-send {
   background: #27ae60;
 }
+#ola-root .ola-typing {
+  display: flex;
+  align-items: center;
+  justify-self: start;
+  gap: 10px;
+  max-width: 100%;
+  padding: 9px 12px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.06);
+}
+#ola-root .ola-typing[hidden] {
+  display: none;
+}
+#ola-root .ola-typing-dots {
+  display: flex;
+  flex: none;
+  gap: 4px;
+}
+#ola-root .ola-typing-dots > span {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.78);
+  animation: ola-typing-pulse 1.2s ease-in-out infinite;
+}
+#ola-root .ola-typing-dots > span:nth-child(2) {
+  animation-delay: 0.2s;
+}
+#ola-root .ola-typing-dots > span:nth-child(3) {
+  animation-delay: 0.4s;
+}
+@keyframes ola-typing-pulse {
+  0%,
+  60%,
+  100% {
+    opacity: 0.3;
+    transform: translateY(0);
+  }
+  30% {
+    opacity: 1;
+    transform: translateY(-3px);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  #ola-root .ola-typing-dots > span {
+    animation: none;
+    opacity: 0.78;
+  }
+}
 #ola-root .ola-status {
-  margin-left: auto;
-  max-width: 60%;
+  min-width: 0;
   color: rgba(255, 255, 255, 0.8);
   font-size: 12px;
   line-height: 1.45;
-  text-align: right;
-  pointer-events: none;
+  overflow-wrap: anywhere;
 }
 #ola-root .ola-status.is-empty {
   display: none;

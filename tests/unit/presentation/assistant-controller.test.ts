@@ -23,7 +23,7 @@ import type { CompileDiagnostic } from '../../../src/domain/agent-transcript';
 import { createDocumentCommand } from '../../../src/domain/document-command';
 import { InvariantViolation } from '../../../src/domain/errors';
 import type { ConversationSession } from '../../../src/domain/session';
-import { FileOpenTimeoutError } from '../../../src/ports/errors';
+import { AssistantUnreachableError, FileOpenTimeoutError } from '../../../src/ports/errors';
 import { AssistantController } from '../../../src/presentation/assistant-controller';
 import { AssistantView } from '../../../src/presentation/assistant-view';
 import { LocalStoragePanelSize } from '../../../src/infrastructure/persistence/local-storage-panel-size';
@@ -452,6 +452,57 @@ describe('AssistantController new chat', () => {
 });
 
 describe('AssistantView while an operation runs', () => {
+  function typingBubble(window: JSDOM['window']) {
+    const bubble = window.document.querySelector<HTMLElement>('.ola-chat > .ola-typing');
+    if (bubble === null) throw new TestFixtureError('the chat has no typing bubble');
+    return {
+      isShown: () => !bubble.hidden,
+      isLast: () => bubble.parentElement?.lastElementChild === bubble,
+      status: () => bubble.querySelector('.ola-status')?.textContent,
+    };
+  }
+
+  it('shows the typing bubble with the status at the bottom while Hans works', async () => {
+    const { window, controller, project, texts } = await openAssistant();
+    const bubble = typingBubble(window);
+    expect(bubble.isShown()).toBe(false);
+    project.holdsReads = true;
+    const sending = controller.send('add the knuth84 entry');
+    await vi.waitFor(() => {
+      expect(bubble.status()).toBe('Hans is reading refs.bib');
+    });
+    expect(bubble.isShown()).toBe(true);
+    expect(bubble.isLast()).toBe(true);
+    expect(texts('.ola-user')).toEqual(['add the knuth84 entry']);
+    expect(
+      window.document.querySelector('.ola-typing .ola-status')?.getAttribute('aria-live'),
+    ).toBe('polite');
+    await controller.newConversation();
+    await sending;
+    expect(bubble.isShown()).toBe(false);
+    expect(bubble.isLast()).toBe(true);
+    expect(bubble.status()).toBe('');
+  });
+
+  it('hides the typing bubble below the answer when the request ends', async () => {
+    const { window, texts } = await proposeBibEdit();
+    const bubble = typingBubble(window);
+    expect(texts('.ola-result-title')).toEqual(['Proposed insertion']);
+    expect(bubble.isShown()).toBe(false);
+    expect(bubble.isLast()).toBe(true);
+  });
+
+  it('hides the typing bubble below the error when the request fails', async () => {
+    const { window, controller, agent, texts } = await openAssistantWith([]);
+    agent.will(new AssistantUnreachableError('Ollama is not reachable.'));
+    await controller.send('who is cited?');
+    const bubble = typingBubble(window);
+    expect(texts('.ola-error')).toEqual(['Error: Ollama is not reachable.']);
+    expect(bubble.isShown()).toBe(false);
+    expect(bubble.isLast()).toBe(true);
+    expect(bubble.status()).toBe('');
+  });
+
   it('shows the busy state of the operation lock and ignores Enter until it ends', async () => {
     const { window, controller, project, changeId, texts } = await proposeBibEdit();
     const compiled = Promise.withResolvers<readonly CompileDiagnostic[]>();
