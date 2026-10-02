@@ -32,6 +32,16 @@ describe('parseAgentDecision tool calls', () => {
     ).toBe('OPERATION appears twice');
   });
 
+  it('refuses an edit whose content carries a second ACTION line', () => {
+    expect(
+      problem(
+        'ACTION: edit\nPATH: a.bib\nOPERATION: replace\nLINE: 8\nLINE_TEXT: x\nCONTENT:\nx,\n\nACTION: edit\nPATH: a.bib\nOPERATION: insert_after\nLINE: 8\nLINE_TEXT: x\nCONTENT:\ny',
+      ),
+    ).toBe(
+      'ACTION appears again inside the edit; write ACTION: edit once and start every further change with its own PATH line',
+    );
+  });
+
   it.each([
     ['ACTION: read_file\nPATH: refs.bib', { tool: 'read_file', path: 'refs.bib' }],
     ['ACTION: search\nQUERY:  \\label{fig:a} ', { tool: 'search', query: '\\label{fig:a}' }],

@@ -168,6 +168,11 @@ function splitEditBlocks(rows: readonly string[]): readonly (readonly string[])[
   for (const row of rows) {
     const current = blocks.at(-1);
     if (current === undefined) throw new InvariantViolation('the edit blocks start with one block');
+    if (ACTION_LINE.test(row)) {
+      throw new InvalidAssistantResponse(
+        `${AgentField.Action} appears again inside the ${AgentAction.Edit}; write ${fieldLine(AgentField.Action, AgentAction.Edit)} once and start every further change with its own ${AgentField.Path} line`,
+      );
+    }
     const startsBlock = PATH_LINE.test(row) && current.some((line) => PATH_LINE.test(line));
     if (startsBlock) blocks.push([row]);
     else current.push(row);
