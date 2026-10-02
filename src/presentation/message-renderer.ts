@@ -16,6 +16,7 @@ import type { ChangeSetCard } from './change-set-card';
 import type { DomBuilder } from './dom-builder';
 import type { MarkdownRenderer } from './markdown-renderer';
 import {
+  COMPILE_FIX_NOTE,
   compactionFiles,
   compactionNotice,
   delegationMeta,
@@ -68,7 +69,7 @@ export class MessageRenderer {
       case 'user':
         return this.dom.el('div', 'ola-msg ola-user', message.text);
       case 'system':
-        return this.dom.el('div', 'ola-msg ola-system', message.text);
+        return this.dom.el('div', 'ola-msg ola-system ola-system-request', COMPILE_FIX_NOTE);
       case 'assistant':
         return message.kind === AssistantMessageKind.Proposal
           ? this.changeSetCard.render(message, busy)

@@ -92,6 +92,8 @@ export const VIEW_TEXT = {
 
 const COMPILED = 'Compiled without errors.';
 
+export const COMPILE_FIX_NOTE = 'Hans was asked to fix the first compile error.';
+
 function compiledWithErrorsNotice(errorCount: number): string {
   return `Compiled with ${countOf(errorCount, 'error')}; see the PDF pane for details.`;
 }

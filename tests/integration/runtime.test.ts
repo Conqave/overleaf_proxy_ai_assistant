@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { IDBFactory } from 'fake-indexeddb';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { COMPILE_FIX_REQUEST } from '../../src/application/conversation-agent';
+import { COMPILE_FIX_NOTE } from '../../src/presentation/message-format';
 import { MAIN_AGENT_POLICY } from '../support/policies';
 import type { ConversationMessage } from '../../src/domain/conversation';
 import { IndexedDbSessionRepository } from '../../src/infrastructure/persistence/indexed-db-session-repository';
@@ -1020,10 +1021,10 @@ describe('assistant agent', () => {
         'Make the word experiment bold.',
         expect.stringContaining('Proposed replacement'),
         'Done. Line replaced in main.tex.',
-        COMPILE_FIX_REQUEST,
+        COMPILE_FIX_NOTE,
         expect.stringContaining('Proposed replacement'),
       ]);
-      expect(texts('.ola-system')).toContain(COMPILE_FIX_REQUEST);
+      expect(texts('.ola-system-request')).toEqual([COMPILE_FIX_NOTE]);
       expect(texts('.ola-user')).toEqual(['Make the word experiment bold.']);
       const fixPrompt = itemAt(ollama.prompts, 1, 'prompt').userMessage;
       expect(fixPrompt).toContain(
@@ -1041,7 +1042,7 @@ describe('assistant agent', () => {
       expect(reloaded.texts('.ola-system')).toEqual(texts('.ola-system'));
       expect(reloaded.texts('.ola-system')).toEqual([
         'Done. Line replaced in main.tex.',
-        COMPILE_FIX_REQUEST,
+        COMPILE_FIX_NOTE,
         'Done. Line replaced in main.tex.',
         'Compiled without errors.',
       ]);
