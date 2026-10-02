@@ -246,6 +246,7 @@ export class AssistantView {
   setStatus(text: string): void {
     this.status.textContent = text;
     this.status.classList.toggle('is-empty', !text);
+    if (this.busy) this.scrollToBottom();
   }
 
   setContextUsage(text: string, pressure: ContextPressure): void {

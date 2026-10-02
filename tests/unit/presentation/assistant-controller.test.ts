@@ -484,6 +484,23 @@ describe('AssistantView while an operation runs', () => {
     expect(bubble.status()).toBe('');
   });
 
+  it('keeps the typing bubble in view when its status changes', async () => {
+    const { window, controller, project } = await openAssistant();
+    const chat = window.document.querySelector<HTMLElement>('.ola-chat');
+    if (chat === null) throw new TestFixtureError('the view has no chat');
+    let contentHeight = 400;
+    Object.defineProperty(chat, 'scrollHeight', { get: () => contentHeight });
+    project.holdsReads = true;
+    const sending = controller.send('add the knuth84 entry');
+    contentHeight = 900;
+    await vi.waitFor(() => {
+      expect(typingBubble(window).status()).toBe('Hans is reading refs.bib');
+    });
+    expect(chat.scrollTop).toBe(900);
+    await controller.newConversation();
+    await sending;
+  });
+
   it('hides the typing bubble below the answer when the request ends', async () => {
     const { window, texts } = await proposeBibEdit();
     const bubble = typingBubble(window);
