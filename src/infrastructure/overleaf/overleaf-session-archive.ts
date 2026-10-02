@@ -3,11 +3,11 @@ import type { SessionExport } from '../../domain/session-export';
 import type { CancellationSignal } from '../../ports/cancellation';
 import { UnreadableSessionExportError } from '../../ports/errors';
 import type { SessionArchive } from '../../ports/session-archive';
-import type { OverleafProjectFiles } from '../overleaf/overleaf-project-files';
-import { parseSessionExport, serializeSessionExport } from './session-export-format';
-import { UnknownStoredFormatError } from './stored-fields';
+import type { OverleafProjectFiles } from './overleaf-project-files';
+import { parseSessionExport, serializeSessionExport } from '../persistence/session-export-format';
+import { UnknownStoredFormatError } from '../persistence/stored-fields';
 
-export class ProjectSessionArchive implements SessionArchive {
+export class OverleafSessionArchive implements SessionArchive {
   constructor(private readonly files: OverleafProjectFiles) {}
 
   save(path: string, exported: SessionExport, signal: CancellationSignal): Promise<void> {

@@ -47,7 +47,7 @@ import {
   StoreKey,
 } from '../infrastructure/overleaf/overleaf-store';
 import { IndexedDbSessionRepository } from '../infrastructure/persistence/indexed-db-session-repository';
-import { ProjectSessionArchive } from '../infrastructure/persistence/project-session-archive';
+import { OverleafSessionArchive } from '../infrastructure/overleaf/overleaf-session-archive';
 import { LocalStoragePanelSize } from '../infrastructure/persistence/local-storage-panel-size';
 import { AssistantController } from '../presentation/assistant-controller';
 import { AssistantView } from '../presentation/assistant-view';
@@ -133,7 +133,7 @@ function compose(
   const changeSetDeps = { project, editor, pendingChanges, review };
   const exchangeDeps = {
     ...sessionDeps,
-    archive: new ProjectSessionArchive(files),
+    archive: new OverleafSessionArchive(files),
     project,
     scope,
     newId,

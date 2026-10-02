@@ -3,7 +3,7 @@ import { ProjectFileKind, type ProjectFile } from '../../../src/domain/project-f
 import type { SessionExport } from '../../../src/domain/session-export';
 import { OverleafProjectFiles } from '../../../src/infrastructure/overleaf/overleaf-project-files';
 import { OverleafStore } from '../../../src/infrastructure/overleaf/overleaf-store';
-import { ProjectSessionArchive } from '../../../src/infrastructure/persistence/project-session-archive';
+import { OverleafSessionArchive } from '../../../src/infrastructure/overleaf/overleaf-session-archive';
 import { SESSION_EXPORT_FORMAT } from '../../../src/infrastructure/persistence/session-export-format';
 import { UnreadableSessionExportError } from '../../../src/ports/errors';
 import {
@@ -37,7 +37,7 @@ const SESSIONS_FOLDER = {
 };
 
 let ide: FakeOverleafIde;
-let archive: ProjectSessionArchive;
+let archive: OverleafSessionArchive;
 const signal = new AbortController().signal;
 const binary = (id: string, name: string): ProjectFile => ({
   id,
@@ -52,7 +52,7 @@ beforeEach(() => {
     { ...FIXTURE_ROOT_FOLDER, folders: [...FIXTURE_ROOT_FOLDER.folders, SESSIONS_FOLDER] },
     new Map([...FIXTURE_FILE_TEXTS, ['file-export', exportText], ['file-corrupt', '{"format":']]),
   );
-  archive = new ProjectSessionArchive(
+  archive = new OverleafSessionArchive(
     new OverleafProjectFiles({
       store: OverleafStore.fromWindow(window),
       fetch: ide.server.fetch,
