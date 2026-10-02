@@ -552,14 +552,19 @@ describe('HandleAssistantRequest', () => {
     );
     project = new FakeProject(editor, documents, 'part0.tex');
     wireRequests();
+    const firstRead = Promise.withResolvers<DocumentSnapshot>();
+    project.willRead('part0.tex', new PendingStep(() => firstRead.promise));
     project.holdsReads = true;
     agent.will(tool({ tool: 'search', query: 'text' }));
     const sending = send('find text');
     await vi.waitFor(() => {
       expect(project.reads).toHaveLength(PARALLEL_SEARCH_READS);
     });
-    await new Promise((resolve) => setTimeout(resolve, 10));
-    expect(project.reads).toHaveLength(PARALLEL_SEARCH_READS);
+    firstRead.resolve(createDocumentSnapshot(['text']));
+    await vi.waitFor(() => {
+      expect(project.reads).toHaveLength(PARALLEL_SEARCH_READS + 1);
+    });
+    expect(project.reads).toEqual(Object.keys(documents).slice(0, PARALLEL_SEARCH_READS + 1));
     const reset = startNew();
     await expect(sending).rejects.toThrow(RequestSupersededError);
     await reset;
