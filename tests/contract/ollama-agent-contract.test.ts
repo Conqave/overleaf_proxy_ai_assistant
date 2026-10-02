@@ -717,6 +717,30 @@ function expectEdit(
   }
 }
 
+const POLISH_TEXTS: ReadonlyMap<string, DocumentSnapshot> = new Map([
+  ...TEXTS,
+  [
+    MAIN,
+    createDocumentSnapshot(
+      getText(TEXTS, MAIN).lines.map((line, index) =>
+        index + 1 === TITLE_LINE ? '\\title{Raport z laboratorium}' : line,
+      ),
+    ),
+  ],
+]);
+const POLISH_HISTORY: readonly ConversationMessage[] = [
+  { id: 'pl-0', role: 'user', text: 'Kompilacja się wysypuje, napraw błędy.' },
+  {
+    id: 'pl-1',
+    role: 'assistant',
+    kind: 'explanation',
+    text: 'Projekt kompiluje się bez błędów, więc nie ma czego poprawiać.',
+  },
+];
+const POLISH_WORDS = /[ąćęłńóśźż]|\b(się|jest|nie|mogę|dodaję|zmieniam|pomóc|cześć|witaj)\b/i;
+const POLISH_REASON = /[ąćęłńóśźż]|\b(usuwam|usunięcie|akapit|akapitu)\b/i;
+const ENGLISH_WORDS = /\b(the|you|is|are|and|help|hello|hi|this|to)\b/i;
+
 describe('Ollama agent contract', () => {
   let model: ContractModel;
 
@@ -952,6 +976,81 @@ describe('Ollama agent contract', () => {
       expect(run.webQueries).toEqual([]);
       expect(run.result.kind).toBe('reply');
       expect(run.result.message).not.toMatchObject({ text: textMatching(/10\.\d{4,}\//) });
+    },
+    CASE_TIMEOUT_MS,
+  );
+  it(
+    'greets in English in a new session although the document is Polish',
+    async () => {
+      const run = await runApplication(model, {
+        ...UNTOUCHED_PROJECT,
+        texts: POLISH_TEXTS,
+        name: 'English greeting',
+        request: 'Hello',
+      });
+      expect(run.result.message).toMatchObject({ text: textMatching(ENGLISH_WORDS) });
+      expect(run.result.message).not.toMatchObject({ text: textMatching(POLISH_WORDS) });
+    },
+    CASE_TIMEOUT_MS,
+  );
+
+  it(
+    'answers an English question in English after Polish messages',
+    async () => {
+      const run = await runApplication(
+        model,
+        {
+          ...UNTOUCHED_PROJECT,
+          texts: POLISH_TEXTS,
+          name: 'English question',
+          request: 'Which packages does main.tex load and why?',
+        },
+        POLISH_HISTORY,
+      );
+      expect(run.result.message).toMatchObject({
+        kind: 'explanation',
+        text: textMatching(/graphicx/),
+      });
+      expect(run.result.message).not.toMatchObject({ text: textMatching(POLISH_WORDS) });
+    },
+    CASE_TIMEOUT_MS,
+  );
+
+  it(
+    'gives the reason of an edit in the language of the request',
+    async () => {
+      const run = await runApplication(
+        model,
+        {
+          ...UNTOUCHED_PROJECT,
+          texts: POLISH_TEXTS,
+          name: 'English edit reason',
+          request: 'Change the author to Anna Nowak.',
+        },
+        POLISH_HISTORY,
+      );
+      expect(run.result.kind).toBe('proposal');
+      if (run.result.kind !== 'proposal') return;
+      for (const { command } of run.result.message.edits) {
+        if (command.reason !== undefined) expect(command.reason).not.toMatch(POLISH_WORDS);
+      }
+    },
+    CASE_TIMEOUT_MS,
+  );
+
+  it(
+    'gives the reason of an edit in Polish for a Polish request',
+    async () => {
+      const run = await runApplication(model, {
+        ...UNTOUCHED_PROJECT,
+        name: 'Polish edit reason',
+        request: 'usuń akapit o track changes',
+      });
+      expect(run.result.kind).toBe('proposal');
+      if (run.result.kind !== 'proposal') return;
+      for (const { command } of run.result.message.edits) {
+        if (command.reason !== undefined) expect(command.reason).toMatch(POLISH_REASON);
+      }
     },
     CASE_TIMEOUT_MS,
   );

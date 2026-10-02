@@ -58,6 +58,7 @@ import {
 } from './prompt-blocks';
 
 const OPEN_FILE_SHARE = 2;
+const LANGUAGE_EXCERPT_CHARS = 80;
 const HISTORY_SHARE = 4;
 
 const FILES_LABEL = 'Project files:';
@@ -73,7 +74,7 @@ const noOpenTextFile = (binaryPath: string): string =>
 const A = AgentAction;
 const F = EditField;
 
-const LANGUAGE_RULE = `Write every user-facing text in the language of the user's latest message: the User message, or for a System request the user's last message shown with it (Polish message → Polish text). Text that goes into a file keeps the language of that file unless the user asks to translate it, and a translation of file text is an edit that replaces that text in its file; names and titles the user gives are used exactly as given, untranslated ("dodaj sekcję Conclusions" → \\section{Conclusions}).`;
+const LANGUAGE_RULE = `Write every user-facing text (the text of an ${AgentAction.Answer}, a ${AgentField.Question} and every ${EditField.Reason}) in the language of the User message itself, or for a System request of the user's last message shown with it. Never take the language from the document, from earlier messages or from the examples below: an English message gets English text even in a Polish document or after Polish messages, and a Polish message gets Polish text. Text that goes into a file keeps the language of that file unless the user asks to translate it, and a translation of file text is an edit that replaces that text in its file; names and titles the user gives are used exactly as given, untranslated ("dodaj sekcję Conclusions" → \\section{Conclusions}).`;
 
 const EDIT_FORMAT = lines(
   fieldLine(F.Operation, Object.values(DocumentOperation).join('|')),
@@ -83,7 +84,7 @@ const EDIT_FORMAT = lines(
     F.LineText,
     '<that line copied exactly from its start; for a long line its first sentence is enough>',
   ),
-  `${fieldLine(F.Reason, '<short user-facing reason>')} (optional)`,
+  `${fieldLine(F.Reason, '<short user-facing reason in the language of the User message>')} (optional)`,
   CONTENT_MARKER,
   `<the new LaTeX lines, exactly as they go into the document; nothing else follows ${CONTENT_MARKER}>`,
 );
@@ -240,11 +241,11 @@ const mainSystem = (policy: AgentPolicy): string => {
     'Example of a lookup:',
     actionLine(A.Search),
     fieldLine(AgentField.Query, 'greenwade93'),
-    'Example of an answer:',
+    'Example of an answer to a Polish User message:',
     actionLine(A.Answer),
     TEXT_MARKER,
     'Bibliografia jest w pliku sample.bib i używa stylu alpha (main.tex, linia 40).',
-    'Example of an edit of a file read before:',
+    'Example of an edit of a file read before, for a Polish User message:',
     actionLine(A.Edit),
     fieldLine(AgentField.Path, 'sample.bib'),
     fieldLine(F.Operation, DocumentOperation.InsertAfter),
@@ -257,30 +258,30 @@ const mainSystem = (policy: AgentPolicy): string => {
     '  title = {The TeXbook},',
     '  year = {1984}',
     '}',
-    'Example of one edit with two changes in two files (renaming a label and its reference, both files read before):',
+    'Example of one edit with two changes in two files (renaming a label and its reference, both files read before), for an English User message:',
     actionLine(A.Edit),
     fieldLine(AgentField.Path, 'chapters/results.tex'),
     fieldLine(F.Operation, DocumentOperation.Replace),
     fieldLine(F.Line, '2'),
     fieldLine(F.LineText, '\\label{sec:results}'),
-    fieldLine(F.Reason, 'Zmieniam etykietę sekcji.'),
+    fieldLine(F.Reason, 'Renames the section label.'),
     CONTENT_MARKER,
     '\\label{sec:measurements}',
     fieldLine(AgentField.Path, 'main.tex'),
     fieldLine(F.Operation, DocumentOperation.Replace),
     fieldLine(F.Line, '41'),
     fieldLine(F.LineText, 'Wyniki są w rozdziale~\\ref{sec:results}.'),
-    fieldLine(F.Reason, 'Aktualizuję odwołanie do etykiety.'),
+    fieldLine(F.Reason, 'Updates the reference to the label.'),
     CONTENT_MARKER,
     'Wyniki są w rozdziale~\\ref{sec:measurements}.',
-    'Example of a deletion of a whole subsection (heading, blank line and paragraph):',
+    'Example of a deletion of a whole subsection (heading, blank line and paragraph), for an English User message:',
     actionLine(A.Edit),
     fieldLine(AgentField.Path, 'main.tex'),
     fieldLine(F.Operation, DocumentOperation.Delete),
     fieldLine(F.Line, '30'),
     fieldLine(F.EndLine, '33'),
     fieldLine(F.LineText, '\\subsection{Wyniki pomocnicze}'),
-    fieldLine(F.Reason, 'Usuwam podsekcję z wynikami pomocniczymi.'),
+    fieldLine(F.Reason, 'Removes the subsection with the auxiliary results.'),
   );
 };
 
@@ -586,12 +587,20 @@ function toolsLeft(
   transcript: readonly AgentTurn[],
 ): string {
   const counted = countLookupsLeft(policy, transcript);
+  if (request.kind === 'user') return lines(languageReminder(request.message.text), counted);
   if (request.kind !== 'subtask' || !request.files.length) return counted;
   const unchecked = findUncheckedFiles(request.files, transcript);
   const checked = unchecked.length
     ? `Files to check that are not checked yet: ${unchecked.join(', ')}`
     : 'Every file to check is checked.';
   return lines(checked, counted);
+}
+
+function languageReminder(message: string): string {
+  const words = message.trim().replace(/\s+/g, ' ');
+  const start =
+    words.length > LANGUAGE_EXCERPT_CHARS ? `${words.slice(0, LANGUAGE_EXCERPT_CHARS)}…` : words;
+  return `Write your texts in the language of the User message, judged by its own words: "${start}"`;
 }
 
 function countLookupsLeft(policy: AgentPolicy, transcript: readonly AgentTurn[]): string {

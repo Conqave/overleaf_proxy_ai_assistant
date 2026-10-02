@@ -116,6 +116,17 @@ describe('agent exchange', () => {
     expect(system).toMatch(/- Everything after CONTENT: [^\n]*no Markdown\./);
   });
 
+  it('takes the language of the user message, not of the document or the examples', () => {
+    const { system, prompt } = createAgentExchange(request(), budget).request;
+    expect(prompt).toContain(
+      'Write your texts in the language of the User message, judged by its own words: "Add a citation"\nLookups left: 6',
+    );
+    expect(system).toContain('in the language of the User message itself');
+    expect(system).toContain(
+      'Never take the language from the document, from earlier messages or from the examples below',
+    );
+  });
+
   it('tells the model that no text file is open while a binary file is shown', () => {
     const binaryShown = request({
       workspace: { ...request().workspace, openFile: { kind: 'binary', path: 'frog.jpg' } },
@@ -231,7 +242,7 @@ describe('agent exchange', () => {
       request({ transcript: [long] }),
       ESTIMATED_PROMPT_CHARS,
     ).request;
-    const shown = prompt.slice(prompt.indexOf('Result 1'), prompt.indexOf('Lookups left'));
+    const shown = prompt.slice(prompt.indexOf('Result 1'), prompt.indexOf('Write your texts'));
     expect(shown.length).toBeLessThan(SEARCH_OUTPUT_CHARS + 200);
     expect(shown).toContain('[AUTOCOMPACTED: omitted');
     expect(
