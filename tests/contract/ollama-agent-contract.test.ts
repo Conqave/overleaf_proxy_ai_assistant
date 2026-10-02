@@ -20,7 +20,11 @@ import { OllamaAgent } from '../../src/infrastructure/ollama/ollama-agent';
 import { OllamaClient } from '../../src/infrastructure/ollama/ollama-client';
 import { OllamaSummarizer } from '../../src/infrastructure/ollama/ollama-summarizer';
 import { parseExaSearchResults } from '../../src/infrastructure/mcp/exa-search-results';
-import type { ConversationMessage, ImportedHistory } from '../../src/domain/conversation';
+import type {
+  ConversationMessage,
+  ImportedHistory,
+  ProposalMessage,
+} from '../../src/domain/conversation';
 import type { ContextUsage } from '../../src/domain/context-usage';
 import type { AgentPort } from '../../src/ports/agent-port';
 import {
@@ -137,7 +141,7 @@ interface ExpectedEdit {
 interface Case {
   readonly name: string;
   readonly request: string;
-  readonly webSearch?: WebSearchDecision;
+  readonly webSearch: WebSearchDecision;
   readonly texts: ReadonlyMap<string, DocumentSnapshot>;
   readonly diagnostics: readonly CompileDiagnostic[];
   readonly selection: string;
@@ -261,6 +265,7 @@ const UNTOUCHED_PROJECT = {
   texts: TEXTS,
   diagnostics: [],
   selection: '',
+  webSearch: WebSearchDecision.Approve,
 } as const satisfies Partial<Case>;
 
 const CASES: readonly Case[] = [
@@ -654,7 +659,7 @@ async function runApplication(
     const tool = TOOL_OF_PROGRESS[progress.stage];
     if (tool !== undefined) tools.push(tool);
     if (progress.stage === 'awaiting-approval') {
-      approval.decide(progress.search.id, c.webSearch ?? WebSearchDecision.Approve);
+      approval.decide(progress.search.id, c.webSearch);
     }
   });
   return {
@@ -691,17 +696,21 @@ function createContractModel(): ContractModel {
   return { agent: new OllamaAgent(client), summarizer: new OllamaSummarizer(client) };
 }
 
+function proposalOf(result: AgentResult): ProposalMessage {
+  if (result.kind !== 'proposal') {
+    throw new TestFixtureError(`the agent gave a ${result.kind} instead of a proposal`);
+  }
+  return result.message;
+}
+
 function expectEdit(
   texts: ReadonlyMap<string, DocumentSnapshot>,
   run: ApplicationRun,
   expected: ExpectedEdit,
 ): void {
-  const { result } = run;
-  expect(result.kind).toBe('proposal');
-  if (result.kind !== 'proposal') return;
-  expect(result.message.edits).toHaveLength(1);
-  const [edit] = result.message.edits;
-  if (edit === undefined) return;
+  const { edits } = proposalOf(run.result);
+  expect(edits).toHaveLength(1);
+  const edit = itemAt(edits, 0, 'proposed edit');
   expect(edit.path).toBe(expected.path);
   const { command } = edit;
   if (expected.operation.startsWith('insert') && command.operation.startsWith('insert')) {
@@ -875,9 +884,9 @@ function bibFieldProblems(lines: readonly string[]): string[] {
 }
 
 function applyProposal(texts: ReadonlyMap<string, DocumentSnapshot>, run: ApplicationRun) {
-  if (run.result.kind !== 'proposal') throw new TestFixtureError('the run proposes no edit');
+  const proposal = proposalOf(run.result);
   const edited = new Map([...texts].map(([path, { lines }]) => [path, [...lines]]));
-  const ordered = [...run.result.message.edits].sort(
+  const ordered = [...proposal.edits].sort(
     (first, second) => second.command.target.lineNumber - first.command.target.lineNumber,
   );
   for (const { path, command } of ordered) {
@@ -926,9 +935,8 @@ describe('Ollama agent contract', () => {
         request:
           'zmień etykietę sec:results na sec:measurements i popraw wszystkie odwołania do niej',
       });
-      expect(run.result.kind).toBe('proposal');
-      if (run.result.kind !== 'proposal') return;
-      const edits = run.result.message.edits.map(({ path, command }) => ({
+      const proposal = proposalOf(run.result);
+      const edits = proposal.edits.map(({ path, command }) => ({
         path,
         line: command.target.lineNumber,
         content: 'content' in command ? command.content : '',
@@ -1081,15 +1089,14 @@ describe('Ollama agent contract', () => {
         expect(query).toMatch(/LaTeX|Lamport/i);
         expect(query.length).toBeLessThanOrEqual(200);
       }
-      expect(run.result.kind).toBe('proposal');
-      if (run.result.kind !== 'proposal') return;
-      const [edit, ...others] = run.result.message.edits;
-      expect(others).toEqual([]);
-      expect(edit?.path).toBe(BIB);
-      const line = edit?.command.target.lineNumber ?? 0;
+      const proposal = proposalOf(run.result);
+      expect(proposal.edits).toHaveLength(1);
+      const edit = itemAt(proposal.edits, 0, 'proposed edit');
+      expect(edit.path).toBe(BIB);
+      const line = edit.command.target.lineNumber;
       expect(line).toBeGreaterThanOrEqual(LAMPORT_ENTRY.first);
       expect(line).toBeLessThanOrEqual(LAMPORT_ENTRY.last);
-      expect(edit?.command).toMatchObject({ content: textMatching(FOUND_DOI) });
+      expect(edit.command).toMatchObject({ content: textMatching(FOUND_DOI) });
     },
     CASE_TIMEOUT_MS,
   );
@@ -1198,9 +1205,8 @@ describe('Ollama agent contract', () => {
         },
         POLISH_HISTORY,
       );
-      expect(run.result.kind).toBe('proposal');
-      if (run.result.kind !== 'proposal') return;
-      for (const { command } of run.result.message.edits) {
+      const proposal = proposalOf(run.result);
+      for (const { command } of proposal.edits) {
         if (command.reason !== undefined) expect(command.reason).not.toMatch(POLISH_WORDS);
       }
     },
@@ -1215,9 +1221,8 @@ describe('Ollama agent contract', () => {
         name: 'Polish edit reason',
         request: 'usuń akapit o track changes',
       });
-      expect(run.result.kind).toBe('proposal');
-      if (run.result.kind !== 'proposal') return;
-      for (const { command } of run.result.message.edits) {
+      const proposal = proposalOf(run.result);
+      for (const { command } of proposal.edits) {
         if (command.reason !== undefined) expect(command.reason).toMatch(POLISH_REASON);
       }
     },
@@ -1249,9 +1254,8 @@ describe('Ollama agent contract', () => {
         name: 'escaped abstract',
         request: ESCAPED_ABSTRACT_REQUEST,
       });
-      expect(run.result.kind).toBe('proposal');
-      if (run.result.kind !== 'proposal') return;
-      const content = run.result.message.edits
+      const proposal = proposalOf(run.result);
+      const content = proposal.edits
         .map(({ command }) => ('content' in command ? command.content : ''))
         .join('\n');
       for (const escaped of [
