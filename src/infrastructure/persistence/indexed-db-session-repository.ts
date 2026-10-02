@@ -10,11 +10,8 @@ import {
 } from '../../ports/errors';
 import type { SessionListing, SessionRepository } from '../../ports/session-repository';
 import type { OverleafPageIdentity } from '../overleaf/overleaf-page';
-import {
-  parseStoredSession,
-  toStoredSession,
-  UnknownStoredFormatError,
-} from './stored-conversation-format';
+import { parseStoredSession, toStoredSession } from './stored-conversation-format';
+import { UnknownStoredFormatError } from './stored-fields';
 
 export const SESSION_DATABASE = 'overleaf-ai-assistant';
 export const SESSION_STORE = 'sessions';

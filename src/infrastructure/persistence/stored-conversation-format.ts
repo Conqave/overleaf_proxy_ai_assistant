@@ -28,13 +28,21 @@ import {
   InvalidDocumentCommandError,
   InvalidProjectPathError,
   InvalidToolRecordError,
-  NamedError,
 } from '../../domain/errors';
 import { createProjectPath } from '../../domain/project-file';
 import type { ConversationSession } from '../../domain/session';
+import type { ExportedSession } from '../../domain/session-export';
 import type { OverleafPageIdentity } from '../overleaf/overleaf-page';
-
-export class UnknownStoredFormatError extends NamedError {}
+import {
+  getArray,
+  getBoolean,
+  getFields,
+  getNonNegativeInteger,
+  getPositiveInteger,
+  getString,
+  getStrings,
+  UnknownStoredFormatError,
+} from './stored-fields';
 
 function parseStoredMessages(data: unknown): ConversationMessage[] {
   if (!Array.isArray(data)) throw new UnknownStoredFormatError('not an array');
@@ -167,7 +175,7 @@ function parseMatch(value: unknown): SearchMatch {
   const fields = getFields(value);
   return {
     path: parsePath(fields.get('path')),
-    lineNumber: getLineNumber(fields),
+    lineNumber: getPositiveInteger(fields, 'lineNumber'),
     lineText: getString(fields, 'lineText'),
   };
 }
@@ -178,7 +186,9 @@ function parseDiagnostic(value: unknown): CompileDiagnostic {
   if (!isDiagnosticLevel(level)) throw new UnknownStoredFormatError('unknown diagnostic level');
   const diagnostic = { level, message: getString(fields, 'message') };
   const path = fields.has('path') ? { path: parsePath(fields.get('path')) } : {};
-  const lineNumber = fields.has('lineNumber') ? { lineNumber: getLineNumber(fields) } : {};
+  const lineNumber = fields.has('lineNumber')
+    ? { lineNumber: getPositiveInteger(fields, 'lineNumber') }
+    : {};
   return { ...diagnostic, ...path, ...lineNumber };
 }
 
@@ -208,57 +218,6 @@ function parseCommand(value: unknown): DocumentCommand {
   }
 }
 
-function getFields(value: unknown): Map<string, unknown> {
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
-    throw new UnknownStoredFormatError('not an object');
-  }
-  return new Map(Object.entries(value));
-}
-
-function getNonNegativeInteger(fields: Map<string, unknown>, key: string): number {
-  const value = fields.get(key);
-  if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0) {
-    throw new UnknownStoredFormatError(`${key} is not a non-negative integer`);
-  }
-  return value;
-}
-
-function getLineNumber(fields: Map<string, unknown>): number {
-  return getPositiveInteger(fields, 'lineNumber');
-}
-
-function getPositiveInteger(fields: Map<string, unknown>, key: string): number {
-  const value = getNonNegativeInteger(fields, key);
-  if (value === 0) throw new UnknownStoredFormatError(`${key} is not a line number`);
-  return value;
-}
-
-function getStrings(fields: Map<string, unknown>, key: string): readonly string[] {
-  return getArray(fields, key).map((line) => {
-    if (typeof line !== 'string')
-      throw new UnknownStoredFormatError(`${key} holds a non-text line`);
-    return line;
-  });
-}
-
-function getBoolean(fields: Map<string, unknown>, key: string): boolean {
-  const value = fields.get(key);
-  if (typeof value !== 'boolean') throw new UnknownStoredFormatError(`${key} is not a boolean`);
-  return value;
-}
-
-function getArray(fields: Map<string, unknown>, key: string): readonly unknown[] {
-  const value = fields.get(key);
-  if (!Array.isArray(value)) throw new UnknownStoredFormatError(`${key} is not a list`);
-  return value;
-}
-
-function getString(fields: Map<string, unknown>, key: string): string {
-  const value = fields.get(key);
-  if (typeof value !== 'string') throw new UnknownStoredFormatError(`${key} is not text`);
-  return value;
-}
-
 export interface StoredSession {
   readonly userId: string;
   readonly projectId: string;
@@ -286,6 +245,18 @@ export function toStoredSession(
   };
 }
 
+export function parseSessionContent(data: unknown): ExportedSession {
+  const fields = getFields(data);
+  const title = getString(fields, 'title');
+  if (title === '') throw new UnknownStoredFormatError('title is empty');
+  return {
+    title,
+    createdAt: getNonNegativeInteger(fields, 'createdAt'),
+    updatedAt: getNonNegativeInteger(fields, 'updatedAt'),
+    messages: parseStoredMessages(fields.get('messages')),
+  };
+}
+
 export function parseStoredSession(
   data: unknown,
   scope: OverleafPageIdentity,
@@ -297,17 +268,9 @@ export function parseStoredSession(
   if (getString(fields, 'projectId') !== scope.projectId) {
     throw new UnknownStoredFormatError('stored for another project');
   }
-  const messages = parseStoredMessages(fields.get('messages'));
-  if (getNonNegativeInteger(fields, 'messageCount') !== messages.length) {
+  const content = parseSessionContent(data);
+  if (getNonNegativeInteger(fields, 'messageCount') !== content.messages.length) {
     throw new UnknownStoredFormatError('messageCount does not match the messages');
   }
-  const title = getString(fields, 'title');
-  if (title === '') throw new UnknownStoredFormatError('title is empty');
-  return {
-    id: getString(fields, 'id'),
-    title,
-    createdAt: getNonNegativeInteger(fields, 'createdAt'),
-    updatedAt: getNonNegativeInteger(fields, 'updatedAt'),
-    messages,
-  };
+  return { id: getString(fields, 'id'), ...content };
 }
