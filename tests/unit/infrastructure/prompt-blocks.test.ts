@@ -169,7 +169,7 @@ describe('compaction', () => {
   it('keeps the head and the tail of a long block and says how much it left out', () => {
     const selection = 'a'.repeat(50_000) + 'b'.repeat(50_000);
     const compacted =
-      /Selected text:\n(a+)\n\n\[AUTOCOMPACTED: omitted (\d+) chars\]\n\n(b+)\n/.exec(
+      /Selected text \(in the open file; a request to change, fix or translate it asks for an edit of that file\):\n(a+)\n\n\[AUTOCOMPACTED: omitted (\d+) chars\]\n\n(b+)\n/.exec(
         promptOf(withSelection(selection)),
       );
     if (compacted === null) throw new TestFixtureError('the selection was not compacted');
@@ -180,7 +180,9 @@ describe('compaction', () => {
 
   it('leaves a block that fits untouched', () => {
     const prompt = promptOf(withSelection('short'));
-    expect(prompt).toContain('Selected text:\nshort');
+    expect(prompt).toContain(
+      'Selected text (in the open file; a request to change, fix or translate it asks for an edit of that file):\nshort',
+    );
     expect(prompt).not.toContain('AUTOCOMPACTED');
   });
 });

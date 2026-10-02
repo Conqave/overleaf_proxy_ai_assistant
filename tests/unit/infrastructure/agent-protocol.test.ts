@@ -91,7 +91,7 @@ describe('agent exchange', () => {
     expect(sent.prompt).toContain(
       'Numbered lines of main.tex (open in the editor, caret on line 2):\n1: \\section{A}\n2: Body.',
     );
-    expect(sent.prompt).not.toContain('Selected text:');
+    expect(sent.prompt).not.toContain('Selected text');
     expect(sent.prompt).not.toContain('Result 1');
     expect(sent.prompt.endsWith('Lookups left: 6')).toBe(true);
   });
@@ -104,7 +104,19 @@ describe('agent exchange', () => {
 
   it('shows the selection', () => {
     const selected = request({ workspace: { ...request().workspace, selection: 'Bo' } });
-    expect(createAgentExchange(selected, budget).request.prompt).toContain('Selected text:\nBo');
+    expect(createAgentExchange(selected, budget).request.prompt).toContain(
+      'Selected text (in the open file; a request to change, fix or translate it asks for an edit of that file):\nBo',
+    );
+  });
+
+  it('asks for a translation of file text as an edit, not as an answer', () => {
+    const { system } = createAgentExchange(request(), budget).request;
+    expect(system).toContain(
+      'a translation of file text is an edit that replaces that text in its file',
+    );
+    expect(system).toContain(
+      'applied to text of a file, including the selected text, ask for an edit of that file even when the user does not name the file; the new text never goes into an answer.',
+    );
   });
 
   it('shows every tool result in order, numbered like the lines the model may quote', () => {

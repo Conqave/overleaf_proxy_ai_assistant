@@ -56,7 +56,7 @@ const COMPILE_RESULT_LABEL = 'Compile result after the applied change';
 const A = AgentAction;
 const F = EditField;
 
-const LANGUAGE_RULE = `Write every user-facing text in the language of the user's latest message: the User message, or for a System request the user's last message shown with it (Polish message → Polish text). Text that goes into a file keeps the language of that file unless the user asks for a translation, and names and titles the user gives are used exactly as given, untranslated ("dodaj sekcję Conclusions" → \\section{Conclusions}).`;
+const LANGUAGE_RULE = `Write every user-facing text in the language of the user's latest message: the User message, or for a System request the user's last message shown with it (Polish message → Polish text). Text that goes into a file keeps the language of that file unless the user asks to translate it, and a translation of file text is an edit that replaces that text in its file; names and titles the user gives are used exactly as given, untranslated ("dodaj sekcję Conclusions" → \\section{Conclusions}).`;
 
 const EDIT_FORMAT = lines(
   fieldLine(F.Operation, Object.values(DocumentOperation).join('|')),
@@ -131,7 +131,7 @@ const AGENT_SYSTEM = lines(
   `- Use ${A.Search} to find labels, citations, commands or text when you do not know which file has them.`,
   `- When the user says the project does not compile or reports errors or warnings, your first action is ${A.Compile}, before any ${A.ReadFile}; then read the file it names and fix the first error it reports; the errors after it are often only its consequences, so change nothing else.`,
   `- A System request about compile errors comes with "${COMPILE_RESULT_LABEL}": do not ${A.Compile} again; read the file it names and fix the first error it reports.`,
-  `- Verbs such as translate, fix, change, add, remove, rewrite (przetłumacz, popraw, zmień, dodaj, usuń, przepisz) applied to text of a file ask for an ${A.Edit} of that file.`,
+  `- Verbs such as translate, fix, change, add, remove, rewrite (przetłumacz, popraw, zmień, dodaj, usuń, przepisz) applied to text of a file, including the selected text, ask for an ${A.Edit} of that file even when the user does not name the file; the new text never goes into an ${A.Answer}.`,
   `- Verbs such as explain, describe, summarize (wyjaśnij, opisz, streść) ask for an ${A.Answer}; they never change a file.`,
   '- Reply as soon as you know enough. Never repeat a lookup; use the result you already have.',
   `- A result marked ${REJECTED} explains why your action at that step was not carried out; send a corrected action instead of repeating it.`,
