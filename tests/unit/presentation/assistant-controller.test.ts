@@ -524,9 +524,12 @@ describe('AssistantController compaction', () => {
     compact().click();
     await vi.waitFor(() => {
       expect(texts('.ola-compaction-title')).toEqual([
-        'Context compacted: 5.0k → 3.0k (summary of 1 turn)',
+        'Conversation history compacted: 5.0k → 3.0k tokens (summary of 1 turn)',
       ]);
     });
+    expect(texts('.ola-compaction .ola-result-meta').at(-1)).toBe(
+      'These numbers count the conversation history only; the header counts the whole last prompt, which also holds the instructions and the open file.',
+    );
     expect(texts('.ola-compaction-body h2')).toEqual(['Goal']);
     expect(texts('.ola-compaction-body p')).toEqual(['Add the knuth84 entry.']);
     expect(texts('.ola-status')).toEqual(['']);

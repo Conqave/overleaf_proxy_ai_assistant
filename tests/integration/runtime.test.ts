@@ -1310,7 +1310,9 @@ describe('assistant context compaction', () => {
     );
     const title = element(doc, '.ola-compaction-title').textContent;
     const covered = Number(
-      /^Context compacted: \d+\.\dk → \d+\.\dk \(summary of (\d+) turns\)$/.exec(title)?.[1],
+      /^Conversation history compacted: \d+\.\dk → \d+\.\dk tokens \(summary of (\d+) turns\)$/.exec(
+        title,
+      )?.[1],
     );
     expect(covered).toBeGreaterThan(30);
     expect(answering.userMessage).toContain(
@@ -1369,7 +1371,9 @@ describe('assistant compact button', () => {
     await vi.waitFor(() => {
       expect(isIdle()).toBe(true);
       expect(texts('.ola-compaction-title')).toEqual([
-        expect.stringMatching(/^Context compacted: \d+\.\dk → \d+\.\dk \(summary of 2 turns\)$/),
+        expect.stringMatching(
+          /^Conversation history compacted: \d+\.\dk → \d+\.\dk tokens \(summary of 2 turns\)$/,
+        ),
       ]);
     }, PAGE_WAIT);
     expect(itemAt(ollama.prompts, 0, 'summary prompt').userMessage).toContain('[user] Question 1?');

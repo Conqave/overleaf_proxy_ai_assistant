@@ -29,6 +29,7 @@ import {
   webSearchMeta,
   webSearchTitle,
   type NoticeText,
+  VIEW_TEXT,
 } from './message-format';
 
 interface ShownToolMessage extends ToolMessage {
@@ -156,6 +157,7 @@ export class MessageRenderer {
       this.dom.el('summary', 'ola-fold-title ola-compaction-title', compactionNotice(message)),
       this.renderMarkdown('ola-fold-body ola-compaction-body', message.text),
       this.dom.el('div', 'ola-result-meta', compactionFiles(message)),
+      this.dom.el('div', 'ola-result-meta', VIEW_TEXT.compactionMeasure),
     );
     return node;
   }

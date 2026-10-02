@@ -67,6 +67,8 @@ export const VIEW_TEXT = {
   compactHint: 'Compact context now: summarise the earlier conversation',
   compactNothingHint: 'Nothing to compact yet: the earlier conversation is too short to summarise',
   compactBusyHint: 'Compacting is possible once Hans has finished',
+  compactionMeasure:
+    'These numbers count the conversation history only; the header counts the whole last prompt, which also holds the instructions and the open file.',
   inputLabel: 'Command',
   inputPlaceholder:
     'Describe what you want: explain an error, improve text, insert a table or delete a line.',
@@ -81,7 +83,8 @@ export const VIEW_TEXT = {
   undoHint: 'Take back every edit Hans applied in this change',
   resizeLabel: 'Resize the Hans panel',
   resizeHint: 'Drag to resize; arrow keys change width and height, Shift for larger steps',
-  contextHint: 'Tokens of the last prompt sent to the model / context window of the model',
+  contextHint:
+    'Tokens of the last prompt sent to the model (instructions, open file and conversation history) / context window of the model',
   approvalTitle: 'Hans wants to search the web',
   approvalNote: 'Exa (exa.ai), an external search service, receives this query.',
   approve: 'Approve',
@@ -295,7 +298,7 @@ export function compactionNotice({
   coveredTurns,
 }: CompactionSummaryMessage): string {
   const turns = coveredTurns === 1 ? '1 turn' : `${String(coveredTurns)} turns`;
-  return `Context compacted: ${thousands(tokensBefore)} → ${thousands(tokensAfter)} (summary of ${turns})`;
+  return `Conversation history compacted: ${thousands(tokensBefore)} → ${thousands(tokensAfter)} tokens (summary of ${turns})`;
 }
 
 export function compactionFiles({ files }: CompactionSummaryMessage): string {
