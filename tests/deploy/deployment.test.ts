@@ -262,6 +262,12 @@ describe('nginx proxy', () => {
         'Mcp-Session-Id': 'session-1',
         'Set-Cookie': '__cf_bm=tracker; Path=/',
         'Strict-Transport-Security': 'max-age=63072000',
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Credentials': 'true',
+        'Access-Control-Allow-Headers': '*',
+        'Access-Control-Allow-Methods': 'POST',
+        'Access-Control-Expose-Headers': 'Mcp-Session-Id',
+        'Access-Control-Max-Age': '600',
       });
       res.write('event: message\ndata: {"first":true}\n\n');
       void exaFinish.then(() => {
@@ -363,7 +369,16 @@ describe('nginx proxy', () => {
     );
     expect(response.status).toBe(200);
     expect(response.headers.get('mcp-session-id')).toBe('session-1');
-    for (const header of ['set-cookie', 'strict-transport-security']) {
+    for (const header of [
+      'set-cookie',
+      'strict-transport-security',
+      'access-control-allow-origin',
+      'access-control-allow-credentials',
+      'access-control-allow-headers',
+      'access-control-allow-methods',
+      'access-control-expose-headers',
+      'access-control-max-age',
+    ]) {
       expect(response.headers.get(header)).toBeNull();
     }
     const request = itemAt(exaRequests, -1, 'Exa request');
