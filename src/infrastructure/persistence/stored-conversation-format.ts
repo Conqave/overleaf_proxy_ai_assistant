@@ -13,6 +13,7 @@ import {
   type ConversationMessage,
   type ImportedHistory,
   type Notice,
+  type ProposalMessage,
   type UndoRefusal,
 } from '../../domain/conversation';
 import { createCompactionSummaryMessage, createFileActivity } from '../../domain/conversation-view';
@@ -92,11 +93,23 @@ function parseMessage(value: unknown): ConversationMessage {
   }
   if (role !== 'assistant') throw new UnknownStoredFormatError('unknown role');
   const kind = fields.get('kind');
-  if (kind === AssistantMessageKind.Proposal) {
-    return { id, role, kind, edits: parseEdits(getArray(fields, 'edits')) };
-  }
+  if (kind === AssistantMessageKind.Proposal) return parseProposal(value);
   if (!isReplyKind(kind)) throw new UnknownStoredFormatError('unknown message kind');
   return { id, role, kind, text: getString(fields, 'text') };
+}
+
+function parseProposal(value: unknown): ProposalMessage {
+  const fields = getFields(value);
+  if (fields.get('role') !== 'assistant' || fields.get('kind') !== AssistantMessageKind.Proposal) {
+    throw new UnknownStoredFormatError('a summarized change is no proposal');
+  }
+  const id = getString(fields, 'id');
+  return {
+    id,
+    role: 'assistant',
+    kind: AssistantMessageKind.Proposal,
+    edits: parseEdits(getArray(fields, 'edits')),
+  };
 }
 
 function parseNotice(fields: Map<string, unknown>): Notice {
@@ -172,6 +185,7 @@ function parseSummary(id: string, fields: Map<string, unknown>): CompactionSumma
       id,
       text: getString(fields, 'text'),
       files: createFileActivity(getArray(files, 'read'), getArray(files, 'edited')),
+      proposals: getArray(fields, 'proposals').map(parseProposal),
       coveredUntilId: getString(fields, 'coveredUntilId'),
       coveredTurns: getNonNegativeInteger(fields, 'coveredTurns'),
       tokensBefore: getNonNegativeInteger(fields, 'tokensBefore'),

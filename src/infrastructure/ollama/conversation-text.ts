@@ -50,12 +50,19 @@ export function getRecords(messages: readonly ExchangeMessage[]): ToolRecord[] {
   return messages.flatMap((message) => (message.role === 'tool' ? [message.record] : []));
 }
 
-export function summaryText({ text, files, coveredTurns }: ConversationSummary): string {
+export function summaryText({ text, files, coveredTurns, proposals }: ConversationSummary): string {
+  const edits = proposals.flatMap(({ edits: proposed }) => proposed);
   return lines(
     `[summary of the ${String(coveredTurns)} earlier turns]`,
     text,
     `Files read: ${files.read.length ? files.read.join(', ') : 'none'}`,
     `Files edited: ${files.edited.length ? files.edited.join(', ') : 'none'}`,
+    ...(edits.length
+      ? [
+          'Edits proposed in those turns, with their outcome as the editor recorded it:',
+          ...edits.map((edit) => `- ${describeEditOutcome(edit)}`),
+        ]
+      : ['Edits proposed in those turns: none']),
   );
 }
 
@@ -93,12 +100,12 @@ function assistantText(message: AssistantMessage): string {
 }
 
 const EDIT_OUTCOME: Record<EditStatus, string> = {
-  [EditStatus.Proposed]: 'left undecided',
+  [EditStatus.Proposed]: 'left undecided, not in the file',
   [EditStatus.Applied]: 'applied',
-  [EditStatus.Rejected]: 'rejected',
-  [EditStatus.Failed]: 'failed to apply',
-  [EditStatus.Discarded]: 'discarded without a decision',
-  [EditStatus.Undone]: 'applied, then undone by the user',
+  [EditStatus.Rejected]: 'rejected by the user, never in the file',
+  [EditStatus.Failed]: 'failed to apply, not in the file',
+  [EditStatus.Discarded]: 'discarded without a decision, not in the file',
+  [EditStatus.Undone]: 'applied, then undone by the user, no longer in the file',
   [EditStatus.AppliedBeforeImport]: 'applied in the session this one was imported from',
 };
 
@@ -109,6 +116,12 @@ function describeProposal({ edits }: ProposalMessage): string {
     `[change of ${String(edits.length)} edits]`,
     ...edits.map((edit, index) => describeEdit(edit, `edit ${String(index + 1)}`)),
   );
+}
+
+function describeEditOutcome({ status, path, command }: ProposedEdit): string {
+  const edit = `${path} ${describeLines(command)}: ${command.operation}`;
+  const described = command.reason === undefined ? edit : `${edit} (${command.reason})`;
+  return `${described}: ${EDIT_OUTCOME[status]}`;
 }
 
 function describeEdit({ status, path, command }: ProposedEdit, label: string): string {

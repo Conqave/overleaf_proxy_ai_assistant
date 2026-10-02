@@ -8,6 +8,7 @@ import {
   type ExchangeMessage,
   type FileActivity,
   type ImportedHistory,
+  type ProposalMessage,
 } from './conversation';
 import { EditStatus } from './change-set';
 import { InvalidCompactionSummaryError, InvalidProjectPathError } from './errors';
@@ -28,7 +29,8 @@ export function viewConversation(
   messages: readonly ConversationMessage[],
   imported: ImportedHistory | null,
 ): ConversationView {
-  const summary = findLatestSummary(messages);
+  const latest = findLatestSummary(messages);
+  const summary = latest === null ? null : refreshProposals(latest, messages);
   const exchange = messages.slice(countCoveredMessages(messages)).filter(isExchangeMessage);
   if (imported === null) return { summary, messages: exchange, imported: null };
   const messageCount = exchange.findIndex(({ id }) => id === imported.lastMessageId) + 1;
@@ -68,6 +70,24 @@ export function summarizeView(
   return { summary, messages, imported: { path: view.imported.path, messageCount } };
 }
 
+function refreshProposals(
+  summary: CompactionSummaryMessage,
+  messages: readonly ConversationMessage[],
+): CompactionSummaryMessage {
+  const stored = new Map(
+    messages.filter(isProposalMessage).map((message) => [message.id, message] as const),
+  );
+  const proposals = summary.proposals.map((proposal) => {
+    const current = stored.get(proposal.id);
+    return current === undefined ? proposal : current;
+  });
+  return Object.freeze({ ...summary, proposals: Object.freeze(proposals) });
+}
+
+function isProposalMessage(message: ConversationMessage): message is ProposalMessage {
+  return message.role === 'assistant' && message.kind === AssistantMessageKind.Proposal;
+}
+
 export function createConversationSummary(
   previous: ConversationSummary | null,
   text: string,
@@ -80,6 +100,10 @@ export function createConversationSummary(
   return Object.freeze({
     text: summary,
     files: collectFileActivity(previous?.files ?? NO_FILE_ACTIVITY, covered),
+    proposals: Object.freeze([
+      ...(previous === null ? [] : previous.proposals),
+      ...covered.filter(isProposalMessage),
+    ]),
     coveredUntilId: last.id,
     coveredTurns: (previous?.coveredTurns ?? 0) + covered.filter(isRequestMessage).length,
   });
@@ -95,8 +119,17 @@ interface CompactionSummaryInput extends ConversationSummary {
 export function createCompactionSummaryMessage(
   input: CompactionSummaryInput,
 ): CompactionSummaryMessage {
-  const { id, text, files, coveredUntilId, coveredTurns, tokensBefore, tokensAfter, createdAt } =
-    input;
+  const {
+    id,
+    text,
+    files,
+    proposals,
+    coveredUntilId,
+    coveredTurns,
+    tokensBefore,
+    tokensAfter,
+    createdAt,
+  } = input;
   if (id === '' || coveredUntilId === '') {
     throw new InvalidCompactionSummaryError('a summary needs its id and the id it covers until');
   }
@@ -112,6 +145,7 @@ export function createCompactionSummaryMessage(
     role: 'summary',
     text,
     files: createFileActivity(files.read, files.edited),
+    proposals: Object.freeze([...proposals]),
     coveredUntilId,
     coveredTurns,
     tokensBefore,

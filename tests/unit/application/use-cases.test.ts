@@ -1500,6 +1500,7 @@ describe('automatic compaction', () => {
       role: 'summary',
       text: '## Goal\nAnswer questions.',
       files: { read: [], edited: [] },
+      proposals: [],
       coveredUntilId: 'id-2',
       coveredTurns: 1,
       tokensBefore: 4 * FAKE_MESSAGE_TOKENS,

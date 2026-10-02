@@ -1,5 +1,9 @@
 import { recordImportedEdits } from './change-set';
-import { AssistantMessageKind, type ConversationMessage } from './conversation';
+import {
+  AssistantMessageKind,
+  type ConversationMessage,
+  type ProposalMessage,
+} from './conversation';
 import { EmptySessionExportError, ForeignProjectExportError } from './errors';
 import { PATH_SEPARATOR, type ProjectFile } from './project-file';
 import {
@@ -119,9 +123,16 @@ export function importSessionExport(
 }
 
 function recordImportedMessage(message: ConversationMessage): ConversationMessage {
+  if (message.role === 'summary') {
+    return { ...message, proposals: message.proposals.map(recordImportedProposal) };
+  }
   if (message.role !== 'assistant' || message.kind !== AssistantMessageKind.Proposal) {
     return message;
   }
+  return recordImportedProposal(message);
+}
+
+function recordImportedProposal(message: ProposalMessage): ProposalMessage {
   return { ...message, edits: recordImportedEdits(message.edits) };
 }
 

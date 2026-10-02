@@ -78,6 +78,7 @@ export interface FileActivity {
 export interface ConversationSummary {
   readonly text: string;
   readonly files: FileActivity;
+  readonly proposals: readonly ProposalMessage[];
   readonly coveredUntilId: string;
   readonly coveredTurns: number;
 }

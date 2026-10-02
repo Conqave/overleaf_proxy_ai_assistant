@@ -77,13 +77,14 @@ describe('conversation history', () => {
           files: { read: [], edited: [] },
           coveredUntilId: '0',
           coveredTurns: 1,
+          proposals: [],
         },
         imported: { path: 'hans-sessions/a.json', messageCount: 0 },
         messages: [{ id: '2', role: 'user', text: 'Add a table' }],
       },
     });
     expect(prompt).toMatch(
-      /\[imported history from hans-sessions\/a\.json[^\n]*\n\[summary of the 1 earlier turns\]\nImported goal\.\nFiles read: none\nFiles edited: none\n\[end of the imported history\]\n\[user\] Add a table/,
+      /\[imported history from hans-sessions\/a\.json[^\n]*\n\[summary of the 1 earlier turns\]\nImported goal\.\nFiles read: none\nFiles edited: none\nEdits proposed in those turns: none\n\[end of the imported history\]\n\[user\] Add a table/,
     );
   });
 
@@ -192,11 +193,11 @@ describe('conversation history', () => {
   });
 
   it.each([
-    ['proposed', '[proposal left undecided]'],
+    ['proposed', '[proposal left undecided, not in the file]'],
     ['applied', '[proposal applied]'],
-    ['rejected', '[proposal rejected]'],
-    ['failed', '[proposal failed to apply]'],
-    ['discarded', '[proposal discarded without a decision]'],
+    ['rejected', '[proposal rejected by the user, never in the file]'],
+    ['failed', '[proposal failed to apply, not in the file]'],
+    ['discarded', '[proposal discarded without a decision, not in the file]'],
   ] as const)(
     'shows a %s proposal to the model with its outcome, place and content',
     (status, outcome) => {
@@ -246,7 +247,9 @@ describe('change history', () => {
           null,
         ),
       }),
-    ).toContain('[assistant] [proposal applied, then undone by the user] main.tex line 3: delete');
+    ).toContain(
+      '[assistant] [proposal applied, then undone by the user, no longer in the file] main.tex line 3: delete',
+    );
   });
 
   it('shows the model the outcome of every edit of a change', () => {
@@ -271,7 +274,7 @@ describe('change history', () => {
         '[assistant] [change of 2 edits]',
         '[edit 1 applied] chapters/results.tex line 2: replace',
         '\\label{sec:new}',
-        '[edit 2 rejected] main.tex lines 7-8: delete (Drops the old note.)',
+        '[edit 2 rejected by the user, never in the file] main.tex lines 7-8: delete (Drops the old note.)',
       ].join('\n'),
     );
   });

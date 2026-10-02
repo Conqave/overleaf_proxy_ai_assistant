@@ -824,6 +824,34 @@ const DENIED_SEARCH_HISTORY: readonly ConversationMessage[] = [
   },
 ];
 
+const BIB_ADDITION_HISTORY: readonly ConversationMessage[] = [
+  {
+    id: 'b-0',
+    role: 'user',
+    text: 'Dodaj do sample.bib wpis książki Donald Knuth, The TeXbook, 1984, z kluczem knuth84.',
+  },
+  {
+    id: 'b-1',
+    role: 'assistant',
+    kind: 'proposal',
+    edits: [
+      {
+        path: BIB,
+        command: {
+          operation: 'insert_after',
+          target: { lineNumber: getText(TEXTS, BIB).lines.length, lineText: '}' },
+          content:
+            '\n@book{knuth84,\n  author = {Donald Knuth},\n  title = {The TeXbook},\n  year = {1984}\n}',
+          reason: 'Dodaję wpis knuth84.',
+        },
+        status: 'undone',
+      },
+    ],
+  },
+  { id: 'b-2', role: 'undo', proposalId: 'b-1', undone: [BIB], refused: [] },
+  ...UNDONE_ABSTRACT_HISTORY,
+];
+
 const ESCAPED_ABSTRACT_REQUEST =
   'Set the abstract to this text exactly, escaped for LaTeX: Costs rose 50% & fell; see C:\\temp\\data_1 ~ok, x^2, #3 {a} — end.';
 
@@ -1275,6 +1303,37 @@ describe('Ollama agent contract', () => {
         text: textMatching(/\|[^\n]*\|/),
       });
       expect(run.result.message).not.toMatchObject({ text: textMatching(/<\/?[a-z][^>]*>/i) });
+    },
+    CASE_TIMEOUT_MS,
+  );
+
+  it(
+    'remembers after compaction which edits were undone or rejected',
+    async () => {
+      const run = await runApplication(
+        model,
+        {
+          ...UNTOUCHED_PROJECT,
+          name: 'outcomes after compaction',
+          request:
+            'Co zmieniłeś w sample.bib w tej rozmowie i czy ta zmiana nadal jest w pliku? Odpowiedz krótko.',
+        },
+        [...BIB_ADDITION_HISTORY, ...LONG_CONVERSATION],
+      );
+      const summaries = run.conversation.filter((message) => message.role === 'summary');
+      expect(summaries).toHaveLength(1);
+      expect(summaries[0]).toMatchObject({
+        text: textMatching(/knuth84/),
+        proposals: [
+          { id: 'b-1', edits: [{ status: 'undone' }] },
+          { id: 'a-1', edits: [{ status: 'undone' }] },
+          { id: 'a-4', edits: [{ status: 'rejected' }] },
+        ],
+      });
+      expect(run.result.message).toMatchObject({
+        kind: 'explanation',
+        text: textMatching(/cofn|wycof|nie ma|już nie|nie jest|usunięt/i),
+      });
     },
     CASE_TIMEOUT_MS,
   );

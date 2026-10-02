@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import type { CompactionSummaryMessage, ExchangeMessage } from '../../../src/domain/conversation';
+import type {
+  CompactionSummaryMessage,
+  ExchangeMessage,
+  ProposalMessage,
+} from '../../../src/domain/conversation';
 import {
   countCoveredMessages,
   createCompactionSummaryMessage,
@@ -24,7 +28,11 @@ const read = (id: string, path: string): ExchangeMessage => ({
   role: 'tool',
   record: { tool: 'read_file', path, shown: { first: 1, last: 1 }, totalLines: 1, lines: ['x'] },
 });
-const proposal = (id: string, path: string, status: 'applied' | 'rejected'): ExchangeMessage =>
+const proposal = (
+  id: string,
+  path: string,
+  status: 'applied' | 'rejected' | 'undone',
+): ProposalMessage =>
   proposalOf(
     id,
     editWith(
@@ -39,6 +47,7 @@ function summary(id: string, coveredUntilId: string, coveredTurns = 1): Compacti
     id,
     text: `summary ${id}`,
     files: { read: [], edited: [] },
+    proposals: [],
     coveredUntilId,
     coveredTurns,
     tokensBefore: 10,
@@ -72,8 +81,21 @@ describe('viewConversation', () => {
       [user('u1'), answer('a1'), first, user('u2'), answer('a2'), user('u3'), latest, answer('a3')],
       null,
     );
-    expect(view.summary).toBe(latest);
+    expect(view.summary).toEqual({ ...latest, proposals: [] });
     expect(view.messages.map(({ id }) => id)).toEqual(['u3', 'a3']);
+  });
+
+  it('shows the changes a summary covers with the outcome of the stored proposal', () => {
+    const applied = proposal('p1', 'refs.bib', 'applied');
+    const dropped = proposal('p0', 'main.tex', 'rejected');
+    const covering = createCompactionSummaryMessage({
+      ...summary('s1', 'p1'),
+      proposals: [dropped, applied],
+    });
+    const undone = proposal('p1', 'refs.bib', 'undone');
+    const view = viewConversation([user('u1'), undone, covering, user('u2')], null);
+    expect(view.summary?.proposals).toEqual([dropped, undone]);
+    expect(view.messages.map(({ id }) => id)).toEqual(['u2']);
   });
 
   it('shows the rest once the covered turns are no longer stored', () => {
@@ -88,7 +110,7 @@ describe('viewConversation', () => {
 });
 
 describe('createConversationSummary', () => {
-  it('rolls the previous summary into the new one with the files read and edited', () => {
+  it('rolls the previous summary into the new one with the files read and edited and the changes', () => {
     const previous = createConversationSummary(null, ' first ', [
       user('u1'),
       read('t1', 'refs.bib'),
@@ -97,6 +119,7 @@ describe('createConversationSummary', () => {
     expect(previous).toEqual({
       text: 'first',
       files: { read: ['refs.bib'], edited: ['main.tex'] },
+      proposals: [proposal('p1', 'main.tex', 'applied')],
       coveredUntilId: 'p1',
       coveredTurns: 1,
     });
@@ -110,6 +133,7 @@ describe('createConversationSummary', () => {
     expect(next).toEqual({
       text: 'second',
       files: { read: ['refs.bib', 'ch.tex'], edited: ['main.tex'] },
+      proposals: [proposal('p1', 'main.tex', 'applied'), proposal('p2', 'ch.tex', 'rejected')],
       coveredUntilId: 's',
       coveredTurns: 3,
     });
@@ -166,7 +190,7 @@ describe('summarizeView', () => {
     };
     const covered = createConversationSummary(null, 'done', [user('u1'), answer('a1')]);
     expect(summarizeView(view, covered)).toEqual({
-      summary: covered,
+      summary: { ...covered, proposals: [] },
       imported: null,
       messages: [user('u2')],
     });
@@ -185,6 +209,7 @@ describe('createCompactionSummaryMessage', () => {
     id: 's',
     text: 'note',
     files: { read: ['a.tex'], edited: [] },
+    proposals: [],
     coveredUntilId: 'u1',
     coveredTurns: 1,
     tokensBefore: 10,

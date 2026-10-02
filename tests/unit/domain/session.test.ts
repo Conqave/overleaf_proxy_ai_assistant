@@ -39,6 +39,7 @@ function summaryUntil(coveredUntilId: string): CompactionSummaryMessage {
     role: 'summary',
     text: 'Earlier turns.',
     files: { read: [], edited: [] },
+    proposals: [],
     coveredUntilId,
     coveredTurns: 1,
     tokensBefore: 2,
