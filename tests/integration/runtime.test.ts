@@ -927,7 +927,7 @@ describe('assistant agent', () => {
     expect(editorText().split('\n')[3]).toBe(BOLD_EXPERIMENT);
     await click('.ola-undo', () => {
       expect(texts('.ola-undo-notice')).toEqual([
-        'Undone: main.tex is back as before this change.',
+        'Undone in main.tex: the edits of this change were taken back; other edits stay.',
       ]);
     });
     expect(editorText().split('\n')[3]).toBe(EXPERIMENT_LINE);
@@ -940,7 +940,7 @@ describe('assistant agent', () => {
     );
     const reloaded = await start({ sessions });
     expect(reloaded.texts('.ola-undo-notice')).toEqual([
-      'Undone: main.tex is back as before this change.',
+      'Undone in main.tex: the edits of this change were taken back; other edits stay.',
     ]);
     expect(reloaded.texts('.ola-undo')).toEqual([]);
   });

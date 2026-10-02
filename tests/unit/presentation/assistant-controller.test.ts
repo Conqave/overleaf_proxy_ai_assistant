@@ -703,7 +703,7 @@ describe('AssistantController change sets', () => {
     expect(project.savedDocument('main.tex')).toEqual(['\\cite{knuth84}']);
     expect(texts('.ola-ai > .ola-result-status')).toEqual(['Undone']);
     expect(texts('.ola-undo-notice')).toEqual([
-      'Undone: main.tex, refs.bib are back as before this change.',
+      'Undone in main.tex, refs.bib: the edits of this change were taken back; other edits stay.',
     ]);
     expect(texts('.ola-undo')).toEqual([]);
   });
@@ -733,7 +733,7 @@ describe('AssistantController change sets', () => {
     await controller.undo(changeId);
     expect(editor.lines).toEqual([...BIB, '@book{knuth84, edited}']);
     expect(texts('.ola-undo-notice > div')).toEqual([
-      'Undone: main.tex is back as before this change.',
+      'Undone in main.tex: the edits of this change were taken back; other edits stay.',
       'Not undone in refs.bib: refs.bib changed after Hans edited it: line 3 no longer holds the text Hans wrote there, so this file was left as it is.',
     ]);
     expect(texts('.ola-ai > .ola-result-status')).toEqual(['1 applied · 1 undone']);

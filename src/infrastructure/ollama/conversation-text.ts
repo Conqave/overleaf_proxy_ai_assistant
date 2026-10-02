@@ -80,7 +80,7 @@ export function entryText(message: ExchangeMessage, outdated: ReadonlySet<ToolRe
 function undoText({ undone, refused }: UndoMessage): string {
   const restored = undone.length
     ? [
-        `The user undid the applied edits of an earlier change in ${undone.join(', ')}; those files are back as they were before it.`,
+        `The user undid the applied edits of an earlier change in ${undone.join(', ')}; edits made to those files by other changes or by hand stay.`,
       ]
     : [];
   const kept = refused.map(({ path, problem }) => `${path} was not undone: ${problem}`);

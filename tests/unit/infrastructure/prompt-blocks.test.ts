@@ -217,7 +217,7 @@ describe('change history', () => {
       refused: [{ path: 'refs.bib', problem: 'refs.bib changed after Hans edited it.' }],
     };
     expect(promptOf({ conversation: viewConversation([notice], null) })).toContain(
-      '[editor] The user undid the applied edits of an earlier change in main.tex; those files are back as they were before it.\nrefs.bib was not undone: refs.bib changed after Hans edited it.',
+      '[editor] The user undid the applied edits of an earlier change in main.tex; edits made to those files by other changes or by hand stay.\nrefs.bib was not undone: refs.bib changed after Hans edited it.',
     );
   });
 

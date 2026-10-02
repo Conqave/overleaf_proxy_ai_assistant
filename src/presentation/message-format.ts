@@ -230,7 +230,7 @@ function singleEditNotice({ path, command }: EditRequest): string {
 
 export function undoNotice({ undone }: UndoMessage): string {
   if (undone.length === 0) return 'Nothing was undone.';
-  return `Undone: ${undone.join(', ')} ${undone.length === 1 ? 'is' : 'are'} back as before this change.`;
+  return `Undone in ${undone.join(', ')}: the edits of this change were taken back; other edits stay.`;
 }
 
 export function undoRefusalNotice({ path, problem }: UndoRefusal): string {
