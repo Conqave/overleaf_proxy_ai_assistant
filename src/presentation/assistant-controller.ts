@@ -27,7 +27,8 @@ import type { UndoChangeSet } from '../application/undo-change-set';
 import type { WebSearchApproval, WebSearchDecision } from '../application/web-search-approval';
 import type { Notice } from '../domain/conversation';
 import { InvariantViolation, OperationalError } from '../domain/errors';
-import type { AssistantView, ViewEvents } from './assistant-view';
+import type { AssistantView } from './assistant-view';
+import type { ViewEvents } from './view-events';
 import { contextUsageText, INTERNAL_ERROR, noticeText, progressStatus } from './message-format';
 
 interface UseCases {
