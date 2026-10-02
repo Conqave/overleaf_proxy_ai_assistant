@@ -3,7 +3,7 @@ import type { EditorPort } from '../ports/editor-port';
 import type { SessionRepository } from '../ports/session-repository';
 import type { ConversationLog } from './conversation-log';
 import { RequestSupersededError } from './errors';
-import type { OperationLock } from './operation-lock';
+import { ensureNotCancelled, type OperationLock } from './operation-lock';
 import type { PendingChanges } from './pending-change';
 
 export interface SessionList {
@@ -30,12 +30,11 @@ export class RestoreLatestSession {
 
   execute(): Promise<void> {
     const { sessions, conversation, lock } = this.deps;
-    return lock.run(async () => {
-      const epoch = conversation.epoch;
+    return lock.run(async (signal) => {
       const [latest] = sortNewestFirst((await sessions.list()).sessions);
       if (latest === undefined) return;
       const session = await sessions.load(latest.id);
-      conversation.ensureCurrent(epoch);
+      ensureNotCancelled(signal);
       conversation.show(session);
     });
   }
@@ -57,9 +56,11 @@ export class ListSessions {
 export class StartNewConversation {
   constructor(private readonly deps: SessionDeps) {}
 
-  execute(): void {
-    this.deps.lock.cancel(new RequestSupersededError());
-    leaveCurrentSession(this.deps);
+  execute(): Promise<void> {
+    return this.deps.lock.supersede(new RequestSupersededError(), () => {
+      leaveCurrentSession(this.deps);
+      return Promise.resolve();
+    });
   }
 }
 
@@ -68,10 +69,9 @@ export class OpenSession {
 
   execute(id: string): Promise<void> {
     const { sessions, conversation, lock } = this.deps;
-    return lock.run(async () => {
-      const epoch = conversation.epoch;
+    return lock.run(async (signal) => {
       const session = await sessions.load(id);
-      conversation.ensureCurrent(epoch);
+      ensureNotCancelled(signal);
       leaveCurrentSession(this.deps);
       conversation.show(session);
     });

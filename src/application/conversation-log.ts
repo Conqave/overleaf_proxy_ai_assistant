@@ -16,7 +16,6 @@ import {
 } from '../domain/session';
 import { PersistenceError } from '../ports/errors';
 import type { SessionRepository } from '../ports/session-repository';
-import { RequestSupersededError } from './errors';
 
 export class ConversationLog {
   private current: ConversationSession | null = null;
@@ -38,10 +37,6 @@ export class ConversationLog {
 
   get sessionId(): string | null {
     return this.current === null ? null : this.current.id;
-  }
-
-  ensureCurrent(epoch: number): void {
-    if (this.currentEpoch !== epoch) throw new RequestSupersededError();
   }
 
   holdsUntrustedContent(): boolean {

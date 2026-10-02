@@ -31,13 +31,13 @@ import {
 } from './agent-decision';
 import type { AgentProgress } from './agent-progress';
 import type { ConversationCompactor } from './conversation-compactor';
+import { ensureNotCancelled } from './operation-lock';
 import { AgentMistakeLimitError } from './errors';
 import type { ProjectTools } from './project-tools';
 import type { WebSearchTool } from './web-search-tool';
 
 export interface AgentRunHost {
   viewHistory(): ConversationView;
-  ensureCurrent(): void;
   recordLookup(turn: ToolTurn): void;
 }
 
@@ -91,7 +91,7 @@ export class AgentLoop {
       }
       onProgress({ stage: 'thinking', step });
       const { decision, contextUsage } = await this.decide(stepRequest, step, run);
-      host.ensureCurrent();
+      ensureNotCancelled(signal);
       onProgress({ stage: 'measured', contextUsage });
       let accepted: AcceptedDecision;
       try {
@@ -122,7 +122,7 @@ export class AgentLoop {
             continue;
           }
       }
-      host.ensureCurrent();
+      ensureNotCancelled(signal);
       const turn: ToolTurn = { kind: 'tool', call: accepted.call, result };
       transcript.push(turn);
       host.recordLookup(turn);
@@ -152,7 +152,7 @@ export class AgentLoop {
 
   private async delegate(
     { call, files }: AcceptedDelegation,
-    { workspace, host, signal, onProgress }: AgentRun,
+    { workspace, signal, onProgress }: AgentRun,
   ): Promise<ToolResult> {
     const fileCount = (files.length ? files : listTextFiles(workspace.files)).length;
     onProgress({ stage: 'delegating', task: call.task, fileCount });
@@ -162,9 +162,6 @@ export class AgentLoop {
       workspace,
       host: {
         viewHistory: () => NO_HISTORY,
-        ensureCurrent: () => {
-          host.ensureCurrent();
-        },
         recordLookup: () => {
           lookups += 1;
         },

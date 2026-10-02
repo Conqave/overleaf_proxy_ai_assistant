@@ -27,7 +27,7 @@ import type { AgentProgress } from './agent-progress';
 import type { ConversationCompactor } from './conversation-compactor';
 import type { ConversationLog } from './conversation-log';
 import { EmptyRequestError } from './errors';
-import type { OperationLock } from './operation-lock';
+import { ensureNotCancelled, type OperationLock } from './operation-lock';
 import type { PendingChanges } from './pending-change';
 import { ProjectTools } from './project-tools';
 import { showProjectFile } from './show-project-file';
@@ -36,7 +36,6 @@ import type { WebSearchTool } from './web-search-tool';
 export type { ContextPressure, ContextUsage } from '../ports/agent-port';
 
 interface RequestRun {
-  readonly epoch: number;
   readonly signal: CancellationSignal;
   readonly onProgress: (progress: AgentProgress) => void;
 }
@@ -91,8 +90,8 @@ export class HandleAssistantRequest {
     if (!request) throw new EmptyRequestError();
     return await this.deps.lock.run(async (signal) => {
       const message: UserMessage = { id: this.deps.newId(), role: 'user', text: request };
-      const epoch = this.receive(message, onProgress);
-      return await this.runAgent({ kind: 'user', message }, { epoch, signal, onProgress });
+      this.receive(message, onProgress);
+      return await this.runAgent({ kind: 'user', message }, { signal, onProgress });
     });
   }
 
@@ -107,41 +106,36 @@ export class HandleAssistantRequest {
       role: 'system',
       text: COMPILE_FIX_REQUEST,
     };
-    const epoch = this.receive(message, onProgress);
+    this.receive(message, onProgress);
     return await this.runAgent(
       { kind: 'compile-fix', message, diagnostics },
-      { epoch, signal, onProgress },
+      { signal, onProgress },
     );
   }
 
   private receive(
     message: UserMessage | SystemRequestMessage,
     onProgress: (progress: AgentProgress) => void,
-  ): number {
+  ): void {
     const { editor, conversation, pendingChanges } = this.deps;
     const discarded = pendingChanges.discardAll();
     if (discarded.length) editor.clearPreview();
     for (const proposal of discarded) onProgress({ stage: 'decided', message: proposal });
-    const epoch = conversation.epoch;
     conversation.append(message);
     onProgress({ stage: 'received', message });
-    return epoch;
   }
 
   private async runAgent(request: ConversationRequest, run: RequestRun): Promise<AgentResult> {
     const { conversation } = this.deps;
-    const { epoch, signal, onProgress } = run;
+    const { signal, onProgress } = run;
     const workspace = await this.readWorkspace(signal);
-    conversation.ensureCurrent(epoch);
+    ensureNotCancelled(signal);
     const turnIds = new Set([request.message.id]);
     const { reply, contextUsage } = await this.loop.run({
       request,
       workspace,
       host: {
         viewHistory: () => this.viewHistory(turnIds),
-        ensureCurrent: () => {
-          conversation.ensureCurrent(epoch);
-        },
         recordLookup: (turn) => {
           const record: ToolMessage = {
             id: this.deps.newId(),
@@ -180,7 +174,7 @@ export class HandleAssistantRequest {
   private async answer(
     reply: AcceptedReply,
     contextUsage: ContextUsage,
-    { epoch, signal, onProgress }: RequestRun,
+    { signal, onProgress }: RequestRun,
   ): Promise<AgentResult> {
     switch (reply.kind) {
       case 'answer':
@@ -191,7 +185,7 @@ export class HandleAssistantRequest {
         const [first] = reply.changes;
         if (first === undefined) throw new InvariantViolation('an accepted edit has no changes');
         await showProjectFile(this.deps.project, first.file, onProgress, signal);
-        this.deps.conversation.ensureCurrent(epoch);
+        ensureNotCancelled(signal);
         return { kind: 'proposal', message: this.propose(first.file, reply.changes), contextUsage };
       }
     }

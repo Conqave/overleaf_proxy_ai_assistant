@@ -2,8 +2,17 @@ import { InvariantViolation } from '../domain/errors';
 import type { CancellationController, CancellationSignal } from '../ports/cancellation';
 import { RequestInProgressError } from './errors';
 
+export function ensureNotCancelled(signal: CancellationSignal): void {
+  if (signal.aborted) throw signal.reason;
+}
+
+interface RunningOperation {
+  readonly controller: CancellationController;
+  readonly finished: Promise<void>;
+}
+
 export class OperationLock {
-  private current: CancellationController | null = null;
+  private current: RunningOperation | null = null;
   private readonly listeners: ((busy: boolean) => void)[] = [];
 
   constructor(private readonly createController: () => CancellationController) {}
@@ -15,16 +24,29 @@ export class OperationLock {
   async run<T>(operation: (signal: CancellationSignal) => Promise<T>): Promise<T> {
     if (this.current !== null) throw new RequestInProgressError();
     const controller = this.createController();
-    this.setCurrent(controller);
+    let finish = (): void => undefined;
+    const finished = new Promise<void>((resolve) => {
+      finish = resolve;
+    });
+    this.setCurrent({ controller, finished });
     try {
       return await operation(controller.signal);
     } finally {
       this.setCurrent(null);
+      finish();
     }
   }
 
-  cancel(reason: Error): void {
-    this.current?.abort(reason);
+  async supersede<T>(
+    reason: Error,
+    operation: (signal: CancellationSignal) => Promise<T>,
+  ): Promise<T> {
+    while (this.current !== null) {
+      const { controller, finished } = this.current;
+      controller.abort(reason);
+      await finished;
+    }
+    return await this.run(operation);
   }
 
   assertHeld(): void {
@@ -33,8 +55,8 @@ export class OperationLock {
     }
   }
 
-  private setCurrent(controller: CancellationController | null): void {
-    this.current = controller;
-    for (const listener of this.listeners) listener(controller !== null);
+  private setCurrent(operation: RunningOperation | null): void {
+    this.current = operation;
+    for (const listener of this.listeners) listener(operation !== null);
   }
 }

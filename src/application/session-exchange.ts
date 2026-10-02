@@ -10,6 +10,7 @@ import {
 import type { ProjectPort } from '../ports/project-port';
 import type { SessionArchive } from '../ports/session-archive';
 import { leaveCurrentSession, type SessionDeps } from './conversation-session';
+import { ensureNotCancelled } from './operation-lock';
 
 export interface SessionExchangeDeps extends SessionDeps {
   readonly archive: SessionArchive;
@@ -53,11 +54,10 @@ export class ImportSession {
   execute(path: string): Promise<void> {
     const { sessions, archive, project, scope, conversation, lock, newId, now } = this.deps;
     return lock.run(async (signal) => {
-      const epoch = conversation.epoch;
       const exported = await archive.load(findExport(project.listFiles(), path), signal);
       const session = importSessionExport(exported, { path, scope, id: newId(), now: now() });
       await sessions.save(session);
-      conversation.ensureCurrent(epoch);
+      ensureNotCancelled(signal);
       leaveCurrentSession(this.deps);
       conversation.show(session);
     });

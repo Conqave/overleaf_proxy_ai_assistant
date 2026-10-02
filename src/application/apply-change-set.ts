@@ -9,13 +9,12 @@ import type { AgentProgress, ApplyReport, FileConflict } from './agent-progress'
 import { concludeDecision, type ChangeSetDeps, type ChangeSetOutcome } from './change-set-outcome';
 import type { ConversationLog } from './conversation-log';
 import { FailureRecordingError } from './errors';
-import type { OperationLock } from './operation-lock';
+import { ensureNotCancelled, type OperationLock } from './operation-lock';
 import type { PendingEdit } from './pending-change';
 import { showProjectFile } from './show-project-file';
 
 interface ApplyRun {
   readonly proposalId: string;
-  readonly epoch: number;
   readonly onProgress: (progress: AgentProgress) => void;
   readonly signal: CancellationSignal;
 }
@@ -47,7 +46,7 @@ export class ApplyChangeSet {
     onProgress: (progress: AgentProgress) => void,
   ): Promise<ChangeSetOutcome> {
     return this.deps.lock.run(async (signal) => {
-      const run = { proposalId, epoch: this.deps.conversation.epoch, onProgress, signal };
+      const run = { proposalId, onProgress, signal };
       const selected = this.deps.pendingChanges.select(proposalId, indexes);
       const applied: EditRequest[] = [];
       const conflicts: FileConflict[] = [];
@@ -70,10 +69,10 @@ export class ApplyChangeSet {
     edits: readonly PendingEdit[],
     run: ApplyRun,
   ): Promise<FileOutcome> {
-    const { project, editor, conversation, pendingChanges } = this.deps;
+    const { project, editor, pendingChanges } = this.deps;
     const planned = planEditChange(edits.map(({ change }) => change.edit));
     await showProjectFile(project, file, run.onProgress, run.signal);
-    conversation.ensureCurrent(run.epoch);
+    ensureNotCancelled(run.signal);
     editor.clearPreview();
     const current = editor.readDocument(file);
     try {

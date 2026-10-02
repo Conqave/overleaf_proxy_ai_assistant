@@ -183,8 +183,8 @@ export class AssistantController implements ViewEvents {
 
   newConversation(): Promise<void> {
     const view = this.requireView();
-    return this.guard(() => {
-      this.useCases.startNewConversation.execute();
+    return this.guard(async () => {
+      await this.useCases.startNewConversation.execute();
       view.closeSessionList();
       this.showConversation(view);
       view.clearInput();

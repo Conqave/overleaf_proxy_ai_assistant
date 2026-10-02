@@ -121,8 +121,10 @@ const seed = (session: ConversationSession) => {
 };
 const sessionDeps = () => ({ sessions: repository, conversation, pendingChanges, editor, lock });
 const restore = () => new RestoreLatestSession(sessionDeps()).execute();
-const startNew = () => {
-  new StartNewConversation(sessionDeps()).execute();
+const startNew = () => new StartNewConversation(sessionDeps()).execute();
+let resets: Promise<void>[];
+const resetLater = () => {
+  resets.push(startNew());
 };
 const listSessions = () => new ListSessions(sessionDeps()).execute();
 const openSession = (id: string) => new OpenSession(sessionDeps()).execute(id);
@@ -213,13 +215,14 @@ beforeEach(() => {
   newId = sequentialIds();
   summarizer = new FakeSummarizer();
   handle = createHandle();
-  review = new ReviewAppliedChange({ project, conversation, handleRequest: handle });
+  review = new ReviewAppliedChange({ project, handleRequest: handle });
   const changeSetDeps = { project, editor, pendingChanges, review };
   apply = new ApplyChangeSet({ ...changeSetDeps, conversation, lock });
   reject = new RejectChangeSet({ ...changeSetDeps, lock });
-  preview = new PreviewChangeSetFile({ project, editor, pendingChanges, conversation, lock });
+  preview = new PreviewChangeSetFile({ project, editor, pendingChanges, lock });
   undo = new UndoChangeSet({ project, editor, conversation, lock, newId });
   progress = [];
+  resets = [];
 });
 
 describe('HandleAssistantRequest', () => {
@@ -489,8 +492,9 @@ describe('HandleAssistantRequest', () => {
     });
     await new Promise((resolve) => setTimeout(resolve, 10));
     expect(project.reads).toHaveLength(PARALLEL_SEARCH_READS);
-    startNew();
+    const reset = startNew();
     await expect(sending).rejects.toThrow(RequestSupersededError);
+    await reset;
   });
 
   it('compiles the project and hands the diagnostics to the agent', async () => {
@@ -709,8 +713,9 @@ describe('conversation reset during a request', () => {
     await vi.waitFor(() => {
       expect(agent.requests).toHaveLength(1);
     });
-    startNew();
+    const reset = startNew();
     await expect(running).rejects.toThrow(RequestSupersededError);
+    await reset;
     expect(isBusy()).toBe(false);
     agent.will(answer('Fresh.'));
     await expect(send('summarize again')).resolves.toMatchObject({ message: { text: 'Fresh.' } });
@@ -728,9 +733,10 @@ describe('conversation reset during a request', () => {
       }),
     );
     const running = send('add');
-    startNew();
+    const reset = startNew();
     release();
     await expect(running).rejects.toThrow(RequestSupersededError);
+    await reset;
     expect(conversation.messages()).toHaveLength(0);
     expect(editor.preview).toBeNull();
   });
@@ -739,11 +745,12 @@ describe('conversation reset during a request', () => {
     agent.will(tool({ tool: 'compile' }));
     project.willCompile(
       new PendingStep(() => {
-        startNew();
+        resetLater();
         return Promise.resolve([]);
       }),
     );
     await expect(send('does it compile?')).rejects.toThrow(RequestSupersededError);
+    await Promise.all(resets);
     expect(agent.requests).toHaveLength(1);
   });
 });
@@ -842,7 +849,7 @@ describe('web search', () => {
     webSearch.will([]);
     await send('and a third one');
     expect(approvals()).toHaveLength(1);
-    startNew();
+    await startNew();
     agent.will(searchWeb('fourth query'), answer('Four.'));
     webSearch.will([webResult(4)]);
     const fresh = send('in a new session');
@@ -944,8 +951,9 @@ describe('web search', () => {
     await vi.waitFor(() => {
       expect(webSearch.signals).toHaveLength(1);
     });
-    startNew();
+    const reset = startNew();
     await expect(running).rejects.toThrow(RequestSupersededError);
+    await reset;
     expect(webSearch.signals[0]?.aborted).toBe(true);
   });
 
@@ -953,8 +961,9 @@ describe('web search', () => {
     agent.will(searchWeb());
     const running = send('find the DOI');
     const pending = await nextApproval(1);
-    startNew();
+    const reset = startNew();
     await expect(running).rejects.toThrow(RequestSupersededError);
+    await reset;
     expect(isBusy()).toBe(false);
     expect(() => {
       approval.decide(pending.id, WebSearchDecision.Approve);
@@ -1285,8 +1294,9 @@ describe('delegation to a subagent', () => {
     await vi.waitFor(() => {
       expect(agent.requests).toHaveLength(2);
     });
-    startNew();
+    const reset = startNew();
     await expect(running).rejects.toThrow(RequestSupersededError);
+    await reset;
     expect(isBusy()).toBe(false);
     expect(itemAt(agent.requests, 1, 'subtask').signal.aborted).toBe(true);
   });
@@ -1386,11 +1396,12 @@ describe('automatic compaction', () => {
     agent.plan = coverAllButLastTurn;
     summarizer.will(
       new PendingStep(() => {
-        startNew();
+        resetLater();
         return Promise.resolve('## Goal\nLate.');
       }),
     );
     await expect(send('third')).rejects.toThrow(RequestSupersededError);
+    await Promise.all(resets);
     expect(conversation.messages()).toEqual([]);
   });
 
@@ -1518,8 +1529,9 @@ describe('compaction on demand', () => {
     agent.will(new PendingStep(rejectOnAbort));
     const running = send('third');
     await expect(compactNow().execute(record)).rejects.toThrow(RequestInProgressError);
-    startNew();
+    const reset = startNew();
     await expect(running).rejects.toThrow(RequestSupersededError);
+    await reset;
   });
 });
 
@@ -1567,8 +1579,9 @@ describe('preview / apply / reject', () => {
     await vi.waitFor(() => {
       expect(project.compileCalls).toBe(1);
     });
-    startNew();
+    const reset = startNew();
     await expect(applying).rejects.toThrow(RequestSupersededError);
+    await reset;
     expect(editor.lines).toEqual([...MAIN, 'Added.']);
     expect(isBusy()).toBe(false);
   });
@@ -1580,8 +1593,9 @@ describe('preview / apply / reject', () => {
     await vi.waitFor(() => {
       expect(project.reads).toEqual(['refs.bib']);
     });
-    startNew();
+    const reset = startNew();
     await expect(running).rejects.toThrow(RequestSupersededError);
+    await reset;
   });
 
   it('refuses a request while an applied change is being reviewed', async () => {
@@ -1666,9 +1680,10 @@ describe('preview / apply / reject', () => {
     const changeId = await proposeEdit(readBib(), bibEdit());
     project.switchTo('main.tex');
     project.onOpen = () => {
-      startNew();
+      resetLater();
     };
     await expect(apply.execute(changeId, null, record)).rejects.toThrow(RequestSupersededError);
+    await Promise.all(resets);
     expect(editor.applied).toHaveLength(0);
     expect(pendingChanges.isPending(changeId)).toBe(false);
   });
@@ -1990,6 +2005,46 @@ describe('change sets', () => {
     expect(isBusy()).toBe(false);
   });
 
+  it('records a cancelled undo in the session it left before a new conversation starts', async () => {
+    project.willCompile([]);
+    const changeId = await proposeBatch();
+    await apply.execute(changeId, null, record);
+    const sessionId = conversation.sessionId;
+    if (sessionId === null) throw new TestFixtureError('the change was proposed outside a session');
+    project.onOpen = (path) => {
+      if (path === 'refs.bib') resetLater();
+    };
+    await expect(undo.execute(changeId, record)).rejects.toThrow(RequestSupersededError);
+    await Promise.all(resets);
+    expect(repository.stored.get(sessionId)?.messages.at(-1)).toMatchObject({
+      role: 'undo',
+      undone: ['main.tex'],
+      refused: [],
+    });
+    expect(conversation.sessionId).toBeNull();
+    expect(isBusy()).toBe(false);
+  });
+
+  it('keeps the failure of an undo when recording what it did fails as well', async () => {
+    project.willCompile([]);
+    const changeId = await proposeBatch();
+    await apply.execute(changeId, null, record);
+    const openFailure = new FileOpenTimeoutError('slow');
+    project.onOpen = (path) => {
+      if (path === 'main.tex') project.failure.openFile = openFailure;
+    };
+    const recordingFailure = new SessionStorageError('full');
+    vi.spyOn(conversation, 'append').mockImplementation(() => {
+      throw recordingFailure;
+    });
+    await expect(undo.execute(changeId, record)).rejects.toMatchObject({
+      name: 'FailureRecordingError',
+      failure: openFailure,
+      cause: recordingFailure,
+    });
+    expect(isBusy()).toBe(false);
+  });
+
   it('sends overlapping edits back to the agent', async () => {
     const twice = request('main.tex', MAIN, 'replace', 4, 'Other numbers.');
     agent.will(editsOf(changeNumbers, twice), answer('Fixed.'));
@@ -2069,11 +2124,12 @@ describe('ReviewAppliedChange', () => {
   it('drops the review when the conversation was reset during compilation', async () => {
     project.willCompile(
       new PendingStep(() => {
-        startNew();
+        resetLater();
         return Promise.resolve([{ level: 'error' as const, message: 'x' }]);
       }),
     );
     await expect(reviewApplied()).rejects.toThrow(RequestSupersededError);
+    await Promise.all(resets);
     expect(agent.requests).toHaveLength(0);
   });
 });
@@ -2086,7 +2142,7 @@ describe('conversation', () => {
     expect(conversation.messages()).toEqual([{ id: 'b', role: 'user', text: 'latest' }]);
     expect(conversation.sessionId).toBe('latest');
     const changeId = await proposeEdit();
-    startNew();
+    await startNew();
     expect(conversation.messages()).toHaveLength(0);
     expect(conversation.sessionId).toBeNull();
     expect(repository.stored.get('latest')?.messages.at(-1)).toMatchObject({
@@ -2300,8 +2356,9 @@ describe('sessions', () => {
     await expect(deleteSession('older')).rejects.toThrow(RequestInProgressError);
     expect(conversation.sessionId).toBe(current);
     expect(repository.stored.has('older')).toBe(true);
-    startNew();
+    const reset = startNew();
     await expect(running).rejects.toThrow(RequestSupersededError);
+    await reset;
   });
 
   it('holds the operation lock while it opens a session', async () => {
@@ -2319,9 +2376,10 @@ describe('sessions', () => {
     const loaded = Promise.withResolvers<undefined>();
     repository.loadsHeldUntil = loaded.promise;
     const opening = openSession('older');
-    startNew();
+    const reset = startNew();
     loaded.resolve(undefined);
     await expect(opening).rejects.toThrow(RequestSupersededError);
+    await reset;
     expect(conversation.sessionId).toBeNull();
     expect(conversation.messages()).toEqual([]);
   });

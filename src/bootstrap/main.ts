@@ -118,7 +118,7 @@ function compose(
         ? null
         : createWebSearch(window, config.webSearch, webSearchApproval),
   });
-  const review = new ReviewAppliedChange({ project, conversation, handleRequest });
+  const review = new ReviewAppliedChange({ project, handleRequest });
   const sessionDeps = { sessions, conversation, pendingChanges, editor, lock };
   const changeSetDeps = { project, editor, pendingChanges, review };
   const exchangeDeps = {
@@ -135,13 +135,7 @@ function compose(
     applyChange: new ApplyChangeSet({ ...changeSetDeps, conversation, lock }),
     lock,
     rejectChange: new RejectChangeSet({ ...changeSetDeps, lock }),
-    previewChange: new PreviewChangeSetFile({
-      project,
-      editor,
-      pendingChanges,
-      conversation,
-      lock,
-    }),
+    previewChange: new PreviewChangeSetFile({ project, editor, pendingChanges, lock }),
     undoChange: new UndoChangeSet({ project, editor, conversation, lock, newId }),
     compactConversation: new CompactConversation({ compactor, conversation, lock }),
     restoreSession: new RestoreLatestSession(sessionDeps),

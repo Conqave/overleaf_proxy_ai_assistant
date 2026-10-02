@@ -14,8 +14,8 @@ import type { EditorPort } from '../ports/editor-port';
 import type { ProjectPort } from '../ports/project-port';
 import type { AgentProgress } from './agent-progress';
 import type { ConversationLog } from './conversation-log';
-import { NothingToUndoError, UndecidedEditsError } from './errors';
-import type { OperationLock } from './operation-lock';
+import { FailureRecordingError, NothingToUndoError, UndecidedEditsError } from './errors';
+import { ensureNotCancelled, type OperationLock } from './operation-lock';
 import { showProjectFile } from './show-project-file';
 
 export interface UndoOutcome {
@@ -25,7 +25,6 @@ export interface UndoOutcome {
 
 interface UndoRun {
   readonly proposalId: string;
-  readonly epoch: number;
   readonly onProgress: (progress: AgentProgress) => void;
   readonly signal: CancellationSignal;
 }
@@ -51,7 +50,7 @@ export class UndoChangeSet {
       let message = conversation.findProposal(proposalId);
       if (hasPendingEdits(message.edits)) throw new UndecidedEditsError();
       if (!canUndoEdits(message.edits)) throw new NothingToUndoError();
-      const run = { proposalId, epoch: conversation.epoch, onProgress, signal };
+      const run = { proposalId, onProgress, signal };
       const files = project.listFiles();
       const undone: string[] = [];
       const refused: UndoRefusal[] = [];
@@ -67,7 +66,9 @@ export class UndoChangeSet {
           undone.push(path);
         }
       } catch (error) {
-        if (undone.length || refused.length) this.record(proposalId, undone, refused);
+        if (undone.length || refused.length) {
+          this.recordAfterFailure(error, { proposalId, undone, refused });
+        }
         throw error;
       }
       return { message, notice: this.record(proposalId, undone, refused) };
@@ -90,7 +91,7 @@ export class UndoChangeSet {
       return { kind: 'refused', refusal: { path, problem: error.message } };
     }
     await showProjectFile(project, file, run.onProgress, run.signal);
-    conversation.ensureCurrent(run.epoch);
+    ensureNotCancelled(run.signal);
     const order = getUndoOrder(conversation.findProposal(run.proposalId).edits, path);
     let change: FileChange;
     try {
@@ -109,6 +110,17 @@ export class UndoChangeSet {
       recordUndoneEdits(edits, indexes),
     );
     return { kind: 'undone', message };
+  }
+
+  private recordAfterFailure(
+    failure: unknown,
+    { proposalId, undone, refused }: Pick<UndoMessage, 'proposalId' | 'undone' | 'refused'>,
+  ): void {
+    try {
+      this.record(proposalId, undone, refused);
+    } catch (recordingError) {
+      throw new FailureRecordingError(failure, recordingError);
+    }
   }
 
   private record(

@@ -10,6 +10,7 @@ import type { CancellationSignal } from '../ports/cancellation';
 import type { ConversationSummarizer } from '../ports/conversation-summarizer';
 import type { AgentProgress } from './agent-progress';
 import type { ConversationLog } from './conversation-log';
+import { ensureNotCancelled } from './operation-lock';
 
 export class ConversationCompactor {
   constructor(
@@ -34,7 +35,6 @@ export class ConversationCompactor {
     const { agent, summarizer, conversation } = this.deps;
     const plan = agent.planCompaction(trigger);
     if (plan === null) return null;
-    const epoch = conversation.epoch;
     const view = getView(trigger);
     onProgress({ stage: 'compacting' });
     const text = await summarizer.summarize({
@@ -42,7 +42,7 @@ export class ConversationCompactor {
       covered: plan.covered,
       signal,
     });
-    conversation.ensureCurrent(epoch);
+    ensureNotCancelled(signal);
     const summary = createConversationSummary(view.summary, text, plan.covered);
     const message = createCompactionSummaryMessage({
       ...summary,
