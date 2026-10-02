@@ -257,6 +257,19 @@ describe('OverleafProjectAdapter.compile', () => {
     await expect(adapter.compile(cancel.signal)).rejects.toThrow(OverleafToolbarContractError);
   });
 
+  it('fails the compile at once with a defect raised while it watches the log', async () => {
+    const defect = new TestFixtureError('broken log watcher');
+    const read = ide.store.get.bind(ide.store);
+    let logReads = 0;
+    const spy = vi.spyOn(ide.store, 'get').mockImplementation((key: string) => {
+      if (key === StoreKey.LogEntries && (logReads += 1) > 1) throw defect;
+      return read(key);
+    });
+    await expect(adapter.compile(cancel.signal)).rejects.toBe(defect);
+    spy.mockRestore();
+    expect(ide.store.watcherCount).toBe(0);
+  });
+
   it('stops waiting for the compile when the request is cancelled', async () => {
     ide.compiles = false;
     const compiling = adapter.compile(cancel.signal);
