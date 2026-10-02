@@ -1,5 +1,4 @@
 import { MAIN_AGENT_POLICY, WEB_POLICIES } from '../../support/policies';
-import { EMPTY_CONVERSATION } from '../../support/fakes';
 import { describe, expect, it } from 'vitest';
 import { AgentTool } from '../../../src/domain/agent-action';
 import type { AgentTurn } from '../../../src/domain/agent-transcript';
@@ -25,7 +24,8 @@ import {
   createCorrectionRequest,
   getCorrectionReserveChars,
 } from '../../../src/infrastructure/ollama/correction-exchange';
-import type { AgentStepRequest } from '../../../src/ports/agent-port';
+import type { AgentStepRequest, AgentWorkspace } from '../../../src/ports/agent-port';
+import { userStepRequest } from '../../support/agent-step-requests';
 import { AssistantRequestTooLargeError } from '../../../src/ports/errors';
 import { itemAt } from '../../support/guards';
 
@@ -67,28 +67,23 @@ const turns: readonly AgentTurn[] = [
   },
 ];
 
-const request = (overrides: Partial<AgentStepRequest> = {}): AgentStepRequest => ({
-  request: { kind: 'user', message: { id: 'r', role: 'user', text: 'Add a citation' } },
-  policy: MAIN_AGENT_POLICY,
-  conversation: EMPTY_CONVERSATION,
-  signal: new AbortController().signal,
-  workspace: {
-    files: [
-      { id: '1', path: 'main.tex', kind: ProjectFileKind.Text },
-      { id: '2', path: 'refs.bib', kind: ProjectFileKind.Text },
-      { id: '3', path: 'frog.jpg', kind: ProjectFileKind.Binary },
-    ],
-    openFile: {
-      kind: 'text',
-      path: 'main.tex',
-      document: main,
-      cursorLine: 2,
-      selection: '',
-    },
+const workspace: AgentWorkspace = {
+  files: [
+    { id: '1', path: 'main.tex', kind: ProjectFileKind.Text },
+    { id: '2', path: 'refs.bib', kind: ProjectFileKind.Text },
+    { id: '3', path: 'frog.jpg', kind: ProjectFileKind.Binary },
+  ],
+  openFile: {
+    kind: 'text',
+    path: 'main.tex',
+    document: main,
+    cursorLine: 2,
+    selection: '',
   },
-  transcript: [],
-  ...overrides,
-});
+};
+
+const request = (overrides: Partial<AgentStepRequest> = {}): AgentStepRequest =>
+  userStepRequest('Add a citation', workspace, overrides);
 
 const size = (exchange: ReturnType<typeof createAgentExchange>): number =>
   exchange.request.system.length + exchange.request.prompt.length;
@@ -140,7 +135,7 @@ describe('agent exchange', () => {
 
   it('tells the model that no text file is open while a binary file is shown', () => {
     const binaryShown = request({
-      workspace: { ...request().workspace, openFile: { kind: 'binary', path: 'frog.jpg' } },
+      workspace: { ...workspace, openFile: { kind: 'binary', path: 'frog.jpg' } },
     });
     const { prompt } = createAgentExchange(binaryShown, budget).request;
     expect(prompt).toContain(
@@ -153,7 +148,7 @@ describe('agent exchange', () => {
   it('shows the selection', () => {
     const selected = request({
       workspace: {
-        ...request().workspace,
+        ...workspace,
         openFile: {
           kind: 'text',
           path: 'main.tex',
@@ -389,7 +384,7 @@ describe('subagent exchange', () => {
   it('shows the subagent the task and the files but neither the open file nor the selection', () => {
     const selected = subtask({
       workspace: {
-        ...request().workspace,
+        ...workspace,
         openFile: {
           kind: 'text',
           path: 'main.tex',
@@ -564,7 +559,7 @@ describe('agent prompt budget', () => {
   it('gives the open file the whole room when there are no tool results', () => {
     const withLong = request({
       workspace: {
-        ...request().workspace,
+        ...workspace,
         openFile: { kind: 'text', path: 'main.tex', document: long, cursorLine: 2, selection: '' },
       },
     });
@@ -578,7 +573,7 @@ describe('agent prompt budget', () => {
     const exchange = createAgentExchange(
       request({
         workspace: {
-          ...request().workspace,
+          ...workspace,
           openFile: {
             kind: 'text',
             path: 'main.tex',

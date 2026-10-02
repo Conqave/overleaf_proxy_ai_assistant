@@ -1,11 +1,11 @@
-import { EMPTY_CONVERSATION } from '../../support/fakes';
 import { describe, expect, it } from 'vitest';
 import { MAIN_AGENT_POLICY } from '../../support/policies';
 import { createDocumentSnapshot } from '../../../src/domain/document';
 import { createDocumentCommand } from '../../../src/domain/document-command';
 import { ProjectFileKind } from '../../../src/domain/project-file';
 import { createAgentExchange } from '../../../src/infrastructure/ollama/agent-protocol';
-import type { AgentStepRequest } from '../../../src/ports/agent-port';
+import type { AgentStepRequest, AgentWorkspace } from '../../../src/ports/agent-port';
+import { userStepRequest } from '../../support/agent-step-requests';
 import { viewConversation } from '../../../src/domain/conversation-view';
 import { TestFixtureError } from '../../support/test-errors';
 import { editWith, proposalOf } from '../../support/proposals';
@@ -17,31 +17,26 @@ const conversation = Array.from({ length: 15 }, (_, i) => ({
   text: `message ${String(i)}`,
 }));
 
-const request = (overrides: Partial<AgentStepRequest> = {}): AgentStepRequest => ({
-  request: { kind: 'user', message: { id: 'r', role: 'user', text: 'm' } },
-  policy: MAIN_AGENT_POLICY,
-  conversation: EMPTY_CONVERSATION,
-  signal: new AbortController().signal,
-  workspace: {
-    files: [{ id: '1', path: 'main.tex', kind: ProjectFileKind.Text }],
-    openFile: {
-      kind: 'text',
-      path: 'main.tex',
-      document: createDocumentSnapshot(['\\section{A}', 'Body.']),
-      cursorLine: 1,
-      selection: '',
-    },
+const workspace: AgentWorkspace = {
+  files: [{ id: '1', path: 'main.tex', kind: ProjectFileKind.Text }],
+  openFile: {
+    kind: 'text',
+    path: 'main.tex',
+    document: createDocumentSnapshot(['\\section{A}', 'Body.']),
+    cursorLine: 1,
+    selection: '',
   },
-  transcript: [],
-  ...overrides,
-});
+};
+
+const request = (overrides: Partial<AgentStepRequest> = {}): AgentStepRequest =>
+  userStepRequest('m', workspace, overrides);
 
 const promptOf = (overrides: Partial<AgentStepRequest>): string =>
   createAgentExchange(request(overrides), budget).request.prompt;
 
 const withSelection = (selection: string): Partial<AgentStepRequest> => ({
   workspace: {
-    files: request().workspace.files,
+    files: workspace.files,
     openFile: {
       kind: 'text',
       path: 'main.tex',
