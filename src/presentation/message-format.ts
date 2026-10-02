@@ -198,9 +198,8 @@ const SESSION_DATE_FORMAT = new Intl.DateTimeFormat(undefined, {
   timeStyle: 'short',
 });
 
-export function sessionDetails({ updatedAt, messageCount }: SessionSummary): string {
-  const count = messageCount === 1 ? '1 message' : `${String(messageCount)} messages`;
-  return `${SESSION_DATE_FORMAT.format(updatedAt)} · ${count}`;
+export function sessionDetails({ updatedAt, chatMessageCount }: SessionSummary): string {
+  return `${SESSION_DATE_FORMAT.format(updatedAt)} · ${countOf(chatMessageCount, 'message')}`;
 }
 
 function exportedNotice(path: string): string {

@@ -2512,8 +2512,14 @@ describe('sessions', () => {
     await openSession('older');
     await expect(listSessions()).resolves.toEqual({
       sessions: [
-        { id: 'decided', title: 'Session decided', createdAt: 0, updatedAt: 5, messageCount: 2 },
-        { id: 'older', title: 'Session older', createdAt: 0, updatedAt: 1, messageCount: 1 },
+        {
+          id: 'decided',
+          title: 'Session decided',
+          createdAt: 0,
+          updatedAt: 5,
+          chatMessageCount: 2,
+        },
+        { id: 'older', title: 'Session older', createdAt: 0, updatedAt: 1, chatMessageCount: 1 },
       ],
       unreadableIds: ['broken'],
       currentId: 'older',

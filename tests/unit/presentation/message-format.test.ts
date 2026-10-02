@@ -306,11 +306,11 @@ describe('web search card text', () => {
 });
 
 describe('sessionDetails', () => {
-  const summary = { id: 's', title: 'Add a table', createdAt: 0, messageCount: 1 };
+  const summary = { id: 's', title: 'Add a table', createdAt: 0, chatMessageCount: 1 };
   const updatedAt = Date.UTC(2026, 9, 1, 12, 0);
 
   it('shows when the session last changed and how many messages it has', () => {
-    expect(sessionDetails({ ...summary, updatedAt, messageCount: 4 })).toMatch(
+    expect(sessionDetails({ ...summary, updatedAt, chatMessageCount: 4 })).toMatch(
       /2026.* · 4 messages$/,
     );
   });

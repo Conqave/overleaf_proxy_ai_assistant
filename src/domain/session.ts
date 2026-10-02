@@ -24,7 +24,7 @@ export interface SessionSummary {
   readonly title: string;
   readonly createdAt: number;
   readonly updatedAt: number;
-  readonly messageCount: number;
+  readonly chatMessageCount: number;
 }
 
 export interface ConversationSession {
@@ -134,8 +134,12 @@ export function summarizeSession(session: ConversationSession): SessionSummary {
     title: session.title,
     createdAt: session.createdAt,
     updatedAt: session.updatedAt,
-    messageCount: session.messages.length,
+    chatMessageCount: countChatMessages(session.messages),
   };
+}
+
+function countChatMessages(messages: readonly ConversationMessage[]): number {
+  return messages.filter(({ role }) => role === 'user' || role === 'assistant').length;
 }
 
 export function sortNewestFirst(sessions: readonly SessionSummary[]): SessionSummary[] {

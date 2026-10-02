@@ -49,7 +49,7 @@ function summaryUntil(coveredUntilId: string): CompactionSummaryMessage {
 }
 
 function summary(id: string, createdAt: number, updatedAt: number): SessionSummary {
-  return { id, title: id, createdAt, updatedAt, messageCount: 1 };
+  return { id, title: id, createdAt, updatedAt, chatMessageCount: 1 };
 }
 
 describe('session title', () => {
@@ -94,8 +94,22 @@ describe('session', () => {
       title: 'Add a table of results',
       createdAt: 100,
       updatedAt: 250,
-      messageCount: 2,
+      chatMessageCount: 2,
     });
+  });
+
+  it('counts only the messages of the user and of Hans in its summary', () => {
+    const others: ConversationMessage[] = [
+      { id: 'n', role: 'notice', notice: { kind: 'compiled', errorCount: 0 } },
+      { id: 's', role: 'system', text: 'Fix the first error.' },
+      { id: 'd', role: 'undo', proposalId: 'p', undone: ['main.tex'], refused: [] },
+    ];
+    const session = [...others, answer].reduce(
+      (current, message) => appendToSession(current, message, 2),
+      startSession('s1', first, 1),
+    );
+    expect(session.messages).toHaveLength(5);
+    expect(summarizeSession(session).chatMessageCount).toBe(2);
   });
 
   it('keeps every message while no summary covers them', () => {
