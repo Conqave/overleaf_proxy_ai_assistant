@@ -153,7 +153,9 @@ describe('ImportSession', () => {
       createdAt: EXPORTED_AT,
       updatedAt: EXPORTED_AT,
       messages: [
-        ...sharedMessages.slice(0, 3),
+        sharedMessages[0],
+        proposalOf('p1', editWith('main.tex', command, EditStatus.AppliedBeforeImport)),
+        sharedMessages[2],
         proposalOf('p2', editWith('main.tex', command, EditStatus.Discarded)),
       ],
       imported: { path: EXPORT_PATH, lastMessageId: 'p2' },

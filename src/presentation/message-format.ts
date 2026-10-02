@@ -101,6 +101,7 @@ const EDIT_STATUS_TEXT: Record<EditStatus, string | undefined> = {
   [EditStatus.Failed]: 'Not applied',
   [EditStatus.Discarded]: 'Discarded',
   [EditStatus.Undone]: 'Undone',
+  [EditStatus.AppliedBeforeImport]: 'Applied before the import',
 };
 
 const EDIT_STATUS_COUNT: Record<EditStatus, string> = {
@@ -110,10 +111,12 @@ const EDIT_STATUS_COUNT: Record<EditStatus, string> = {
   [EditStatus.Failed]: 'not applied',
   [EditStatus.Discarded]: 'discarded',
   [EditStatus.Undone]: 'undone',
+  [EditStatus.AppliedBeforeImport]: 'applied before the import',
 };
 
 const STATUS_COUNT_ORDER: readonly EditStatus[] = [
   EditStatus.Applied,
+  EditStatus.AppliedBeforeImport,
   EditStatus.Rejected,
   EditStatus.Failed,
   EditStatus.Discarded,

@@ -120,7 +120,9 @@ function collectFileActivity(
     }
     if (message.role === 'assistant' && message.kind === AssistantMessageKind.Proposal) {
       for (const edit of message.edits) {
-        if (edit.status === EditStatus.Applied) edited.add(edit.path);
+        if (edit.status === EditStatus.Applied || edit.status === EditStatus.AppliedBeforeImport) {
+          edited.add(edit.path);
+        }
       }
     }
   }

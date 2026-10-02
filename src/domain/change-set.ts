@@ -10,6 +10,7 @@ export const EditStatus = {
   Failed: 'failed',
   Discarded: 'discarded',
   Undone: 'undone',
+  AppliedBeforeImport: 'applied-before-import',
 } as const;
 export type EditStatus = (typeof EditStatus)[keyof typeof EditStatus];
 
@@ -106,6 +107,20 @@ export function recordUndoneEdits(
     }
     return { path: edit.path, command: edit.command, status: EditStatus.Undone };
   });
+}
+
+export function recordImportedEdits(edits: readonly ProposedEdit[]): readonly ProposedEdit[] {
+  return Object.freeze(
+    edits.map((edit) =>
+      edit.status === EditStatus.Applied
+        ? Object.freeze({
+            path: edit.path,
+            command: edit.command,
+            status: EditStatus.AppliedBeforeImport,
+          })
+        : edit,
+    ),
+  );
 }
 
 export function groupEditsByPath(edits: readonly ProposedEdit[]): readonly FileEdits[] {

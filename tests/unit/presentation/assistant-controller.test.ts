@@ -656,6 +656,23 @@ describe('AssistantController change sets', () => {
     expect(texts('.ola-undo')).toEqual([]);
   });
 
+  it('offers no undo for edits applied before a session was imported', async () => {
+    const { texts } = await openAssistant({
+      ...storedSession('imported', [
+        { id: 'u', role: 'user', text: 'add the book' },
+        {
+          id: 'p',
+          role: 'assistant',
+          kind: 'proposal',
+          edits: [{ ...ADD_BOOK, status: 'applied-before-import' }],
+        },
+      ]),
+      imported: { path: 'hans-sessions/2026-10-02-070500-book.json', lastMessageId: 'p' },
+    });
+    expect(texts('.ola-ai > .ola-result-status')).toEqual(['Applied before the import']);
+    expect(texts('.ola-undo')).toEqual([]);
+  });
+
   it('refuses to undo a file changed since and says so in the notice', async () => {
     const { controller, project, editor, changeId, texts } = await proposeTwoFiles();
     project.willCompile([]);

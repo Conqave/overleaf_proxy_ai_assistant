@@ -1,4 +1,5 @@
-import type { ConversationMessage } from './conversation';
+import { recordImportedEdits } from './change-set';
+import { AssistantMessageKind, type ConversationMessage } from './conversation';
 import { EmptySessionExportError, ForeignProjectExportError } from './errors';
 import { PATH_SEPARATOR, type ProjectFile } from './project-file';
 import { createSessionTitle, discardUndecidedProposals, type ConversationSession } from './session';
@@ -101,9 +102,16 @@ export function importSessionExport(
     title: createSessionTitle(`${IMPORTED_TITLE_PREFIX}${exported.session.title}`),
     createdAt: now,
     updatedAt: now,
-    messages,
+    messages: messages.map(recordImportedMessage),
     imported: { path, lastMessageId: last.id },
   });
+}
+
+function recordImportedMessage(message: ConversationMessage): ConversationMessage {
+  if (message.role !== 'assistant' || message.kind !== AssistantMessageKind.Proposal) {
+    return message;
+  }
+  return { ...message, edits: recordImportedEdits(message.edits) };
 }
 
 function formatExportTime(time: Date): string {

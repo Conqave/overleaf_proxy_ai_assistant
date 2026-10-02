@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { EditStatus } from '../../../src/domain/change-set';
+import { canUndoEdits, EditStatus } from '../../../src/domain/change-set';
 import type { UserMessage } from '../../../src/domain/conversation';
 import { createDocumentCommand } from '../../../src/domain/document-command';
 import { EmptySessionExportError, ForeignProjectExportError } from '../../../src/domain/errors';
@@ -92,6 +92,27 @@ describe('session import', () => {
       messages: [first, proposalOf('p1', editWith('main.tex', command, EditStatus.Discarded))],
       imported: { path: PATH, lastMessageId: 'p1' },
     });
+  });
+
+  it('keeps the edits applied before the import as history that cannot be undone', () => {
+    const applied = proposalOf(
+      'p1',
+      editWith('main.tex', command, EditStatus.Applied),
+      editWith('main.tex', command, EditStatus.Undone),
+    );
+    const exported = createSessionExport(
+      { ...sessionTitled('Add a table'), messages: [first, applied] },
+      owner,
+      EXPORTED_AT,
+    );
+    const { messages } = importSessionExport(exported, target(collaborator));
+    const imported = proposalOf(
+      'p1',
+      editWith('main.tex', command, EditStatus.AppliedBeforeImport),
+      editWith('main.tex', command, EditStatus.Undone),
+    );
+    expect(messages).toEqual([first, imported]);
+    expect(canUndoEdits(imported.edits)).toBe(false);
   });
 
   it('keeps the title within the maximum length', () => {

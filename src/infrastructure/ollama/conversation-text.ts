@@ -82,6 +82,7 @@ const EDIT_OUTCOME: Record<EditStatus, string> = {
   [EditStatus.Failed]: 'failed to apply',
   [EditStatus.Discarded]: 'discarded without a decision',
   [EditStatus.Undone]: 'applied, then undone by the user',
+  [EditStatus.AppliedBeforeImport]: 'applied in the session this one was imported from',
 };
 
 function describeProposal({ edits }: ProposalMessage): string {
