@@ -10,7 +10,7 @@ import {
 import { OperationLock } from '../../src/application/operation-lock';
 import { PendingChanges } from '../../src/application/pending-change';
 import { AgentTool, type ToolCall } from '../../src/domain/agent-action';
-import { MAIN_AGENT_POLICY } from '../../src/domain/agent-policy';
+import { MAIN_AGENT_POLICY } from '../support/policies';
 import type { AgentTurn, CompileDiagnostic } from '../../src/domain/agent-transcript';
 import { createDocumentSnapshot, type DocumentSnapshot } from '../../src/domain/document';
 import type { DocumentOperation } from '../../src/domain/document-command';
@@ -593,6 +593,7 @@ async function runApplication(
     lock: new OperationLock(() => new AbortController()),
     newId,
     createController: () => new AbortController(),
+    webSearch: null,
     compactor: new ConversationCompactor({
       agent: recordingAgent,
       summarizer,
@@ -780,6 +781,7 @@ describe('Ollama agent contract', () => {
             text: 'jaki tytuł ma praca cytowana w dokumencie jako greenwade93?',
           },
         },
+        policy: MAIN_AGENT_POLICY,
         conversation: EMPTY_CONVERSATION,
         workspace: {
           files: project.files,

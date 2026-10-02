@@ -7,6 +7,7 @@ import type {
   UserMessage,
 } from '../domain/conversation';
 import type { ContextUsage } from '../ports/agent-port';
+import type { PendingWebSearch } from './web-search-approval';
 
 export interface FileConflict {
   readonly path: string;
@@ -25,6 +26,9 @@ export type AgentProgress =
   | { readonly stage: 'reading'; readonly path: string }
   | { readonly stage: 'searching'; readonly query: string }
   | { readonly stage: 'compiling' }
+  | { readonly stage: 'awaiting-approval'; readonly search: PendingWebSearch }
+  | { readonly stage: 'approval-decided'; readonly id: string; readonly approved: boolean }
+  | { readonly stage: 'searching-web'; readonly query: string }
   | { readonly stage: 'delegating'; readonly task: string; readonly fileCount: number }
   | {
       readonly stage: 'subagent';

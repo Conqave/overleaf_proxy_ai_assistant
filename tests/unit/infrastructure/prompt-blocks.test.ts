@@ -1,6 +1,6 @@
 import { EMPTY_CONVERSATION } from '../../support/fakes';
 import { describe, expect, it } from 'vitest';
-import { MAIN_AGENT_POLICY } from '../../../src/domain/agent-policy';
+import { MAIN_AGENT_POLICY } from '../../support/policies';
 import { createDocumentSnapshot } from '../../../src/domain/document';
 import { createDocumentCommand } from '../../../src/domain/document-command';
 import { ProjectFileKind } from '../../../src/domain/project-file';
@@ -19,6 +19,7 @@ const conversation = Array.from({ length: 15 }, (_, i) => ({
 
 const request = (overrides: Partial<AgentStepRequest> = {}): AgentStepRequest => ({
   request: { kind: 'user', message: { id: 'r', role: 'user', text: 'm' } },
+  policy: MAIN_AGENT_POLICY,
   conversation: EMPTY_CONVERSATION,
   signal: new AbortController().signal,
   workspace: {
@@ -85,6 +86,7 @@ describe('conversation history', () => {
   it('carries the message and the whole conversation', () => {
     const prompt = promptOf({
       request: { kind: 'user', message: { id: 'r', role: 'user', text: 'Add a table' } },
+      policy: MAIN_AGENT_POLICY,
       conversation: { summary: null, messages: conversation },
     });
     expect(prompt).toContain('User message:\nAdd a table');

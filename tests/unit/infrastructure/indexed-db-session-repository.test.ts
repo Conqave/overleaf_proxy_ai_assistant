@@ -159,6 +159,41 @@ const messages: ConversationMessage[] = [
     },
   },
   {
+    id: 't7',
+    role: 'tool',
+    record: {
+      tool: 'web_search',
+      query: 'Lamport LaTeX book DOI',
+      outcome: {
+        status: 'found',
+        results: [
+          {
+            title: 'Latex: a document preparation system',
+            url: 'https://dl.acm.org/doi/abs/10.5555/63364',
+            snippet: 'Leslie Lamport',
+            published: '1986',
+          },
+          { title: 'LaTeX book', url: 'https://example.org/latex', snippet: '' },
+        ],
+        truncated: true,
+      },
+    },
+  },
+  {
+    id: 't8',
+    role: 'tool',
+    record: { tool: 'web_search', query: 'LaTeX ISBN', outcome: { status: 'denied' } },
+  },
+  {
+    id: 't9',
+    role: 'tool',
+    record: {
+      tool: 'web_search',
+      query: 'LaTeX publisher',
+      outcome: { status: 'failed', problem: 'Exa web search is unavailable: HTTP 502.' },
+    },
+  },
+  {
     id: '7',
     role: 'undo',
     proposalId: '3',
@@ -389,6 +424,30 @@ describe('IndexedDbSessionRepository', () => {
             files: [],
             report: { outcome: 'partial', lookups: 0 },
           },
+        ],
+        [
+          'of a web search with an untrimmed query',
+          { tool: 'web_search', query: ' LaTeX DOI ', outcome: { status: 'denied' } },
+        ],
+        [
+          'of a web search of an unknown status',
+          { tool: 'web_search', query: 'LaTeX DOI', outcome: { status: 'skipped' } },
+        ],
+        [
+          'of a web search result with a script address',
+          {
+            tool: 'web_search',
+            query: 'LaTeX DOI',
+            outcome: {
+              status: 'found',
+              results: [{ title: 'x', url: 'javascript:alert(1)', snippet: '' }],
+              truncated: false,
+            },
+          },
+        ],
+        [
+          'of a failed web search without its problem',
+          { tool: 'web_search', query: 'LaTeX DOI', outcome: { status: 'failed', problem: '' } },
         ],
         [
           'of a delegation without the truncation flag',

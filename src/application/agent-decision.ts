@@ -5,9 +5,15 @@ import {
   type DelegateCall,
   type ProjectEdit,
   type ToolCall,
+  type WebSearchCall,
 } from '../domain/agent-action';
 import type { EditRequest } from '../domain/change-set';
-import { checkFilesChecked, checkReply, checkToolCall } from '../domain/agent-policy';
+import {
+  checkFilesChecked,
+  checkReply,
+  checkToolCall,
+  type AgentPolicy,
+} from '../domain/agent-policy';
 import { assertEditShown, getShownDocument, type AgentTurn } from '../domain/agent-transcript';
 import {
   DelegationLimitError,
@@ -30,7 +36,7 @@ import { checkSeparateEdits } from '../domain/file-change';
 import { findSearchScope, findTextFile, type TextFile } from '../domain/project-file';
 import { ResolvedEdit } from '../domain/resolved-edit';
 import type { ReadRange } from '../domain/read-window';
-import { getRequestPolicy, type AgentRequest, type AgentWorkspace } from '../ports/agent-port';
+import type { AgentRequest, AgentWorkspace } from '../ports/agent-port';
 import { InvalidChangeSetEditError } from './errors';
 
 export type ProjectToolRun =
@@ -57,9 +63,15 @@ export interface AcceptedDelegation {
   readonly files: readonly TextFile[];
 }
 
+export interface AcceptedWebSearch {
+  readonly kind: 'web-search';
+  readonly call: WebSearchCall;
+}
+
 export type AcceptedDecision =
   | { readonly kind: 'tool'; readonly call: ToolCall; readonly run: ProjectToolRun }
   | AcceptedDelegation
+  | AcceptedWebSearch
   | AcceptedReply;
 
 export type AgentMistake =
@@ -103,11 +115,10 @@ export function isAgentMistake(error: unknown): error is AgentMistake {
 
 export function acceptDecision(
   decision: AgentDecision,
-  request: AgentRequest,
+  { request, policy }: { readonly request: AgentRequest; readonly policy: AgentPolicy },
   workspace: AgentWorkspace,
   transcript: readonly AgentTurn[],
 ): AcceptedDecision {
-  const policy = getRequestPolicy(request);
   if (decision.kind === 'reply') {
     checkReply(policy, decision.reply);
     if (request.kind === 'subtask') checkFilesChecked(policy, transcript, request.files);
@@ -115,18 +126,24 @@ export function acceptDecision(
   }
   const { call } = decision;
   checkToolCall(policy, transcript, call);
-  if (call.tool === AgentTool.Delegate) {
-    return {
-      kind: 'delegate',
-      call,
-      files: [...new Set(call.files.flatMap((path) => findSearchScope(workspace.files, path)))],
-    };
+  switch (call.tool) {
+    case AgentTool.Delegate:
+      return {
+        kind: 'delegate',
+        call,
+        files: [...new Set(call.files.flatMap((path) => findSearchScope(workspace.files, path)))],
+      };
+    case AgentTool.WebSearch:
+      return { kind: 'web-search', call };
+    case AgentTool.ReadFile:
+    case AgentTool.Search:
+    case AgentTool.Compile:
+      return { kind: 'tool', call, run: planToolRun(call, workspace) };
   }
-  return { kind: 'tool', call, run: planToolRun(call, workspace) };
 }
 
 function planToolRun(
-  call: Exclude<ToolCall, DelegateCall>,
+  call: Exclude<ToolCall, DelegateCall | WebSearchCall>,
   workspace: AgentWorkspace,
 ): ProjectToolRun {
   switch (call.tool) {

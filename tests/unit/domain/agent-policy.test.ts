@@ -5,10 +5,12 @@ import {
   checkReply,
   checkToolCall,
   countToolCallsLeft,
+  createAgentPolicies,
   hasMistakesLeft,
-  MAIN_AGENT_POLICY,
   SUBAGENT_POLICY,
 } from '../../../src/domain/agent-policy';
+import { WEB_SEARCH_DENIED } from '../../../src/domain/web-search';
+import { MAIN_AGENT_POLICY, WEB_POLICIES } from '../../support/policies';
 import { findUncheckedFiles, type AgentTurn } from '../../../src/domain/agent-transcript';
 import { finishDelegation } from '../../../src/domain/delegation';
 import { createDocumentSnapshot } from '../../../src/domain/document';
@@ -194,6 +196,58 @@ describe('delegation policy', () => {
         `all ${String(SUBAGENT_POLICY.maxToolCalls)} lookups are used; reply now with answer`,
       ),
     );
+  });
+});
+
+describe('web search policy', () => {
+  const search = { tool: 'web_search', query: 'Lamport LaTeX DOI' } as const;
+  const deniedTurn: AgentTurn = {
+    kind: 'tool',
+    call: search,
+    result: { tool: 'web_search', outcome: WEB_SEARCH_DENIED },
+  };
+
+  it('gives the main agent web_search only when the deployment enables it', () => {
+    expect(createAgentPolicies({ webSearch: false }).main.tools).not.toContain('web_search');
+    expect(WEB_POLICIES.main.tools).toEqual([
+      'read_file',
+      'search',
+      'compile',
+      'delegate',
+      'web_search',
+    ]);
+    expect(() => {
+      checkToolCall(MAIN, [], search);
+    }).toThrow(ToolNotAllowedError);
+    expect(() => {
+      checkToolCall(WEB_POLICIES.main, [], search);
+    }).not.toThrow();
+  });
+
+  it('never gives the subagent web_search', () => {
+    expect(WEB_POLICIES.subagent).toBe(SUBAGENT_POLICY);
+    expect(() => {
+      checkToolCall(WEB_POLICIES.subagent, [], search);
+    }).toThrow(ToolNotAllowedError);
+  });
+
+  it('charges a web search, even a denied one, to the lookups', () => {
+    expect(countToolCallsLeft(WEB_POLICIES.main, [deniedTurn])).toBe(
+      WEB_POLICIES.main.maxToolCalls - 1,
+    );
+    const full = repeat(WEB_POLICIES.main.maxToolCalls, (i) => readTurn(`f${String(i)}.tex`));
+    expect(() => {
+      checkToolCall(WEB_POLICIES.main, full, search);
+    }).toThrow(ToolBudgetExhaustedError);
+  });
+
+  it('refuses the same web search after a denial', () => {
+    expect(() => {
+      checkToolCall(WEB_POLICIES.main, [deniedTurn], search);
+    }).toThrow(RepeatedToolCallError);
+    expect(() => {
+      checkToolCall(WEB_POLICIES.main, [deniedTurn], { ...search, query: 'LaTeX ISBN' });
+    }).not.toThrow();
   });
 });
 

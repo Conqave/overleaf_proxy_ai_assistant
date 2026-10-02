@@ -1,3 +1,4 @@
+import { MAIN_AGENT_POLICY } from '../../support/policies';
 import { describe, expect, it } from 'vitest';
 import type { ReadRecord, ToolRecord } from '../../../src/domain/agent-transcript';
 import { createDocumentSnapshot } from '../../../src/domain/document';
@@ -35,6 +36,7 @@ describe('findOutdatedReads', () => {
 describe('outdated reads in the prompt', () => {
   const step: AgentStepRequest = {
     request: { kind: 'user', message: { id: 'r', role: 'user', text: 'Check a.tex' } },
+    policy: MAIN_AGENT_POLICY,
     conversation: {
       summary: null,
       messages: [

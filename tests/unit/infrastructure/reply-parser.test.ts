@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { MAIN_AGENT_POLICY, SUBAGENT_POLICY } from '../../../src/domain/agent-policy';
+import { SUBAGENT_POLICY } from '../../../src/domain/agent-policy';
+import { MAIN_AGENT_POLICY } from '../../support/policies';
 import type { EditRequest } from '../../../src/domain/change-set';
 import {
   InvalidAssistantResponse,
@@ -55,8 +56,21 @@ describe('parseAgentDecision tool calls', () => {
       'ACTION: delegate\nTASK: Check every \\cite key\nFILES:',
       { tool: 'delegate', task: 'Check every \\cite key', files: [] },
     ],
+    [
+      'ACTION: web_search\nQUERY:  Lamport LaTeX book DOI ',
+      { tool: 'web_search', query: 'Lamport LaTeX book DOI' },
+    ],
   ])('parses %j', (raw, call) => {
     expect(parseAgentDecision(raw, MAIN_AGENT_POLICY)).toEqual({ kind: 'tool', call });
+  });
+
+  it('takes only a query for a web search', () => {
+    expect(problem('ACTION: web_search\nQUERY: LaTeX DOI\nPATH: refs.bib')).toBe(
+      'ACTION: web_search takes only QUERY; remove PATH',
+    );
+    expect(problem('ACTION: web_search\nQUERY: ab')).toBe(
+      'the web_search query must have 3 to 200 characters',
+    );
   });
 
   it('takes a search in one file or folder only from a role that may scope it', () => {

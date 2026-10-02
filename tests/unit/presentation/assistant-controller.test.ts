@@ -116,6 +116,7 @@ async function openAssistantWith(
     newId,
     createController: () => new AbortController(),
     compactor,
+    webSearch: null,
   });
   const review = new ReviewAppliedChange({ project, conversation, handleRequest });
   const sessionDeps = { sessions, conversation, pendingChanges, editor, lock };

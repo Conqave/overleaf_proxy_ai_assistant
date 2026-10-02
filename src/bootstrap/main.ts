@@ -92,6 +92,7 @@ function compose(
     newId,
     createController,
     compactor,
+    webSearch: null,
   });
   const review = new ReviewAppliedChange({ project, conversation, handleRequest });
   const sessionDeps = { sessions, conversation, pendingChanges, editor, lock };

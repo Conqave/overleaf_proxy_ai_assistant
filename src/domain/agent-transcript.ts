@@ -10,6 +10,7 @@ import {
 } from './errors';
 import { isInScope } from './project-file';
 import type { LineSpan } from './read-window';
+import type { WebSearchOutcome } from './web-search';
 
 export interface SearchMatch {
   readonly path: string;
@@ -50,7 +51,8 @@ export type ToolResult =
       readonly truncated: boolean;
     }
   | { readonly tool: typeof AgentTool.Compile; readonly diagnostics: readonly CompileDiagnostic[] }
-  | { readonly tool: typeof AgentTool.Delegate; readonly report: DelegationReport };
+  | { readonly tool: typeof AgentTool.Delegate; readonly report: DelegationReport }
+  | { readonly tool: typeof AgentTool.WebSearch; readonly outcome: WebSearchOutcome };
 
 export interface ReadRecord {
   readonly tool: typeof AgentTool.ReadFile;
@@ -80,7 +82,14 @@ export interface DelegateRecord {
   readonly report: DelegationReport;
 }
 
-export type ToolRecord = ReadRecord | SearchRecord | CompileRecord | DelegateRecord;
+export interface WebSearchRecord {
+  readonly tool: typeof AgentTool.WebSearch;
+  readonly query: string;
+  readonly outcome: WebSearchOutcome;
+}
+
+export type ToolRecord =
+  ReadRecord | SearchRecord | CompileRecord | DelegateRecord | WebSearchRecord;
 
 export function createReadRecord(
   path: string,
@@ -132,6 +141,11 @@ export function recordToolTurn({ call, result }: ToolTurn): ToolRecord {
         throw new InvariantViolation(`a delegation result came from a ${call.tool} call`);
       }
       return { ...result, task: call.task, files: call.files };
+    case AgentTool.WebSearch:
+      if (call.tool !== AgentTool.WebSearch) {
+        throw new InvariantViolation(`a web search result came from a ${call.tool} call`);
+      }
+      return { ...result, query: call.query };
   }
 }
 
@@ -169,6 +183,7 @@ function isFileChecked(path: string, { call, result }: ToolTurn): boolean {
       return result.tool === AgentTool.Search && !result.truncated && isInScope(path, call.path);
     case AgentTool.Compile:
     case AgentTool.Delegate:
+    case AgentTool.WebSearch:
       return false;
   }
 }

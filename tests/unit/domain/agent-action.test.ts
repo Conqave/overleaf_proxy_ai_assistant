@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { createToolCall, isSameToolCall } from '../../../src/domain/agent-action';
+import {
+  createToolCall,
+  createWebSearchCall,
+  isSameToolCall,
+} from '../../../src/domain/agent-action';
 import { InvalidToolCallError } from '../../../src/domain/errors';
 
 const TASK = 'List every table without a caption';
@@ -115,6 +119,36 @@ describe('createToolCall', () => {
     ['compile with an end line', { tool: 'compile', endLine: 2 }],
   ])('rejects %s', (_name, input) => {
     expect(() => createToolCall(input)).toThrow(InvalidToolCallError);
+  });
+});
+
+describe('web search calls', () => {
+  it('takes one trimmed query', () => {
+    expect(createToolCall({ tool: 'web_search', query: '  Lamport LaTeX book DOI ' })).toEqual({
+      tool: 'web_search',
+      query: 'Lamport LaTeX book DOI',
+    });
+    expect(createWebSearchCall('LaTeX DOI')).toEqual({ tool: 'web_search', query: 'LaTeX DOI' });
+  });
+
+  it.each([
+    ['no query', { tool: 'web_search' }, 'web_search requires a query'],
+    ['a short query', { tool: 'web_search', query: 'ab' }, 'must have 3 to 200 characters'],
+    ['a long query', { tool: 'web_search', query: 'q'.repeat(201) }, '3 to 200 characters'],
+    ['a query of two lines', { tool: 'web_search', query: 'a b\nc d' }, 'must be one line'],
+    ['a path', { tool: 'web_search', query: 'abc', path: 'a.bib' }, 'takes no path'],
+    ['a line', { tool: 'web_search', query: 'abc', startLine: 1 }, 'takes no start line'],
+    ['a task', { tool: 'web_search', query: 'abc', task: 'x' }, 'takes no task'],
+  ])('rejects %s', (_name, input, problem) => {
+    expect(() => createToolCall(input)).toThrow(InvalidToolCallError);
+    expect(() => createToolCall(input)).toThrow(problem);
+  });
+
+  it('tells web searches apart by their query only', () => {
+    const search = createWebSearchCall('LaTeX DOI');
+    expect(isSameToolCall(search, createWebSearchCall('LaTeX DOI'))).toBe(true);
+    expect(isSameToolCall(search, createWebSearchCall('LaTeX ISBN'))).toBe(false);
+    expect(isSameToolCall(search, { tool: 'search', query: 'LaTeX DOI' })).toBe(false);
   });
 });
 

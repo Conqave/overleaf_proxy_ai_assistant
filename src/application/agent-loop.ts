@@ -1,5 +1,10 @@
 import { AgentTool, type AgentDecision } from '../domain/agent-action';
-import { AGENT_POLICY, hasMistakesLeft } from '../domain/agent-policy';
+import {
+  AGENT_POLICY,
+  hasMistakesLeft,
+  type AgentPolicies,
+  type AgentPolicy,
+} from '../domain/agent-policy';
 import type { AgentTurn, ToolResult, ToolTurn } from '../domain/agent-transcript';
 import type { ConversationView } from '../domain/conversation-view';
 import { failDelegation, finishDelegation } from '../domain/delegation';
@@ -21,12 +26,14 @@ import {
   type AcceptedDecision,
   type AcceptedDelegation,
   type AcceptedReply,
+  type AcceptedWebSearch,
   type AgentMistake,
 } from './agent-decision';
 import type { AgentProgress } from './agent-progress';
 import type { ConversationCompactor } from './conversation-compactor';
 import { AgentMistakeLimitError } from './errors';
 import type { ProjectTools } from './project-tools';
+import type { WebSearchTool } from './web-search-tool';
 
 export interface AgentRunHost {
   viewHistory(): ConversationView;
@@ -55,14 +62,18 @@ export class AgentLoop {
       agent: AgentPort;
       compactor: ConversationCompactor;
       tools: ProjectTools;
+      webSearch: WebSearchTool | null;
+      policies: AgentPolicies;
     },
   ) {}
 
   async run(run: AgentRun): Promise<AgentOutcome> {
     const { request, workspace, host, signal, onProgress } = run;
+    const policy = this.policyOf(request);
     const transcript: AgentTurn[] = [];
     const stepRequest = (): AgentStepRequest => ({
       request,
+      policy,
       conversation: host.viewHistory(),
       workspace,
       transcript: [...transcript],
@@ -84,7 +95,7 @@ export class AgentLoop {
       onProgress({ stage: 'measured', contextUsage });
       let accepted: AcceptedDecision;
       try {
-        accepted = acceptDecision(decision, request, workspace, transcript);
+        accepted = acceptDecision(decision, { request, policy }, workspace, transcript);
       } catch (error) {
         if (!isAgentMistake(error)) throw error;
         recordMistake(transcript, decision, error);
@@ -98,6 +109,9 @@ export class AgentLoop {
           return { reply: accepted, contextUsage };
         case 'delegate':
           result = await this.delegate(accepted, run);
+          break;
+        case 'web-search':
+          result = await this.searchWeb(accepted, run);
           break;
         case 'tool':
           try {
@@ -113,6 +127,27 @@ export class AgentLoop {
       transcript.push(turn);
       host.recordLookup(turn);
     }
+  }
+
+  private policyOf(request: AgentRequest): AgentPolicy {
+    switch (request.kind) {
+      case 'user':
+      case 'compile-fix':
+        return this.deps.policies.main;
+      case 'subtask':
+        return this.deps.policies.subagent;
+    }
+  }
+
+  private async searchWeb(
+    { call }: AcceptedWebSearch,
+    { signal, onProgress }: AgentRun,
+  ): Promise<ToolResult> {
+    const { webSearch } = this.deps;
+    if (webSearch === null) {
+      throw new InvariantViolation('the policy allowed a web search without a search service');
+    }
+    return await webSearch.run(call, onProgress, signal);
   }
 
   private async delegate(

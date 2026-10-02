@@ -1,4 +1,5 @@
 import type { ProjectEdit } from '../domain/agent-action';
+import { createAgentPolicies } from '../domain/agent-policy';
 import { recordToolTurn, type CompileDiagnostic } from '../domain/agent-transcript';
 import { createChangeSet } from '../domain/change-set';
 import type {
@@ -30,6 +31,7 @@ import type { OperationLock } from './operation-lock';
 import type { PendingChanges } from './pending-change';
 import { ProjectTools } from './project-tools';
 import { showProjectFile } from './show-project-file';
+import type { WebSearchTool } from './web-search-tool';
 
 export type { ContextPressure, ContextUsage } from '../ports/agent-port';
 
@@ -68,12 +70,15 @@ export class HandleAssistantRequest {
       newId: () => string;
       createController: () => CancellationController;
       compactor: ConversationCompactor;
+      webSearch: WebSearchTool | null;
     },
   ) {
     this.loop = new AgentLoop({
       agent: deps.agent,
       compactor: deps.compactor,
       tools: new ProjectTools(deps.project, deps.createController),
+      webSearch: deps.webSearch,
+      policies: createAgentPolicies({ webSearch: deps.webSearch !== null }),
     });
   }
 

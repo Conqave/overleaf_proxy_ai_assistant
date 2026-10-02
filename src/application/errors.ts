@@ -25,6 +25,12 @@ export class ChangeNoLongerPendingError extends OperationalError {
   }
 }
 
+export class WebSearchNoLongerPendingError extends OperationalError {
+  constructor() {
+    super('This web search no longer waits for a decision.');
+  }
+}
+
 export class NothingToCompactError extends OperationalError {
   constructor() {
     super('There is nothing to compact yet: the latest turn always stays in full.');

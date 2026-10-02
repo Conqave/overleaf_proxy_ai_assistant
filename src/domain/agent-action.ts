@@ -3,12 +3,14 @@ import type { ResolvedEdit } from './resolved-edit';
 import { createProjectPath, type TextFile } from './project-file';
 import { InvalidProjectPathError, InvalidToolCallError } from './errors';
 import { createReadRange, isSameReadRange, type ReadRange } from './read-window';
+import { WEB_SEARCH_LIMITS } from './web-search';
 
 export const AgentTool = {
   ReadFile: 'read_file',
   Search: 'search',
   Compile: 'compile',
   Delegate: 'delegate',
+  WebSearch: 'web_search',
 } as const;
 export type AgentTool = (typeof AgentTool)[keyof typeof AgentTool];
 
@@ -16,12 +18,18 @@ export type ToolCall =
   | { readonly tool: typeof AgentTool.ReadFile; readonly path: string; readonly range?: ReadRange }
   | { readonly tool: typeof AgentTool.Search; readonly query: string; readonly path?: string }
   | { readonly tool: typeof AgentTool.Compile }
-  | DelegateCall;
+  | DelegateCall
+  | WebSearchCall;
 
 export interface DelegateCall {
   readonly tool: typeof AgentTool.Delegate;
   readonly task: string;
   readonly files: readonly string[];
+}
+
+export interface WebSearchCall {
+  readonly tool: typeof AgentTool.WebSearch;
+  readonly query: string;
 }
 
 export interface ToolCallInput {
@@ -62,7 +70,7 @@ export function createToolCall(input: ToolCallInput): ToolCall {
     case AgentTool.Search: {
       rejectLineArguments(tool, input);
       rejectDelegationArguments(tool, input);
-      const query = parseQuery(input.query);
+      const query = parseQuery(tool, input.query, SEARCH_QUERY_CHARS);
       if (input.path === undefined) return Object.freeze({ tool, query });
       return Object.freeze({ tool, query, path: parseSearchPath(input.path) });
     }
@@ -77,7 +85,19 @@ export function createToolCall(input: ToolCallInput): ToolCall {
       rejectArgument(tool, 'query', input.query);
       rejectLineArguments(tool, input);
       return createDelegateCall(input.task, input.files);
+    case AgentTool.WebSearch:
+      rejectArgument(tool, 'path', input.path);
+      rejectLineArguments(tool, input);
+      rejectDelegationArguments(tool, input);
+      return createWebSearchCall(input.query);
   }
+}
+
+export function createWebSearchCall(query: unknown): WebSearchCall {
+  return Object.freeze({
+    tool: AgentTool.WebSearch,
+    query: parseQuery(AgentTool.WebSearch, query, WEB_SEARCH_LIMITS.queryChars),
+  });
 }
 
 export function createDelegateCall(task: unknown, files: unknown): DelegateCall {
@@ -106,6 +126,8 @@ export function isSameToolCall(first: ToolCall, second: ToolCall): boolean {
       return second.tool === AgentTool.Compile;
     case AgentTool.Delegate:
       return second.tool === AgentTool.Delegate && second.task === first.task;
+    case AgentTool.WebSearch:
+      return second.tool === AgentTool.WebSearch && second.query === first.query;
   }
 }
 
@@ -177,13 +199,17 @@ function parseFileHints(values: unknown): readonly string[] {
   return Object.freeze(files);
 }
 
-function parseQuery(value: unknown): string {
-  if (typeof value !== 'string') throw new InvalidToolCallError('search requires a query');
+function parseQuery(
+  tool: typeof AgentTool.Search | typeof AgentTool.WebSearch,
+  value: unknown,
+  chars: { readonly min: number; readonly max: number },
+): string {
+  if (typeof value !== 'string') throw new InvalidToolCallError(`${tool} requires a query`);
   const query = value.trim();
-  if (query.includes('\n')) throw new InvalidToolCallError('the search query must be one line');
-  if (query.length < SEARCH_QUERY_CHARS.min || query.length > SEARCH_QUERY_CHARS.max) {
+  if (query.includes('\n')) throw new InvalidToolCallError(`the ${tool} query must be one line`);
+  if (query.length < chars.min || query.length > chars.max) {
     throw new InvalidToolCallError(
-      `the search query must have ${String(SEARCH_QUERY_CHARS.min)} to ${String(SEARCH_QUERY_CHARS.max)} characters`,
+      `the ${tool} query must have ${String(chars.min)} to ${String(chars.max)} characters`,
     );
   }
   return query;

@@ -13,7 +13,13 @@ import {
   type UndoRefusal,
 } from '../../domain/conversation';
 import { createCompactionSummaryMessage, createFileActivity } from '../../domain/conversation-view';
-import { AgentTool, createDelegateCall, type DelegateCall } from '../../domain/agent-action';
+import {
+  AgentTool,
+  createDelegateCall,
+  createWebSearchCall,
+  type DelegateCall,
+  type WebSearchCall,
+} from '../../domain/agent-action';
 import {
   createReadRecord,
   isDiagnosticLevel,
@@ -21,6 +27,7 @@ import {
   type DelegateRecord,
   type SearchMatch,
   type ToolRecord,
+  type WebSearchRecord,
 } from '../../domain/agent-transcript';
 import {
   createDelegationReport,
@@ -35,7 +42,14 @@ import {
   InvalidProjectPathError,
   InvalidToolCallError,
   InvalidToolRecordError,
+  InvalidWebSearchResultError,
 } from '../../domain/errors';
+import {
+  createWebSearchOutcome,
+  WebSearchStatus,
+  type WebSearchOutcome,
+  type WebSearchResult,
+} from '../../domain/web-search';
 import { createProjectPath } from '../../domain/project-file';
 import type { ConversationSession } from '../../domain/session';
 import type { ExportedSession } from '../../domain/session-export';
@@ -162,6 +176,8 @@ function parseRecord(value: unknown): ToolRecord {
       return { tool, diagnostics: getArray(fields, 'diagnostics').map(parseDiagnostic) };
     case AgentTool.Delegate:
       return parseDelegateRecord(fields);
+    case AgentTool.WebSearch:
+      return parseWebSearchRecord(fields);
     default:
       throw new UnknownStoredFormatError('unknown tool record');
   }
@@ -227,6 +243,61 @@ function parseDelegationReport(fields: Map<string, unknown>): DelegationReport {
       cause: error,
     });
   }
+}
+
+function parseWebSearchRecord(fields: Map<string, unknown>): WebSearchRecord {
+  const query = getString(fields, 'query');
+  let call: WebSearchCall;
+  try {
+    call = createWebSearchCall(query);
+  } catch (error) {
+    if (!(error instanceof InvalidToolCallError)) throw error;
+    throw new UnknownStoredFormatError(`invalid web search: ${error.message}`, { cause: error });
+  }
+  if (call.query !== query)
+    throw new UnknownStoredFormatError('the web search query is not trimmed');
+  return { ...call, outcome: parseWebSearchOutcome(getFields(fields.get('outcome'))) };
+}
+
+function parseWebSearchOutcome(fields: Map<string, unknown>): WebSearchOutcome {
+  const status = fields.get('status');
+  let outcome: WebSearchOutcome;
+  switch (status) {
+    case WebSearchStatus.Found:
+      outcome = {
+        status,
+        results: getArray(fields, 'results').map(parseWebSearchResult),
+        truncated: getBoolean(fields, 'truncated'),
+      };
+      break;
+    case WebSearchStatus.Denied:
+      outcome = { status };
+      break;
+    case WebSearchStatus.Failed:
+      outcome = { status, problem: getString(fields, 'problem') };
+      break;
+    default:
+      throw new UnknownStoredFormatError('unknown web search status');
+  }
+  try {
+    return createWebSearchOutcome(outcome);
+  } catch (error) {
+    if (!(error instanceof InvalidWebSearchResultError)) throw error;
+    throw new UnknownStoredFormatError(`invalid web search outcome: ${error.message}`, {
+      cause: error,
+    });
+  }
+}
+
+function parseWebSearchResult(value: unknown): WebSearchResult {
+  const fields = getFields(value);
+  const result = {
+    title: getString(fields, 'title'),
+    url: getString(fields, 'url'),
+    snippet: getString(fields, 'snippet'),
+  };
+  if (!fields.has('published')) return result;
+  return { ...result, published: getString(fields, 'published') };
 }
 
 function parseMatch(value: unknown): SearchMatch {

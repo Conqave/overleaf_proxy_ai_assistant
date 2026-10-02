@@ -304,6 +304,9 @@ export class AssistantController implements ViewEvents {
       case 'reading':
       case 'searching':
       case 'compiling':
+      case 'awaiting-approval':
+      case 'approval-decided':
+      case 'searching-web':
       case 'delegating':
       case 'opening':
       case 'compacting':

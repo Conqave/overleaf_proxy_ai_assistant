@@ -34,6 +34,8 @@ import type { SessionArchive } from '../../src/ports/session-archive';
 import type { SessionExport } from '../../src/domain/session-export';
 import type { EditorPort } from '../../src/ports/editor-port';
 import type { ProjectPort } from '../../src/ports/project-port';
+import type { WebSearchPort } from '../../src/ports/web-search-port';
+import type { WebSearchResult } from '../../src/domain/web-search';
 import {
   EditorShowsOtherFileError,
   EditorUnavailableError,
@@ -283,6 +285,30 @@ function next<T>(queue: Step<T>[], what: string, signal: CancellationSignal): Pr
   if (step instanceof Error) return Promise.reject(step);
   if (step instanceof PendingStep) return step.settle(signal);
   return Promise.resolve(step);
+}
+
+export class FakeWebSearch implements WebSearchPort {
+  readonly queries: string[] = [];
+  readonly signals: CancellationSignal[] = [];
+  private results: Step<readonly WebSearchResult[]>[] = [];
+
+  will(...results: Step<readonly WebSearchResult[]>[]): this {
+    this.results.push(...results);
+    return this;
+  }
+  search(query: string, signal: CancellationSignal): Promise<readonly WebSearchResult[]> {
+    this.queries.push(query);
+    this.signals.push(signal);
+    return next(this.results, 'search', signal);
+  }
+}
+
+export function webResult(index: number, snippetChars = 40): WebSearchResult {
+  return {
+    title: `Result ${String(index)}`,
+    url: `https://example.org/${String(index)}`,
+    snippet: 's'.repeat(snippetChars),
+  };
 }
 
 export class InMemorySessionRepository implements SessionRepository {

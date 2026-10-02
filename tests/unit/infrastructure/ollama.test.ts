@@ -1,3 +1,4 @@
+import { MAIN_AGENT_POLICY } from '../../support/policies';
 import { EMPTY_CONVERSATION } from '../../support/fakes';
 import { describe, expect, it, vi } from 'vitest';
 import { HarmonyFormatError } from '../../../src/infrastructure/ollama/harmony-format';
@@ -367,6 +368,7 @@ describe('OllamaAgent', () => {
       kind: 'user',
       message: { id: 'r', role: 'user', text: question },
     },
+    policy: MAIN_AGENT_POLICY,
     conversation: EMPTY_CONVERSATION,
     signal: new AbortController().signal,
     workspace: {
@@ -497,6 +499,7 @@ describe('OllamaAgent', () => {
         kind: 'user',
         message: { id: 'r', role: 'user', text: 'm'.repeat(2 * PROMPT_TOKENS) },
       },
+      policy: MAIN_AGENT_POLICY,
     };
     const ollama = new FakeOllama();
     await expect(agent(ollama).decide(long)).rejects.toThrow(AssistantRequestTooLargeError);

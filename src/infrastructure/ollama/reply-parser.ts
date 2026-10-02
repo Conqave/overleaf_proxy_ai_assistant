@@ -47,6 +47,8 @@ function getToolFields(tool: ToolCall['tool'], policy: AgentPolicy): readonly st
       return [];
     case AgentAction.Delegate:
       return [AgentField.Task, AgentField.Files];
+    case AgentAction.WebSearch:
+      return [AgentField.Query];
   }
 }
 
@@ -68,6 +70,7 @@ export function parseAgentDecision(raw: string, policy: AgentPolicy): AgentDecis
     case AgentAction.Search:
     case AgentAction.Compile:
     case AgentAction.Delegate:
+    case AgentAction.WebSearch:
       return { kind: 'tool', call: parseToolCall(action, rows, policy) };
     case AgentAction.Answer:
       return { kind: 'reply', reply: { kind: 'answer', text: parseAnswerText(rows) } };

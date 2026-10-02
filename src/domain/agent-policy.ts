@@ -39,19 +39,6 @@ export interface AgentPolicy {
   readonly maxToolCalls: number;
 }
 
-export const MAIN_AGENT_POLICY: AgentPolicy = Object.freeze({
-  role: AgentRole.Main,
-  tools: Object.freeze([
-    AgentTool.ReadFile,
-    AgentTool.Search,
-    AgentTool.Compile,
-    AgentTool.Delegate,
-  ]),
-  replies: Object.freeze(['answer', 'question', 'edit'] as const),
-  scopedSearch: false,
-  maxToolCalls: 6,
-});
-
 export const SUBAGENT_POLICY: AgentPolicy = Object.freeze({
   role: AgentRole.Subagent,
   tools: Object.freeze([AgentTool.ReadFile, AgentTool.Search]),
@@ -59,6 +46,32 @@ export const SUBAGENT_POLICY: AgentPolicy = Object.freeze({
   scopedSearch: true,
   maxToolCalls: 10,
 });
+
+export interface AgentCapabilities {
+  readonly webSearch: boolean;
+}
+
+export interface AgentPolicies {
+  readonly main: AgentPolicy;
+  readonly subagent: AgentPolicy;
+}
+
+export function createAgentPolicies({ webSearch }: AgentCapabilities): AgentPolicies {
+  const projectTools = [
+    AgentTool.ReadFile,
+    AgentTool.Search,
+    AgentTool.Compile,
+    AgentTool.Delegate,
+  ] as const;
+  const main: AgentPolicy = Object.freeze({
+    role: AgentRole.Main,
+    tools: Object.freeze(webSearch ? [...projectTools, AgentTool.WebSearch] : [...projectTools]),
+    replies: Object.freeze(['answer', 'question', 'edit'] as const),
+    scopedSearch: false,
+    maxToolCalls: 6,
+  });
+  return Object.freeze({ main, subagent: SUBAGENT_POLICY });
+}
 
 export function countToolCallsLeft(policy: AgentPolicy, transcript: readonly AgentTurn[]): number {
   return Math.max(0, policy.maxToolCalls - getToolTurns(transcript).length);

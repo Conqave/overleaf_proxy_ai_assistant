@@ -1,5 +1,5 @@
 import type { AgentDecision } from '../domain/agent-action';
-import { MAIN_AGENT_POLICY, SUBAGENT_POLICY, type AgentPolicy } from '../domain/agent-policy';
+import type { AgentPolicy } from '../domain/agent-policy';
 import type { AgentTurn, CompileDiagnostic, OpenFileView } from '../domain/agent-transcript';
 import type { ExchangeMessage, SystemRequestMessage, UserMessage } from '../domain/conversation';
 import type { ConversationView } from '../domain/conversation-view';
@@ -34,18 +34,9 @@ export type ConversationRequest = UserRequest | CompileFixRequest;
 
 export type AgentRequest = ConversationRequest | SubtaskRequest;
 
-export function getRequestPolicy(request: AgentRequest): AgentPolicy {
-  switch (request.kind) {
-    case 'user':
-    case 'compile-fix':
-      return MAIN_AGENT_POLICY;
-    case 'subtask':
-      return SUBAGENT_POLICY;
-  }
-}
-
 export interface AgentStepRequest {
   readonly request: AgentRequest;
+  readonly policy: AgentPolicy;
   readonly conversation: ConversationView;
   readonly workspace: AgentWorkspace;
   readonly transcript: readonly AgentTurn[];

@@ -20,6 +20,7 @@ import {
   UndecidedEditsError,
   RequestInProgressError,
   RequestSupersededError,
+  WebSearchNoLongerPendingError,
 } from '../../../src/application/errors';
 import {
   COMPILE_FIX_REQUEST,
@@ -33,10 +34,17 @@ import { PreviewChangeSetFile } from '../../../src/application/preview-change-se
 import { RejectChangeSet } from '../../../src/application/reject-change-set';
 import { UndoChangeSet } from '../../../src/application/undo-change-set';
 import { ReviewAppliedChange } from '../../../src/application/review-applied-change';
+import {
+  WebSearchApproval,
+  WebSearchDecision,
+  type PendingWebSearch,
+} from '../../../src/application/web-search-approval';
+import { WebSearchTool } from '../../../src/application/web-search-tool';
 import type { AgentDecision, ToolCall } from '../../../src/domain/agent-action';
 import type { EditRequest } from '../../../src/domain/change-set';
 import type { CompileDiagnostic } from '../../../src/domain/agent-transcript';
-import { AGENT_POLICY, MAIN_AGENT_POLICY, SUBAGENT_POLICY } from '../../../src/domain/agent-policy';
+import { AGENT_POLICY, SUBAGENT_POLICY } from '../../../src/domain/agent-policy';
+import { MAIN_AGENT_POLICY } from '../../support/policies';
 import { createDocumentSnapshot, type DocumentSnapshot } from '../../../src/domain/document';
 import { createDocumentCommand } from '../../../src/domain/document-command';
 import { DocumentConflictError, InvariantViolation } from '../../../src/domain/errors';
@@ -54,6 +62,8 @@ import {
   SessionNotFoundError,
   SessionStorageError,
   UnreadableSessionError,
+  WebSearchTimeoutError,
+  WebSearchUnavailableError,
 } from '../../../src/ports/errors';
 import {
   EMPTY_CONVERSATION,
@@ -64,12 +74,14 @@ import {
   FakeEditor,
   FakeProject,
   FakeSummarizer,
+  FakeWebSearch,
   InMemorySessionRepository,
   PendingStep,
   rejectOnAbort,
   sequentialIds,
   storedSession,
   ticking,
+  webResult,
 } from '../../support/fakes';
 import { anInstanceOf, itemAt, objectContaining, textContaining } from '../../support/guards';
 import { TestFixtureError } from '../../support/test-errors';
@@ -155,7 +167,7 @@ async function proposeEdit(...decisions: AgentDecision[]): Promise<string> {
   return changeIdOf(await send('add more'));
 }
 
-function createHandle(): HandleAssistantRequest {
+function createHandle(webSearch: WebSearchTool | null = null): HandleAssistantRequest {
   return new HandleAssistantRequest({
     agent,
     project,
@@ -165,6 +177,7 @@ function createHandle(): HandleAssistantRequest {
     lock,
     newId,
     createController: () => new AbortController(),
+    webSearch,
     compactor: new ConversationCompactor({
       agent,
       summarizer,
@@ -234,6 +247,7 @@ describe('HandleAssistantRequest', () => {
         kind: 'user',
         message: { id: anInstanceOf(String), role: 'user', text: 'What is this document about?' },
       },
+      policy: MAIN_AGENT_POLICY,
       conversation: EMPTY_CONVERSATION,
       workspace: {
         files: project.files,
@@ -730,6 +744,229 @@ describe('conversation reset during a request', () => {
     );
     await expect(send('does it compile?')).rejects.toThrow(RequestSupersededError);
     expect(agent.requests).toHaveLength(1);
+  });
+});
+
+describe('web search', () => {
+  const QUERY = 'Leslie Lamport LaTeX document preparation system DOI';
+  const searchWeb = (query = QUERY) => tool({ tool: 'web_search', query });
+  let webSearch: FakeWebSearch;
+  let approval: WebSearchApproval;
+
+  beforeEach(() => {
+    webSearch = new FakeWebSearch();
+    approval = new WebSearchApproval({ conversation, newId: sequentialIds('approval') });
+    handle = createHandle(new WebSearchTool({ search: webSearch, approval }));
+  });
+
+  const approvals = (): PendingWebSearch[] =>
+    progress.flatMap((p) => (p.stage === 'awaiting-approval' ? [p.search] : []));
+
+  async function nextApproval(count: number): Promise<PendingWebSearch> {
+    await vi.waitFor(() => {
+      expect(approvals()).toHaveLength(count);
+    });
+    return itemAt(approvals(), count - 1, 'approval');
+  }
+
+  const webRecords = () =>
+    conversation
+      .messages()
+      .flatMap((m) => (m.role === 'tool' && m.record.tool === 'web_search' ? [m.record] : []));
+
+  it('asks before searching and gives the agent the results it approved', async () => {
+    agent.will(searchWeb(), answer('The DOI is 10.5555/63364.'));
+    webSearch.will([webResult(1), webResult(2)]);
+    const running = send('find the DOI of the LaTeX book');
+    const pending = await nextApproval(1);
+    expect(pending).toEqual({ id: 'approval-1', query: QUERY });
+    expect(webSearch.queries).toEqual([]);
+    expect(isBusy()).toBe(true);
+    approval.decide(pending.id, WebSearchDecision.Approve);
+    await expect(running).resolves.toMatchObject({
+      message: { text: 'The DOI is 10.5555/63364.' },
+    });
+    expect(webSearch.queries).toEqual([QUERY]);
+    const outcome = { status: 'found', results: [webResult(1), webResult(2)], truncated: false };
+    expect(requestAt(1).transcript).toEqual([
+      {
+        kind: 'tool',
+        call: { tool: 'web_search', query: QUERY },
+        result: { tool: 'web_search', outcome },
+      },
+    ]);
+    expect(webRecords()).toEqual([{ tool: 'web_search', query: QUERY, outcome }]);
+    expect(progress.map((p) => p.stage)).toEqual([
+      'received',
+      'thinking',
+      'measured',
+      'awaiting-approval',
+      'approval-decided',
+      'searching-web',
+      'recorded',
+      'thinking',
+      'measured',
+    ]);
+    expect(progress).toContainEqual({ stage: 'approval-decided', id: pending.id, approved: true });
+  });
+
+  it('hands a denial to the agent as the result of the lookup and searches nothing', async () => {
+    agent.will(searchWeb(), answer('I could not look up the DOI.'));
+    const running = send('find the DOI');
+    approval.decide((await nextApproval(1)).id, WebSearchDecision.Deny);
+    await running;
+    expect(webSearch.queries).toEqual([]);
+    expect(requestAt(1).transcript).toEqual([
+      {
+        kind: 'tool',
+        call: { tool: 'web_search', query: QUERY },
+        result: { tool: 'web_search', outcome: { status: 'denied' } },
+      },
+    ]);
+    expect(progress).toContainEqual(
+      objectContaining({ stage: 'approval-decided', approved: false }),
+    );
+    expect(progress.map((p) => p.stage)).not.toContain('searching-web');
+  });
+
+  it('approves the later searches of a session the user allowed them for, until it changes', async () => {
+    agent.will(searchWeb('first query'), searchWeb('second query'), answer('Both.'));
+    webSearch.will([webResult(1)], [webResult(2)]);
+    const running = send('look up two things');
+    approval.decide((await nextApproval(1)).id, WebSearchDecision.ApproveForSession);
+    await running;
+    expect(approvals()).toHaveLength(1);
+    expect(webSearch.queries).toEqual(['first query', 'second query']);
+    agent.will(searchWeb('third query'), answer('Three.'));
+    webSearch.will([webResult(3)]);
+    await send('and a third one');
+    expect(approvals()).toHaveLength(1);
+    startNew();
+    agent.will(searchWeb('fourth query'), answer('Four.'));
+    webSearch.will([webResult(4)]);
+    const fresh = send('in a new session');
+    approval.decide((await nextApproval(2)).id, WebSearchDecision.Approve);
+    await fresh;
+    expect(webSearch.queries).toHaveLength(4);
+  });
+
+  it('turns a failing search service into a failed lookup the agent sees', async () => {
+    agent.will(searchWeb(), searchWeb('other query'), answer('Search is down.'));
+    webSearch.will(
+      new WebSearchUnavailableError('Exa web search is unavailable: HTTP 502.'),
+      new WebSearchTimeoutError('Exa did not answer within 30 seconds.'),
+    );
+    const running = send('find the DOI');
+    approval.decide((await nextApproval(1)).id, WebSearchDecision.ApproveForSession);
+    await expect(running).resolves.toMatchObject({ message: { text: 'Search is down.' } });
+    expect(webRecords().map(({ outcome }) => outcome)).toEqual([
+      { status: 'failed', problem: 'Exa web search is unavailable: HTTP 502.' },
+      { status: 'failed', problem: 'Exa did not answer within 30 seconds.' },
+    ]);
+  });
+
+  it('lets a defect behind the search port end the request', async () => {
+    const defect = new InvariantViolation('broken adapter');
+    agent.will(searchWeb());
+    webSearch.will(defect);
+    const running = send('find the DOI');
+    approval.decide((await nextApproval(1)).id, WebSearchDecision.Approve);
+    await expect(running).rejects.toBe(defect);
+    expect(isBusy()).toBe(false);
+  });
+
+  it('keeps at most the policy limit of results', async () => {
+    agent.will(searchWeb(), answer('Done.'));
+    webSearch.will(Array.from({ length: 8 }, (_, index) => webResult(index)));
+    const running = send('find the DOI');
+    approval.decide((await nextApproval(1)).id, WebSearchDecision.Approve);
+    await running;
+    const [record] = webRecords();
+    expect(record?.outcome).toMatchObject({ status: 'found', truncated: true });
+    expect(record?.outcome.status === 'found' && record.outcome.results).toHaveLength(5);
+  });
+
+  it('passes the cancellation of the request to the search service', async () => {
+    agent.will(searchWeb());
+    webSearch.will(new PendingStep(rejectOnAbort));
+    const running = send('find the DOI');
+    approval.decide((await nextApproval(1)).id, WebSearchDecision.Approve);
+    await vi.waitFor(() => {
+      expect(webSearch.signals).toHaveLength(1);
+    });
+    startNew();
+    await expect(running).rejects.toThrow(RequestSupersededError);
+    expect(webSearch.signals[0]?.aborted).toBe(true);
+  });
+
+  it('drops the waiting approval when the conversation is reset', async () => {
+    agent.will(searchWeb());
+    const running = send('find the DOI');
+    const pending = await nextApproval(1);
+    startNew();
+    await expect(running).rejects.toThrow(RequestSupersededError);
+    expect(isBusy()).toBe(false);
+    expect(() => {
+      approval.decide(pending.id, WebSearchDecision.Approve);
+    }).toThrow(WebSearchNoLongerPendingError);
+    expect(webSearch.queries).toEqual([]);
+  });
+
+  it('refuses a decision about a search that does not wait for one', async () => {
+    agent.will(searchWeb(), answer('Done.'));
+    webSearch.will([]);
+    const running = send('find the DOI');
+    const pending = await nextApproval(1);
+    expect(() => {
+      approval.decide('approval-9', WebSearchDecision.Approve);
+    }).toThrow(WebSearchNoLongerPendingError);
+    approval.decide(pending.id, WebSearchDecision.Approve);
+    await running;
+    expect(() => {
+      approval.decide(pending.id, WebSearchDecision.Deny);
+    }).toThrow(WebSearchNoLongerPendingError);
+  });
+
+  it('charges web searches to the lookups of the request', async () => {
+    const searches = Array.from({ length: MAIN_AGENT_POLICY.maxToolCalls }, (_, index) =>
+      searchWeb(`query number ${String(index)}`),
+    );
+    agent.will(...searches, searchWeb('one too many'), answer('Enough.'));
+    webSearch.will(...searches.map(() => []));
+    const running = send('search a lot');
+    approval.decide((await nextApproval(1)).id, WebSearchDecision.ApproveForSession);
+    await running;
+    expect(webSearch.queries).toHaveLength(MAIN_AGENT_POLICY.maxToolCalls);
+    expect(itemAt(agent.requests, -1, 'request').transcript.at(-1)).toMatchObject({
+      kind: 'mistake',
+      problem: textContaining('lookups are used'),
+    });
+  });
+
+  it('keeps web search away from the subagent', async () => {
+    agent.will(
+      tool({ tool: 'delegate', task: 'Check every citation key of main.tex', files: ['main.tex'] }),
+      searchWeb(),
+      tool({ tool: 'read_file', path: 'main.tex' }),
+      answer('knuth84 is cited on line 4.'),
+      answer('Checked.'),
+    );
+    await send('check the citations');
+    expect(requestAt(2).transcript[0]).toMatchObject({
+      kind: 'mistake',
+      problem: 'web_search is not available in this task; use only read_file or search',
+    });
+    expect(approvals()).toEqual([]);
+  });
+
+  it('refuses web_search when the deployment has no web search', async () => {
+    handle = createHandle();
+    agent.will(searchWeb(), answer('No web search here.'));
+    await send('find the DOI');
+    expect(requestAt(1).transcript[0]).toMatchObject({
+      kind: 'mistake',
+      problem: textContaining('web_search is not available in this task'),
+    });
   });
 });
 

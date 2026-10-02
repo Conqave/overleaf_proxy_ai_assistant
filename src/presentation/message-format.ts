@@ -278,6 +278,10 @@ export function progressStatus(progress: AgentProgress): string | null {
       return `Hans is searching for ${progress.query}`;
     case 'compiling':
       return 'Hans is compiling the project';
+    case 'awaiting-approval':
+      return 'Hans is waiting for your approval of a web search';
+    case 'searching-web':
+      return `Hans is searching the web for ${progress.query}`;
     case 'delegating':
       return subagentReviewing(progress.fileCount);
     case 'subagent':
@@ -292,6 +296,7 @@ export function progressStatus(progress: AgentProgress): string | null {
       return '';
     case 'measured':
     case 'recorded':
+    case 'approval-decided':
       return null;
   }
 }
@@ -311,6 +316,9 @@ function subagentStatus(fileCount: number, progress: AgentProgress): string | nu
     case 'received':
     case 'measured':
     case 'compiling':
+    case 'awaiting-approval':
+    case 'approval-decided':
+    case 'searching-web':
     case 'delegating':
     case 'subagent':
     case 'recorded':

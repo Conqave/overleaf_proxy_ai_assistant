@@ -1,3 +1,4 @@
+import { MAIN_AGENT_POLICY } from '../../support/policies';
 import { EMPTY_CONVERSATION } from '../../support/fakes';
 import { describe, expect, it } from 'vitest';
 import type { ExchangeMessage } from '../../../src/domain/conversation';
@@ -42,6 +43,7 @@ function turns(count: number, answerTokens: number): ExchangeMessage[] {
 function step(conversation: ConversationView): AgentStepRequest {
   return {
     request: { kind: 'user', message: { id: 'r', role: 'user', text: 'next' } },
+    policy: MAIN_AGENT_POLICY,
     conversation,
     workspace: {
       files: [{ id: '1', path: 'main.tex', kind: ProjectFileKind.Text }],
