@@ -12,7 +12,7 @@ import {
   ProjectTreeOutdatedError,
   ProjectUnavailableError,
 } from '../../../src/ports/errors';
-import { FakeOverleafIde } from '../../support/fake-overleaf';
+import { FakeOverleafIde, FIXTURE_ROOT_FOLDER } from '../../support/fake-overleaf';
 import { FAKE_CSRF_TOKEN, type FakeOverleafServer } from '../../support/fake-overleaf-server';
 import { rejectOnAbort } from '../../support/fakes';
 import { TestFixtureError } from '../../support/test-errors';
@@ -65,6 +65,37 @@ describe('Overleaf project files', () => {
     expect(written().filter(({ url }) => url.endsWith('/folder'))).toHaveLength(1);
     expect(server.paths()).toEqual(['frog.jpg', EXPORT_PATH, 'hans-sessions/other.json']);
     expect(server.textAt(EXPORT_PATH)).toBe('second');
+  });
+
+  it('creates the folder anew after it was deleted', async () => {
+    await files.write(EXPORT_PATH, 'first', cancel.signal);
+    server.removeFolder('hans-sessions');
+    await expect(files.write(EXPORT_PATH, 'second', cancel.signal)).rejects.toThrow(
+      ProjectTreeOutdatedError,
+    );
+    await files.write(EXPORT_PATH, 'third', cancel.signal);
+    expect(server.textAt(EXPORT_PATH)).toBe('third');
+    expect(written().filter(({ url }) => url.endsWith('/folder'))).toHaveLength(2);
+  });
+
+  it('forgets a folder it created once the project tree lists it', async () => {
+    await files.write(EXPORT_PATH, 'first', cancel.signal);
+    const listed = {
+      _id: 'folder-new-1',
+      name: 'hans-sessions',
+      docs: [],
+      fileRefs: [],
+      folders: [],
+    };
+    ide.store.set('project', {
+      rootFolder: [{ ...FIXTURE_ROOT_FOLDER, folders: [...FIXTURE_ROOT_FOLDER.folders, listed] }],
+    });
+    await files.write(EXPORT_PATH, 'second', cancel.signal);
+    server.removeFolder('hans-sessions');
+    ide.store.set('project', { rootFolder: [FIXTURE_ROOT_FOLDER] });
+    await files.write(EXPORT_PATH, 'third', cancel.signal);
+    expect(server.textAt(EXPORT_PATH)).toBe('third');
+    expect(written().filter(({ url }) => url.endsWith('/folder'))).toHaveLength(2);
   });
 
   it('uploads into folders the page already knows, at any depth', async () => {

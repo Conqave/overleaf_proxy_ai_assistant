@@ -110,7 +110,10 @@ export class OverleafProjectFiles {
   }
 
   private findFolder(tree: ProjectTree, path: string): string | undefined {
-    return tree.folders.get(path) ?? this.createdFolders.get(path);
+    const listed = tree.folders.get(path);
+    if (listed === undefined) return this.createdFolders.get(path);
+    this.createdFolders.delete(path);
+    return listed;
   }
 
   private async createFolder(
@@ -166,6 +169,12 @@ export class OverleafProjectFiles {
       signal,
     );
     const body = await this.readBody(response, `Writing ${path} was interrupted.`, signal);
+    if (response.status === HTTP_NOT_FOUND) {
+      this.createdFolders.clear();
+      throw new ProjectTreeOutdatedError(
+        `The folder of ${path} was moved or deleted; try again to create it anew.`,
+      );
+    }
     if (!response.ok) {
       throw new ProjectFileWriteError(
         `${path} could not be written: Overleaf answered HTTP ${String(response.status)}.`,

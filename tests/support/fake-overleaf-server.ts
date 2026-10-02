@@ -70,6 +70,13 @@ export class FakeOverleafServer {
     return [...this.files.values()].map((file) => this.pathOf(file)).sort();
   }
 
+  removeFolder(path: string): void {
+    const folder = [...this.folders.values()].find((entity) => this.pathOf(entity) === path);
+    if (folder === undefined) throw new TestFixtureError(`the fake project has no folder ${path}`);
+    this.folders.delete(folder.id);
+    for (const [id, file] of this.files) if (file.folderId === folder.id) this.files.delete(id);
+  }
+
   private addFolder(folder: FakeFolder, parentId: string, texts: ReadonlyMap<string, string>) {
     this.folders.set(folder._id, { id: folder._id, name: folder.name, folderId: parentId });
     for (const fileRef of folder.fileRefs) {
