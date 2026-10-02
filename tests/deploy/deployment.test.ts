@@ -206,6 +206,7 @@ describe('nginx proxy', () => {
     url: string | undefined;
     host: string | undefined;
     origin: string | undefined;
+    headers: IncomingHttpHeaders;
   }[] = [];
   const exaRequests: {
     method: string | undefined;
@@ -238,6 +239,7 @@ describe('nginx proxy', () => {
         url: req.url,
         host: req.headers.host,
         origin: req.headers.origin,
+        headers: req.headers,
       });
       res.setHeader('Content-Type', 'application/json');
       res.end(req.url === '/api/version' ? '{"version":"0"}' : '{"response":"{}"}');
@@ -321,6 +323,25 @@ describe('nginx proxy', () => {
     await fetch(`${base}/ollama/main/api/pull`, { method: 'POST', body: '{}' });
     expect(ollamaRequests.filter((r) => r.url === '/api/pull')).toHaveLength(0);
     expect(ollamaRequests).toHaveLength(count);
+  });
+
+  it("forwards requests to Ollama without the browser's Overleaf credentials", async () => {
+    const credentials = {
+      Cookie: 'overleaf_session2=secret',
+      Authorization: 'Bearer user-token',
+      'X-Csrf-Token': 'csrf-1',
+    };
+    await fetch(`${base}/ollama/main/api/generate`, {
+      method: 'POST',
+      headers: credentials,
+      body: '{}',
+    });
+    await fetch(`${base}/healthz/ollama`, { headers: credentials });
+    for (const request of ollamaRequests.slice(-2)) {
+      for (const header of ['cookie', 'authorization', 'x-csrf-token']) {
+        expect(request.headers).not.toHaveProperty(header);
+      }
+    }
   });
 
   it("forwards web search to Exa without the browser's credentials and with the server key", async () => {

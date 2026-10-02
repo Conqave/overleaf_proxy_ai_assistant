@@ -169,7 +169,10 @@ export class FakeOllama {
         ? new Response(JSON.stringify(this.config), { status: 200 })
         : new Response('missing', { status: 404 });
     }
-    if (typeof init?.body !== 'string') {
+    if (init?.credentials !== 'omit') {
+      throw new UnexpectedFakeCallError(`Ollama was called at ${url} with the page's cookies`);
+    }
+    if (typeof init.body !== 'string') {
       throw new UnexpectedFakeCallError(`Ollama was called at ${url} without a JSON body`);
     }
     const body = parseRequestBody(url, init.body);
