@@ -43,7 +43,8 @@ import {
   type PendingWebSearch,
 } from '../../../src/application/web-search-approval';
 import { WebSearchTool } from '../../../src/application/web-search-tool';
-import type { AgentDecision, ToolCall } from '../../../src/domain/agent-action';
+import type { AgentDecision } from '../../../src/domain/agent-action';
+import { answer, tool } from '../../support/decisions';
 import { MAX_EDITS_PER_CHANGE, type EditRequest } from '../../../src/domain/change-set';
 import type { CompileDiagnostic } from '../../../src/domain/agent-transcript';
 import { SUBAGENT_POLICY } from '../../../src/domain/agent-policy';
@@ -135,11 +136,6 @@ const listSessions = () => new ListSessions(sessionDeps()).execute();
 const openSession = (id: string) => new OpenSession(sessionDeps()).execute(id);
 const deleteSession = (id: string) => new DeleteSession(sessionDeps()).execute(id);
 const requestAt = (index: number) => itemAt(agent.requests, index, 'agent request');
-const tool = (call: ToolCall): AgentDecision => ({ kind: 'tool', call });
-const answer = (text: string): AgentDecision => ({
-  kind: 'reply',
-  reply: { kind: 'answer', text },
-});
 
 function editOf(path: string, lines: readonly string[], lineNumber: number): AgentDecision {
   return editsOf(insertionOf(path, lines, lineNumber));

@@ -28,6 +28,7 @@ import { ReviewAppliedChange } from '../../../src/application/review-applied-cha
 import { WebSearchApproval, WebSearchDecision } from '../../../src/application/web-search-approval';
 import { WebSearchTool } from '../../../src/application/web-search-tool';
 import type { AgentDecision } from '../../../src/domain/agent-action';
+import { answer } from '../../support/decisions';
 import type { CompileDiagnostic } from '../../../src/domain/agent-transcript';
 import { createDocumentCommand } from '../../../src/domain/document-command';
 import { InvariantViolation } from '../../../src/domain/errors';
@@ -210,10 +211,6 @@ async function proposeBibEdit() {
 
 describe('AssistantController subagent', () => {
   const TASK = 'Check every \\cite key against refs.bib';
-  const answer = (text: string): AgentDecision => ({
-    kind: 'reply',
-    reply: { kind: 'answer', text },
-  });
 
   it('shows the subagent at work, the main context use and its findings collapsed', async () => {
     let statusWhileDelegating: (string | null)[] = [];
@@ -265,10 +262,6 @@ describe('AssistantController subagent', () => {
 describe('AssistantController web search', () => {
   const QUERY = 'Leslie Lamport LaTeX book DOI';
   const SEARCH: AgentDecision = { kind: 'tool', call: { tool: 'web_search', query: QUERY } };
-  const answer = (text: string): AgentDecision => ({
-    kind: 'reply',
-    reply: { kind: 'answer', text },
-  });
   const RESULTS = [
     {
       title: 'Latex: a document preparation system',
