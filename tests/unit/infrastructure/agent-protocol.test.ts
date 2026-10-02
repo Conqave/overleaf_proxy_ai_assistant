@@ -119,6 +119,13 @@ describe('agent exchange', () => {
     );
   });
 
+  it('asks to compile first instead of guessing the errors from the source', () => {
+    const { system } = createAgentExchange(request(), budget).request;
+    expect(system).toContain(
+      'your first action is compile, before any read_file: you cannot compile in your head, and only its result shows the real errors and where they are;',
+    );
+  });
+
   it('shows every tool result in order, numbered like the lines the model may quote', () => {
     const { prompt } = createAgentExchange(request({ transcript: turns }), budget).request;
     expect(prompt).toContain('Result 1 (read_file refs.bib):\n1: @book{a,\n2: }');
