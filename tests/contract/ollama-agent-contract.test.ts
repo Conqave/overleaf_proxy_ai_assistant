@@ -362,6 +362,42 @@ const CASES: readonly Case[] = [
   },
 ];
 
+const RESULTS_REFERENCE = 'Wyniki pomiarów opisuje rozdział~\\ref{sec:results}.';
+const REFERENCED_TEXTS: ReadonlyMap<string, DocumentSnapshot> = new Map([
+  ...TEXTS,
+  [
+    MAIN,
+    createDocumentSnapshot(
+      getText(TEXTS, MAIN).lines.flatMap((line) =>
+        line === '\\input{chapters/results}' ? [RESULTS_REFERENCE, '', line] : [line],
+      ),
+    ),
+  ],
+]);
+
+const TITLE_LINE = lineOf(MAIN, '\\title{');
+const UNDONE_TITLE_HISTORY: readonly ConversationMessage[] = [
+  { id: 'u-0', role: 'user', text: 'zmień tytuł na Raport z laboratorium' },
+  {
+    id: 'p-0',
+    role: 'assistant',
+    kind: 'proposal',
+    edits: [
+      {
+        path: MAIN,
+        command: {
+          operation: 'replace',
+          target: { lineNumber: TITLE_LINE, lineText: lineText(MAIN, TITLE_LINE) },
+          lineCount: 1,
+          content: '\\title{Raport z laboratorium}',
+        },
+        status: 'undone',
+      },
+    ],
+  },
+  { id: 'n-0', role: 'undo', proposalId: 'p-0', undone: [MAIN], refused: [] },
+];
+
 const FILLER_TOPICS = [
   'tabel z biblioteką booktabs',
   'rysunków z pakietem graphicx',
@@ -568,6 +604,59 @@ describe('Ollama agent contract', () => {
         });
       }
       if (c.edit) expectEdit(c.texts, run, c.edit);
+    },
+    CASE_TIMEOUT_MS,
+  );
+
+  it(
+    'renames a label and its reference in another file in one change',
+    async () => {
+      const run = await runApplication(model, {
+        ...UNTOUCHED_PROJECT,
+        texts: REFERENCED_TEXTS,
+        name: 'label rename',
+        request:
+          'zmień etykietę sec:results na sec:measurements i popraw wszystkie odwołania do niej',
+      });
+      expect(run.result.kind).toBe('proposal');
+      if (run.result.kind !== 'proposal') return;
+      const edits = run.result.message.edits.map(({ path, command }) => ({
+        path,
+        line: command.target.lineNumber,
+        content: 'content' in command ? command.content : '',
+      }));
+      const referenceLine = getText(REFERENCED_TEXTS, MAIN).lines.indexOf(RESULTS_REFERENCE) + 1;
+      expect(edits).toHaveLength(2);
+      expect(edits).toContainEqual({
+        path: RESULTS,
+        line: lineOf(RESULTS, '\\label{sec:results}'),
+        content: textMatching(/^\\label\{sec:measurements\}$/),
+      });
+      expect(edits).toContainEqual({
+        path: MAIN,
+        line: referenceLine,
+        content: textMatching(/\\ref\{sec:measurements\}/),
+      });
+    },
+    CASE_TIMEOUT_MS,
+  );
+
+  it(
+    'knows that an undone change is no longer in the document',
+    async () => {
+      const run = await runApplication(
+        model,
+        {
+          ...UNTOUCHED_PROJECT,
+          name: 'undone title',
+          request: 'Jaki tytuł ma teraz dokument? Odpowiedz krótko.',
+        },
+        UNDONE_TITLE_HISTORY,
+      );
+      expect(run.result.message).toMatchObject({
+        kind: 'explanation',
+        text: textMatching(/Your Paper/),
+      });
     },
     CASE_TIMEOUT_MS,
   );
