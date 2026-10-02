@@ -114,6 +114,7 @@ export function importSessionExport(
     updatedAt: now,
     messages: messages.map(recordImportedMessage),
     imported: { path, lastMessageId: last.id },
+    contextUsage: null,
   });
 }
 

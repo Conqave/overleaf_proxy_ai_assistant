@@ -35,6 +35,7 @@ import { PendingChanges } from '../../../src/application/pending-change';
 import { PreviewChangeSetFile } from '../../../src/application/preview-change-set-file';
 import { RejectChangeSet } from '../../../src/application/reject-change-set';
 import { UndoChangeSet } from '../../../src/application/undo-change-set';
+import { ReadContextUsage } from '../../../src/application/read-context-usage';
 import { ReviewAppliedChange } from '../../../src/application/review-applied-change';
 import {
   WebSearchApproval,
@@ -707,6 +708,34 @@ describe('HandleAssistantRequest', () => {
     await expect(reject.execute(changeId, null, record)).rejects.toThrow(
       ChangeNoLongerPendingError,
     );
+  });
+});
+
+describe('context usage', () => {
+  it('keeps the last usage the main agent measured with the session', async () => {
+    agent.will(readBib(), answer('Read.'));
+    await send('read the bibliography');
+    expect(conversation.contextUsage).toMatchObject({ promptTokens: 2_000 });
+    expect(repository.only().contextUsage).toMatchObject({ promptTokens: 2_000 });
+    const read = new ReadContextUsage({ conversation, agent });
+    expect(read.execute()).toMatchObject({ promptTokens: 2_000 });
+    await startNew();
+    expect(read.execute()).toEqual(agent.idleUsage);
+  });
+
+  it('does not take the usage of a subagent for the session', async () => {
+    agent.will(
+      tool({ tool: 'delegate', task: 'Check every citation key', files: [] }),
+      answer('knuth84 is cited on line 4.'),
+      answer('Checked.'),
+    );
+    const seen: (number | undefined)[] = [];
+    agent.onDecide = () => {
+      seen.push(conversation.contextUsage?.promptTokens);
+    };
+    await send('check the citations');
+    expect(seen).toEqual([undefined, 1_000, 1_000]);
+    expect(conversation.contextUsage).toMatchObject({ promptTokens: 3_000 });
   });
 });
 

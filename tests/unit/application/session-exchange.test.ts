@@ -166,6 +166,7 @@ describe('ImportSession', () => {
         proposalOf('p2', editWith('main.tex', command, EditStatus.Discarded)),
       ],
       imported: { path: EXPORT_PATH, lastMessageId: 'p2' },
+      contextUsage: null,
     });
     expect(collaborator.conversation.sessionId).toBe('imported-1');
     expect(collaborator.conversation.messages()).toEqual(imported?.messages);

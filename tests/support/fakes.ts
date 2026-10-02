@@ -153,7 +153,11 @@ export class FakeAgent implements AgentPort {
 
 export const FAKE_MESSAGE_TOKENS = 1_000;
 
-export const EMPTY_CONVERSATION: ConversationView = { summary: null, messages: [], imported: null };
+export const EMPTY_CONVERSATION: ConversationView = {
+  summary: null,
+  messages: [],
+  imported: null,
+};
 
 export function coverAllButLastTurn(trigger: CompactionTrigger): CompactionPlan | null {
   const { messages } = trigger.kind === 'manual' ? trigger.conversation : trigger.step.conversation;
@@ -387,7 +391,15 @@ export function storedSession(
   messages: readonly ConversationMessage[],
   updatedAt = 1,
 ): ConversationSession {
-  return { id, title: `Session ${id}`, createdAt: 0, updatedAt, messages, imported: null };
+  return {
+    id,
+    title: `Session ${id}`,
+    createdAt: 0,
+    updatedAt,
+    messages,
+    imported: null,
+    contextUsage: null,
+  };
 }
 
 export function sequentialIds(prefix = 'id'): () => string {

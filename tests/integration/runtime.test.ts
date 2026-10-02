@@ -1079,6 +1079,7 @@ async function storedConversation(messages: ConversationMessage[]): Promise<IDBF
     updatedAt: 2,
     messages,
     imported: null,
+    contextUsage: null,
   });
   return sessions;
 }

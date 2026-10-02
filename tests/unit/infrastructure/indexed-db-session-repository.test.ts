@@ -220,7 +220,15 @@ const messages: ConversationMessage[] = [
 ];
 
 function session(id: string, updatedAt = 20): ConversationSession {
-  return { id, title: `Session ${id}`, createdAt: 10, updatedAt, messages, imported: null };
+  return {
+    id,
+    title: `Session ${id}`,
+    createdAt: 10,
+    updatedAt,
+    messages,
+    imported: null,
+    contextUsage: null,
+  };
 }
 
 let factory: IDBFactory;
@@ -295,6 +303,7 @@ describe('IndexedDbSessionRepository', () => {
         messageCount: messages.length,
         messages,
         imported: null,
+        contextUsage: null,
       },
     ]);
   });
@@ -308,9 +317,21 @@ describe('IndexedDbSessionRepository', () => {
     await expect(repository.load('a')).resolves.toEqual(imported);
   });
 
+  it('keeps the last context usage of a session', async () => {
+    const measured = {
+      ...session('a'),
+      contextUsage: { contextTokens: 98_304, promptTokens: 4_000, pressure: 'low' as const },
+    };
+    await repository.save(measured);
+    await expect(repository.load('a')).resolves.toEqual(measured);
+  });
+
   it('reads a session stored before imports were marked as not imported', async () => {
     await storeRaw(rawRecord({}));
-    await expect(repository.load('raw')).resolves.toMatchObject({ imported: null });
+    await expect(repository.load('raw')).resolves.toMatchObject({
+      imported: null,
+      contextUsage: null,
+    });
   });
 
   it('replaces a session saved again', async () => {
@@ -358,6 +379,10 @@ describe('IndexedDbSessionRepository', () => {
     ['with a count that does not match its messages', { messageCount: 2 }],
     ['with an empty title', { title: '' }],
     ['with an imported marker without its last message', { imported: { path: 'a.json' } }],
+    [
+      'with a context usage of an unknown pressure',
+      { contextUsage: { contextTokens: 98_304, promptTokens: 10, pressure: 'extreme' } },
+    ],
     ['with an imported marker of an invalid path', { imported: { path: '', lastMessageId: 'u' } }],
     ['with a negative timestamp', { createdAt: -1 }],
     ['with a fractional timestamp', { updatedAt: 1.5 }],
@@ -580,6 +605,7 @@ describe('IndexedDbSessionRepository', () => {
       updatedAt: 2,
       messages: [{ id: 'u', role: 'user', text: 'hi' }],
       imported: null,
+      contextUsage: null,
     });
   });
 

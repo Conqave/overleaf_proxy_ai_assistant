@@ -16,6 +16,7 @@ import {
   RestoreLatestSession,
   StartNewConversation,
 } from '../../../src/application/conversation-session';
+import { ReadContextUsage } from '../../../src/application/read-context-usage';
 import { composeRequestHandling } from '../../support/request-handling';
 import { OperationLock } from '../../../src/application/operation-lock';
 import { PendingChanges } from '../../../src/application/pending-change';
@@ -139,6 +140,7 @@ async function openAssistantWith(
   };
   const controller = new AssistantController({
     handleRequest,
+    readContextUsage: new ReadContextUsage({ conversation, agent }),
     lock,
     applyChange: new ApplyChangeSet({ ...changeSetDeps, conversation, lock }),
     rejectChange: new RejectChangeSet({ ...changeSetDeps, lock }),
@@ -448,6 +450,27 @@ describe('AssistantController web search', () => {
     );
     expect(texts('.ola-web-search-title')).toEqual([`Web search: ${QUERY}`]);
     expect(texts('.ola-web-search .ola-result-meta')).toEqual(['2 results · excerpts shortened']);
+  });
+});
+
+describe('AssistantController context usage', () => {
+  const usage = { contextTokens: 98_304, promptTokens: 5_000, pressure: 'low' } as const;
+
+  it('shows the last usage of a reopened session and none for a new one', async () => {
+    const { controller, texts } = await openAssistant(
+      { ...storedSession('older', [{ id: 'o', role: 'user', text: 'Explain.' }], 1) },
+      {
+        ...storedSession('latest', [{ id: 'l', role: 'user', text: 'Explain more.' }], 2),
+        contextUsage: usage,
+      },
+    );
+    expect(texts('.ola-context')).toEqual(['Context 5.0k / 98.3k']);
+    await controller.openSession('older');
+    expect(texts('.ola-context')).toEqual(['Context 0 / 98.3k']);
+    await controller.openSession('latest');
+    expect(texts('.ola-context')).toEqual(['Context 5.0k / 98.3k']);
+    await controller.newConversation();
+    expect(texts('.ola-context')).toEqual(['Context 0 / 98.3k']);
   });
 });
 

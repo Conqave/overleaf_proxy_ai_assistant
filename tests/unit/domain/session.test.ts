@@ -82,6 +82,7 @@ describe('session', () => {
       updatedAt: 100,
       messages: [first],
       imported: null,
+      contextUsage: null,
     });
     const continued = appendToSession(started, answer, 250);
     expect(continued.messages).toEqual([first, answer]);

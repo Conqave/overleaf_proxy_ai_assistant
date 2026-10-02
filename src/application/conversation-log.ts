@@ -5,6 +5,7 @@ import {
   type ImportedHistory,
   type ProposalMessage,
 } from '../domain/conversation';
+import type { ContextUsage } from '../domain/context-usage';
 import { InvariantViolation } from '../domain/errors';
 import {
   appendToSession,
@@ -12,6 +13,7 @@ import {
   hasUndecidedProposals,
   holdsUntrustedContent,
   holdsUntrustedContentSince,
+  recordContextUsage,
   replaceInSession,
   startSession,
   type ConversationSession,
@@ -102,6 +104,17 @@ export class ConversationLog {
     const updated = { ...proposal, edits: update(proposal.edits) };
     this.update(replaceInSession(session, updated, this.deps.now()));
     return updated;
+  }
+
+  get contextUsage(): ContextUsage | null {
+    return this.current === null ? null : this.current.contextUsage;
+  }
+
+  recordContextUsage(contextUsage: ContextUsage): void {
+    if (this.current === null) {
+      throw new InvariantViolation('the context was measured outside of a session');
+    }
+    this.update(recordContextUsage(this.current, contextUsage));
   }
 
   async takePersistenceFailure(): Promise<PersistenceError | null> {

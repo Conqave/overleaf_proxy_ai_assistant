@@ -16,6 +16,7 @@ import { HandleAssistantRequest } from '../application/handle-assistant-request'
 import { OperationLock } from '../application/operation-lock';
 import { PendingChanges } from '../application/pending-change';
 import { PreviewChangeSetFile } from '../application/preview-change-set-file';
+import { ReadContextUsage } from '../application/read-context-usage';
 import { ProjectTools } from '../application/project-tools';
 import { RejectChangeSet } from '../application/reject-change-set';
 import { UndoChangeSet } from '../application/undo-change-set';
@@ -127,7 +128,7 @@ function compose(
     lock,
     newId,
   });
-  const handleRequest = new HandleAssistantRequest({ agent, conversationAgent, lock });
+  const handleRequest = new HandleAssistantRequest({ conversationAgent, lock });
   const review = new ReviewAppliedChange({ project, conversationAgent });
   const sessionDeps = { sessions, conversation, pendingChanges, lock };
   const changeSetDeps = { project, editor, pendingChanges, review };
@@ -142,6 +143,7 @@ function compose(
 
   const controller = new AssistantController({
     handleRequest,
+    readContextUsage: new ReadContextUsage({ conversation, agent }),
     applyChange: new ApplyChangeSet({ ...changeSetDeps, conversation, lock }),
     lock,
     rejectChange: new RejectChangeSet({ ...changeSetDeps, lock }),

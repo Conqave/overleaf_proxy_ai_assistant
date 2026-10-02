@@ -52,6 +52,7 @@ import {
   type WebSearchResult,
 } from '../../domain/web-search';
 import { createProjectPath } from '../../domain/project-file';
+import { isContextPressure, type ContextUsage } from '../../domain/context-usage';
 import type { ConversationSession, SessionScope } from '../../domain/session';
 import type { ExportedSession } from '../../domain/session-export';
 import {
@@ -357,6 +358,7 @@ export interface StoredSession {
   readonly messageCount: number;
   readonly messages: readonly ConversationMessage[];
   readonly imported: ImportedHistory | null;
+  readonly contextUsage: ContextUsage | null;
 }
 
 export function toStoredSession(session: ConversationSession, scope: SessionScope): StoredSession {
@@ -370,6 +372,7 @@ export function toStoredSession(session: ConversationSession, scope: SessionScop
     messageCount: session.messages.length,
     messages: session.messages,
     imported: session.imported,
+    contextUsage: session.contextUsage,
   };
 }
 
@@ -397,7 +400,26 @@ export function parseStoredSession(data: unknown, scope: SessionScope): Conversa
   if (getNonNegativeInteger(fields, 'messageCount') !== content.messages.length) {
     throw new UnknownStoredFormatError('messageCount does not match the messages');
   }
-  return { id: getString(fields, 'id'), ...content, imported: parseImported(fields) };
+  return {
+    id: getString(fields, 'id'),
+    ...content,
+    imported: parseImported(fields),
+    contextUsage: parseContextUsage(fields),
+  };
+}
+
+function parseContextUsage(fields: Map<string, unknown>): ContextUsage | null {
+  if (!fields.has('contextUsage')) return null;
+  const value = fields.get('contextUsage');
+  if (value === null) return null;
+  const usage = getFields(value);
+  const pressure = usage.get('pressure');
+  if (!isContextPressure(pressure)) throw new UnknownStoredFormatError('unknown context pressure');
+  return {
+    contextTokens: getPositiveInteger(usage, 'contextTokens'),
+    pressure,
+    promptTokens: getNonNegativeInteger(usage, 'promptTokens'),
+  };
 }
 
 function parseImported(fields: Map<string, unknown>): ImportedHistory | null {

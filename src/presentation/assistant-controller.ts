@@ -11,6 +11,7 @@ import type {
 } from '../application/conversation-session';
 import type { AgentResult } from '../application/conversation-agent';
 import type { HandleAssistantRequest } from '../application/handle-assistant-request';
+import type { ReadContextUsage } from '../application/read-context-usage';
 import type { ContextUsage } from '../domain/context-usage';
 import type { AgentProgress } from '../application/agent-progress';
 import { RequestSupersededError } from '../application/errors';
@@ -40,6 +41,7 @@ import {
 
 export interface UseCases {
   handleRequest: HandleAssistantRequest;
+  readContextUsage: ReadContextUsage;
   applyChange: ApplyChangeSet;
   lock: Pick<OperationLock, 'onChange'>;
   rejectChange: RejectChangeSet;
@@ -250,12 +252,12 @@ export class AssistantController implements ViewEvents {
 
   private showConversation(view: AssistantView): void {
     view.showConversation(this.useCases.conversation.messages());
-    this.showUnusedContext(view);
+    this.showStoredContextUsage(view);
     this.showCompactable(view);
   }
 
-  private showUnusedContext(view: AssistantView): void {
-    this.showContextUsage(view, this.useCases.handleRequest.getUnusedContext());
+  private showStoredContextUsage(view: AssistantView): void {
+    this.showContextUsage(view, this.useCases.readContextUsage.execute());
   }
 
   private showCompactable(view: AssistantView): void {

@@ -120,7 +120,10 @@ export class ConversationAgent {
         },
       },
       signal,
-      onProgress,
+      onProgress: (progress) => {
+        if (progress.stage === 'measured') conversation.recordContextUsage(progress.contextUsage);
+        onProgress(progress);
+      },
     });
     return await this.answer(reply, contextUsage, run);
   }

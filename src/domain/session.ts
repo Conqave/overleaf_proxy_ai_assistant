@@ -7,6 +7,7 @@ import {
   type UserMessage,
 } from './conversation';
 import { countCoveredMessages } from './conversation-view';
+import type { ContextUsage } from './context-usage';
 import { InvariantViolation } from './errors';
 import { carriesWebContent } from './web-search';
 
@@ -33,6 +34,7 @@ export interface ConversationSession {
   readonly updatedAt: number;
   readonly messages: readonly ConversationMessage[];
   readonly imported: ImportedHistory | null;
+  readonly contextUsage: ContextUsage | null;
 }
 
 export function createSessionTitle(request: string): string {
@@ -50,6 +52,7 @@ export function startSession(id: string, first: UserMessage, now: number): Conve
     updatedAt: now,
     messages: [first],
     imported: null,
+    contextUsage: null,
   };
 }
 
@@ -66,6 +69,13 @@ function dropCoveredExcess(messages: ConversationMessage[]): ConversationMessage
   const excess = messages.length - MAX_SESSION_MESSAGES;
   if (excess <= 0) return messages;
   return messages.slice(Math.min(excess, countCoveredMessages(messages)));
+}
+
+export function recordContextUsage(
+  session: ConversationSession,
+  contextUsage: ContextUsage,
+): ConversationSession {
+  return { ...session, contextUsage };
 }
 
 export function replaceInSession(

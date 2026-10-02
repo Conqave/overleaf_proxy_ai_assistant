@@ -29,7 +29,15 @@ const EXPORTED_AT = new Date(2026, 9, 2, 7, 5).getTime();
 const LATER_EXPORT = new Date(2026, 9, 2, 7, 5, 42).getTime();
 
 function sessionTitled(title: string): ConversationSession {
-  return { id: 's1', title, createdAt: 10, updatedAt: 20, messages: [first], imported: null };
+  return {
+    id: 's1',
+    title,
+    createdAt: 10,
+    updatedAt: 20,
+    messages: [first],
+    imported: null,
+    contextUsage: null,
+  };
 }
 
 const PATH = 'hans-sessions/2026-10-02-070500-add-a-table.json';
@@ -107,6 +115,7 @@ describe('session import', () => {
       updatedAt: 99,
       messages: [first, proposalOf('p1', editWith('main.tex', command, EditStatus.Discarded))],
       imported: { path: PATH, lastMessageId: 'p1' },
+      contextUsage: null,
     });
   });
 
