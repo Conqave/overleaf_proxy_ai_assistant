@@ -44,6 +44,19 @@ export interface ProposalMessage {
   readonly edits: readonly ProposedEdit[];
 }
 
+export interface UndoRefusal {
+  readonly path: string;
+  readonly problem: string;
+}
+
+export interface UndoMessage {
+  readonly id: string;
+  readonly role: 'undo';
+  readonly proposalId: string;
+  readonly undone: readonly string[];
+  readonly refused: readonly UndoRefusal[];
+}
+
 export type AssistantMessage = ReplyMessage | ProposalMessage;
 
 export interface ToolMessage {
@@ -76,7 +89,7 @@ export type RequestMessage = UserMessage | SystemRequestMessage;
 
 export type ChatMessage = RequestMessage | AssistantMessage;
 
-export type ExchangeMessage = ChatMessage | ToolMessage;
+export type ExchangeMessage = ChatMessage | ToolMessage | UndoMessage;
 
 export type ConversationMessage = ExchangeMessage | CompactionSummaryMessage;
 

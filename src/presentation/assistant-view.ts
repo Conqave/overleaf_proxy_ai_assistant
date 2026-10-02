@@ -1,5 +1,6 @@
 import type { SessionList } from '../application/conversation-session';
 import {
+  canUndoEdits,
   EditStatus,
   findPendingEdits,
   groupEditsByPath,
@@ -13,6 +14,7 @@ import {
   type CompactionSummaryMessage,
   type ConversationMessage,
   type ProposalMessage,
+  type UndoMessage,
 } from '../domain/conversation';
 import { DocumentOperation } from '../domain/document-command';
 import type { ContextPressure } from '../application/handle-assistant-request';
@@ -30,16 +32,19 @@ import {
   messageMeta,
   messageTitle,
   sessionDetails,
+  undoNotice,
+  undoRefusalNotice,
   VIEW_TEXT,
 } from './message-format';
 
-type ShownMessage = ChatMessage | CompactionSummaryMessage;
+type ShownMessage = ChatMessage | CompactionSummaryMessage | UndoMessage;
 
 export interface ViewEvents {
   send(text: string): Promise<void>;
   apply(proposalId: string, index: number | null): Promise<void>;
   reject(proposalId: string, index: number | null): Promise<void>;
   previewFile(proposalId: string, path: string): Promise<void>;
+  undo(proposalId: string): Promise<void>;
   newConversation(): Promise<void>;
   showSessions(): Promise<void>;
   openSession(id: string): Promise<void>;
@@ -250,6 +255,8 @@ export class AssistantView {
     switch (message.role) {
       case 'summary':
         return this.renderSummary(message);
+      case 'undo':
+        return this.renderUndo(message);
       case 'user':
         return this.el('div', 'ola-msg ola-user', message.text);
       case 'system':
@@ -283,6 +290,15 @@ export class AssistantView {
   private renderMarkdown(className: string, text: string): HTMLElement {
     const node = this.el('div', `${className} ola-markdown`);
     node.append(this.markdown.render(text));
+    return node;
+  }
+
+  private renderUndo(message: UndoMessage): HTMLElement {
+    const node = this.el('div', 'ola-msg ola-system ola-undo-notice');
+    node.append(this.el('div', undefined, undoNotice(message)));
+    for (const refusal of message.refused) {
+      node.append(this.el('div', 'ola-error', undoRefusalNotice(refusal)));
+    }
     return node;
   }
 
@@ -389,6 +405,15 @@ export class AssistantView {
   }
 
   private renderCardActions(message: ProposalMessage): HTMLElement | null {
+    if (canUndoEdits(message.edits)) {
+      const actions = this.el('div', 'ola-result-actions');
+      const undo = this.actionButton('ola-btn ola-undo', VIEW_TEXT.undo, () =>
+        this.events.undo(message.id),
+      );
+      undo.title = VIEW_TEXT.undoHint;
+      actions.append(undo);
+      return actions;
+    }
     if (findPendingEdits(message.edits).length === 0) return null;
     const isSingle = message.edits.length === 1;
     const actions = this.el('div', 'ola-result-actions');

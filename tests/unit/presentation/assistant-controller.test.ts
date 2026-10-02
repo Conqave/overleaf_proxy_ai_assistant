@@ -16,6 +16,7 @@ import { OperationLock } from '../../../src/application/operation-lock';
 import { PendingChanges } from '../../../src/application/pending-change';
 import { PreviewChangeSetFile } from '../../../src/application/preview-change-set-file';
 import { RejectChangeSet } from '../../../src/application/reject-change-set';
+import { UndoChangeSet } from '../../../src/application/undo-change-set';
 import { ReviewAppliedChange } from '../../../src/application/review-applied-change';
 import type { AgentDecision } from '../../../src/domain/agent-action';
 import type { CompileDiagnostic } from '../../../src/domain/agent-transcript';
@@ -124,6 +125,7 @@ async function openAssistantWith(
       conversation,
       lock,
     }),
+    undoChange: new UndoChangeSet({ project, editor, conversation, lock, newId }),
     compactConversation: new CompactConversation({ compactor, conversation, lock }),
     restoreSession: new RestoreLatestSession(sessionDeps),
     startNewConversation: new StartNewConversation(sessionDeps),
@@ -354,7 +356,7 @@ describe('AssistantController change sets', () => {
   });
 
   it('applies one edit, keeps the other open and compiles after the last decision', async () => {
-    const { window, project, editor, texts, click, clickInFile } = await proposeTwoFiles();
+    const { project, editor, texts, click, clickInFile } = await proposeTwoFiles();
     project.willCompile([]);
     clickInFile(1, '.ola-apply-edit');
     await vi.waitFor(() => {
@@ -369,7 +371,7 @@ describe('AssistantController change sets', () => {
       expect(texts('.ola-system')).toContain('Compiled without errors.');
     });
     expect(texts('.ola-ai > .ola-result-status')).toEqual(['1 applied · 1 rejected']);
-    expect(window.document.querySelectorAll('.ola-ai button')).toHaveLength(0);
+    expect(texts('.ola-ai button')).toEqual(['Undo this turn']);
     expect(project.savedDocument('main.tex')).toEqual(['\\cite{knuth84}']);
   });
 
@@ -388,6 +390,36 @@ describe('AssistantController change sets', () => {
       'Not applied in refs.bib: The document changed after the suggestion was made. Ask again to get a fresh suggestion.',
     ]);
     expect(texts('.ola-ai > .ola-result-status')).toEqual(['1 applied · 1 not applied']);
+  });
+
+  it('undoes the applied edits of a turn and records it as a notice', async () => {
+    const { controller, project, editor, changeId, texts } = await proposeTwoFiles();
+    project.willCompile([]);
+    await controller.apply(changeId, null);
+    expect(texts('.ola-undo')).toEqual(['Undo this turn']);
+    await controller.undo(changeId);
+    expect(editor.lines).toEqual(BIB);
+    expect(project.savedDocument('main.tex')).toEqual(['\\cite{knuth84}']);
+    expect(texts('.ola-ai > .ola-result-status')).toEqual(['Undone']);
+    expect(texts('.ola-undo-notice')).toEqual([
+      'Undone: main.tex, refs.bib are back as before this change.',
+    ]);
+    expect(texts('.ola-undo')).toEqual([]);
+  });
+
+  it('refuses to undo a file changed since and says so in the notice', async () => {
+    const { controller, project, editor, changeId, texts } = await proposeTwoFiles();
+    project.willCompile([]);
+    await controller.apply(changeId, null);
+    editor.lines[2] = '@book{knuth84, edited}';
+    await controller.undo(changeId);
+    expect(editor.lines).toEqual([...BIB, '@book{knuth84, edited}']);
+    expect(texts('.ola-undo-notice > div')).toEqual([
+      'Undone: main.tex is back as before this change.',
+      'Not undone in refs.bib: refs.bib changed after Hans edited it: line 3 no longer holds the text Hans wrote there, so this file was left as it is.',
+    ]);
+    expect(texts('.ola-ai > .ola-result-status')).toEqual(['1 applied · 1 undone']);
+    expect(texts('.ola-undo')).toEqual(['Undo this turn']);
   });
 
   it('previews the edits of another file on demand', async () => {

@@ -506,12 +506,16 @@
   background: rgba(148, 163, 184, 0.18);
   color: #cbd5e1;
 }
+#ola-root .ola-result-status.is-undone {
+  background: rgba(192, 132, 252, 0.18);
+  color: #d8b4fe;
+}
 #ola-root .ola-result-status.is-partial {
   background: rgba(96, 165, 250, 0.18);
   color: #93c5fd;
 }
 #ola-root
-  :is(.ola-ai, .ola-edit):is(.is-applied, .is-rejected, .is-failed, .is-discarded)
+  :is(.ola-ai, .ola-edit):is(.is-applied, .is-rejected, .is-failed, .is-discarded, .is-undone)
   .ola-result-body {
   opacity: 0.6;
 }
@@ -578,6 +582,9 @@
 }
 #ola-root :is(.ola-reject, .ola-reject-edit) {
   background: #e74c3c;
+}
+#ola-root .ola-undo {
+  background: #7c3aed;
 }
 #ola-root .ola-error {
   color: #ff7675;

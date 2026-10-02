@@ -1,7 +1,12 @@
 import type { AgentProgress, ApplyReport, FileConflict } from '../application/agent-progress';
 import type { ContextUsage } from '../application/handle-assistant-request';
 import { EditStatus, type EditRequest, type ProposedEdit } from '../domain/change-set';
-import type { AssistantMessage, CompactionSummaryMessage } from '../domain/conversation';
+import type {
+  AssistantMessage,
+  CompactionSummaryMessage,
+  UndoMessage,
+  UndoRefusal,
+} from '../domain/conversation';
 import { DocumentOperation, type DocumentCommand } from '../domain/document-command';
 import type { SessionSummary } from '../domain/session';
 
@@ -47,6 +52,8 @@ export const VIEW_TEXT = {
   rejectAll: 'Reject all',
   showFile: 'Show in editor',
   showFileHint: 'Open this file and preview its open edits',
+  undo: 'Undo this turn',
+  undoHint: 'Take back every edit Hans applied in this change',
   contextHint: 'Tokens of the last prompt sent to the model / context window of the model',
   welcomeTitle: 'Ready to help with this document',
   welcomeCopy:
@@ -71,6 +78,7 @@ const EDIT_STATUS_TEXT: Record<EditStatus, string | undefined> = {
   [EditStatus.Rejected]: 'Rejected',
   [EditStatus.Failed]: 'Not applied',
   [EditStatus.Discarded]: 'Discarded',
+  [EditStatus.Undone]: 'Undone',
 };
 
 const EDIT_STATUS_COUNT: Record<EditStatus, string> = {
@@ -79,6 +87,7 @@ const EDIT_STATUS_COUNT: Record<EditStatus, string> = {
   [EditStatus.Rejected]: 'rejected',
   [EditStatus.Failed]: 'not applied',
   [EditStatus.Discarded]: 'discarded',
+  [EditStatus.Undone]: 'undone',
 };
 
 const STATUS_COUNT_ORDER: readonly EditStatus[] = [
@@ -86,6 +95,7 @@ const STATUS_COUNT_ORDER: readonly EditStatus[] = [
   EditStatus.Rejected,
   EditStatus.Failed,
   EditStatus.Discarded,
+  EditStatus.Undone,
   EditStatus.Proposed,
 ];
 
@@ -173,6 +183,15 @@ function singleEditNotice({ path, command }: EditRequest): string {
         ? `Done. Line deleted in ${path}.`
         : `Done. ${String(command.lineCount)} lines deleted in ${path}.`;
   }
+}
+
+export function undoNotice({ undone }: UndoMessage): string {
+  if (undone.length === 0) return 'Nothing was undone.';
+  return `Undone: ${undone.join(', ')} ${undone.length === 1 ? 'is' : 'are'} back as before this change.`;
+}
+
+export function undoRefusalNotice({ path, problem }: UndoRefusal): string {
+  return `Not undone in ${path}: ${problem}`;
 }
 
 export function conflictNotice({ path, problem }: FileConflict): string {

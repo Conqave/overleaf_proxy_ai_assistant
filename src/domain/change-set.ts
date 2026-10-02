@@ -9,6 +9,7 @@ export const EditStatus = {
   Rejected: 'rejected',
   Failed: 'failed',
   Discarded: 'discarded',
+  Undone: 'undone',
 } as const;
 export type EditStatus = (typeof EditStatus)[keyof typeof EditStatus];
 
@@ -79,6 +80,32 @@ export function hasPendingEdits(edits: readonly ProposedEdit[]): boolean {
 
 export function hasAppliedEdits(edits: readonly ProposedEdit[]): boolean {
   return edits.some((edit) => edit.status === EditStatus.Applied);
+}
+
+export function canUndoEdits(edits: readonly ProposedEdit[]): boolean {
+  return hasAppliedEdits(edits) && !hasPendingEdits(edits);
+}
+
+export function getUndoOrder(edits: readonly ProposedEdit[], path: string): readonly AppliedEdit[] {
+  return edits
+    .flatMap((edit, index) =>
+      edit.status === EditStatus.Applied && edit.path === path
+        ? [{ index, applied: edit.applied }]
+        : [],
+    )
+    .sort((a, b) => b.applied.sequence - a.applied.sequence);
+}
+
+export function recordUndoneEdits(
+  edits: readonly ProposedEdit[],
+  indexes: readonly number[],
+): readonly ProposedEdit[] {
+  return updateEdits(edits, indexes, (edit) => {
+    if (edit.status !== EditStatus.Applied) {
+      throw new InvariantViolation(`an edit that is ${edit.status} cannot be undone`);
+    }
+    return { path: edit.path, command: edit.command, status: EditStatus.Undone };
+  });
 }
 
 export function groupEditsByPath(edits: readonly ProposedEdit[]): readonly FileEdits[] {

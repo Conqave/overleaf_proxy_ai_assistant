@@ -10,6 +10,7 @@ import {
   isReplyKind,
   type CompactionSummaryMessage,
   type ConversationMessage,
+  type UndoRefusal,
 } from '../../domain/conversation';
 import { createCompactionSummaryMessage, createFileActivity } from '../../domain/conversation-view';
 import { AgentTool } from '../../domain/agent-action';
@@ -47,6 +48,15 @@ function parseMessage(value: unknown): ConversationMessage {
   if (role === 'user' || role === 'system') return { id, role, text: getString(fields, 'text') };
   if (role === 'tool') return { id, role, record: parseRecord(fields.get('record')) };
   if (role === 'summary') return parseSummary(id, fields);
+  if (role === 'undo') {
+    return {
+      id,
+      role,
+      proposalId: getString(fields, 'proposalId'),
+      undone: getArray(fields, 'undone').map(parsePath),
+      refused: getArray(fields, 'refused').map(parseRefusal),
+    };
+  }
   if (role !== 'assistant') throw new UnknownStoredFormatError('unknown role');
   const kind = fields.get('kind');
   if (kind === AssistantMessageKind.Proposal) {
@@ -54,6 +64,11 @@ function parseMessage(value: unknown): ConversationMessage {
   }
   if (!isReplyKind(kind)) throw new UnknownStoredFormatError('unknown message kind');
   return { id, role, kind, text: getString(fields, 'text') };
+}
+
+function parseRefusal(value: unknown): UndoRefusal {
+  const fields = getFields(value);
+  return { path: parsePath(fields.get('path')), problem: getString(fields, 'problem') };
 }
 
 function parseEdits(values: readonly unknown[]): readonly ProposedEdit[] {

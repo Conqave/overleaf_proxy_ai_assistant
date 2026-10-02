@@ -14,6 +14,7 @@ import { OperationLock } from '../application/operation-lock';
 import { PendingChanges } from '../application/pending-change';
 import { PreviewChangeSetFile } from '../application/preview-change-set-file';
 import { RejectChangeSet } from '../application/reject-change-set';
+import { UndoChangeSet } from '../application/undo-change-set';
 import { ReviewAppliedChange } from '../application/review-applied-change';
 import { createUuid } from '../infrastructure/browser/uuid';
 import { OllamaAgent } from '../infrastructure/ollama/ollama-agent';
@@ -103,6 +104,7 @@ function compose(
       conversation,
       lock,
     }),
+    undoChange: new UndoChangeSet({ project, editor, conversation, lock, newId }),
     compactConversation: new CompactConversation({ compactor, conversation, lock }),
     restoreSession: new RestoreLatestSession(sessionDeps),
     startNewConversation: new StartNewConversation(sessionDeps),

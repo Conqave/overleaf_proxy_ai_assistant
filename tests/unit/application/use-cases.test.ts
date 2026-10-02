@@ -16,6 +16,8 @@ import {
   ChangeNoLongerPendingError,
   EmptyRequestError,
   NothingToCompactError,
+  NothingToUndoError,
+  UndecidedEditsError,
   RequestInProgressError,
   RequestSupersededError,
 } from '../../../src/application/errors';
@@ -29,6 +31,7 @@ import { PARALLEL_SEARCH_READS } from '../../../src/application/project-tools';
 import { PendingChanges } from '../../../src/application/pending-change';
 import { PreviewChangeSetFile } from '../../../src/application/preview-change-set-file';
 import { RejectChangeSet } from '../../../src/application/reject-change-set';
+import { UndoChangeSet } from '../../../src/application/undo-change-set';
 import { ReviewAppliedChange } from '../../../src/application/review-applied-change';
 import type { AgentDecision, ToolCall } from '../../../src/domain/agent-action';
 import type { EditRequest } from '../../../src/domain/change-set';
@@ -84,6 +87,7 @@ let handle: HandleAssistantRequest;
 let apply: ApplyChangeSet;
 let reject: RejectChangeSet;
 let preview: PreviewChangeSetFile;
+let undo: UndoChangeSet;
 let review: ReviewAppliedChange;
 let lock: OperationLock;
 let progress: AgentProgress[];
@@ -200,6 +204,7 @@ beforeEach(() => {
   apply = new ApplyChangeSet({ ...changeSetDeps, conversation, lock });
   reject = new RejectChangeSet({ ...changeSetDeps, lock });
   preview = new PreviewChangeSetFile({ project, editor, pendingChanges, conversation, lock });
+  undo = new UndoChangeSet({ project, editor, conversation, lock, newId });
   progress = [];
 });
 
@@ -1181,10 +1186,10 @@ describe('change sets', () => {
   const latest = () => conversation.messages().at(-1);
   const proposeBatch = () => proposeEdit(readBib(), editsOf(addIntro, changeNumbers, addBook));
   const statuses = () => {
-    const message = latest();
-    if (message?.role !== 'assistant' || message.kind !== 'proposal') {
-      throw new TestFixtureError('the conversation ends without a proposal');
-    }
+    const message = conversation
+      .messages()
+      .findLast((shown) => shown.role === 'assistant' && shown.kind === 'proposal');
+    if (message === undefined) throw new TestFixtureError('the conversation has no proposal');
     return message.edits.map(({ status }) => status);
   };
   const editBib = (line: string) => {
@@ -1289,6 +1294,92 @@ describe('change sets', () => {
       ChangeNoLongerPendingError,
     );
     expect(statuses()).toEqual(['proposed', 'proposed', 'rejected']);
+  });
+
+  it('undoes every applied edit of a turn per file and tells the model', async () => {
+    project.willCompile([]);
+    const changeId = await proposeBatch();
+    await apply.execute(changeId, null, record);
+    progress = [];
+    const { message, notice } = await undo.execute(changeId, record);
+    expect(project.savedDocument('main.tex')).toEqual(MAIN);
+    expect(editor.lines).toEqual(BIB);
+    expect(statuses()).toEqual(['undone', 'undone', 'undone']);
+    expect(message).toEqual(conversation.messages().at(-2));
+    expect(notice).toEqual({
+      id: notice.id,
+      role: 'undo',
+      proposalId: changeId,
+      undone: ['main.tex', 'refs.bib'],
+      refused: [],
+    });
+    expect(storedMessages().at(-1)).toEqual(notice);
+    expect(progress.filter(({ stage }) => stage === 'decided')).toHaveLength(2);
+    agent.will(answer('Noted.'));
+    await send('what happened?');
+    expect(requestAt(-1).conversation.messages).toContainEqual(notice);
+    await expect(undo.execute(changeId, record)).rejects.toThrow(NothingToUndoError);
+  });
+
+  it('undoes edits applied one by one, the later ones first', async () => {
+    project.willCompile([]);
+    const changeId = await proposeBatch();
+    await apply.execute(changeId, [1], record);
+    await apply.execute(changeId, [0], record);
+    await reject.execute(changeId, [2], record);
+    await undo.execute(changeId, record);
+    expect(editor.lines).toEqual(MAIN);
+    expect(statuses()).toEqual(['undone', 'undone', 'rejected']);
+  });
+
+  it('refuses to undo a file whose written text changed and undoes the others', async () => {
+    project.willCompile([]);
+    const changeId = await proposeBatch();
+    await apply.execute(changeId, null, record);
+    editor.lines[3] = '@book{knuth84, edited}';
+    const { notice } = await undo.execute(changeId, record);
+    expect(notice.undone).toEqual(['main.tex']);
+    expect(notice.refused).toEqual([
+      {
+        path: 'refs.bib',
+        problem:
+          'refs.bib changed after Hans edited it: line 4 no longer holds the text Hans wrote there, so this file was left as it is.',
+      },
+    ]);
+    expect(editor.lines).toEqual([...BIB, '@book{knuth84, edited}']);
+    expect(project.savedDocument('main.tex')).toEqual(MAIN);
+    expect(statuses()).toEqual(['undone', 'undone', 'applied']);
+  });
+
+  it('refuses to undo a turn with open edits or nothing applied', async () => {
+    project.willCompile([]);
+    const changeId = await proposeBatch();
+    await expect(undo.execute(changeId, record)).rejects.toThrow(UndecidedEditsError);
+    await apply.execute(changeId, [0], record);
+    await expect(undo.execute(changeId, record)).rejects.toThrow(UndecidedEditsError);
+    const rejected = await proposeEdit(readBib(), bibEdit());
+    await reject.execute(rejected, null, record);
+    await expect(undo.execute(rejected, record)).rejects.toThrow(NothingToUndoError);
+    expect(editor.applied).toHaveLength(1);
+  });
+
+  it('undoes under the operation lock and records what it did before a failure', async () => {
+    project.willCompile([]);
+    const changeId = await proposeBatch();
+    await apply.execute(changeId, null, record);
+    project.onOpen = (path) => {
+      if (path === 'main.tex') project.failure.openFile = new FileOpenTimeoutError('slow');
+    };
+    const undoing = undo.execute(changeId, record);
+    expect(isBusy()).toBe(true);
+    await expect(undoing).rejects.toThrow(FileOpenTimeoutError);
+    expect(conversation.messages().at(-1)).toMatchObject({
+      role: 'undo',
+      undone: ['main.tex'],
+      refused: [],
+    });
+    expect(editor.lines).toEqual(MAIN);
+    expect(isBusy()).toBe(false);
   });
 
   it('sends overlapping edits back to the agent', async () => {

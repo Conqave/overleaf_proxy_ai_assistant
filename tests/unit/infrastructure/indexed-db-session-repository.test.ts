@@ -128,21 +128,30 @@ const messages: ConversationMessage[] = [
       lines: [],
     },
   },
-  ...(['proposed', 'failed', 'discarded'] as const).map((status): ConversationMessage => ({
-    id: `6-${status}`,
-    role: 'assistant',
-    kind: 'proposal',
-    edits: [
-      {
-        path: 'main.tex',
-        command: createDocumentCommand({
-          operation: 'delete',
-          target: { lineNumber: 1, lineText: 'Gone.' },
-        }),
-        status,
-      },
-    ],
-  })),
+  {
+    id: '7',
+    role: 'undo',
+    proposalId: '3',
+    undone: ['chapters/results.tex'],
+    refused: [{ path: 'main.tex', problem: 'main.tex changed after Hans edited it.' }],
+  },
+  ...(['proposed', 'failed', 'discarded', 'undone'] as const).map(
+    (status): ConversationMessage => ({
+      id: `6-${status}`,
+      role: 'assistant',
+      kind: 'proposal',
+      edits: [
+        {
+          path: 'main.tex',
+          command: createDocumentCommand({
+            operation: 'delete',
+            target: { lineNumber: 1, lineText: 'Gone.' },
+          }),
+          status,
+        },
+      ],
+    }),
+  ),
 ];
 
 function session(id: string, updatedAt = 20): ConversationSession {
@@ -187,8 +196,8 @@ describe('IndexedDbSessionRepository', () => {
     await expect(repository.load('a')).resolves.toEqual(session('a'));
     await expect(repository.list()).resolves.toEqual({
       sessions: [
-        { id: 'a', title: 'Session a', createdAt: 10, updatedAt: 20, messageCount: 13 },
-        { id: 'b', title: 'Session b', createdAt: 10, updatedAt: 30, messageCount: 13 },
+        { id: 'a', title: 'Session a', createdAt: 10, updatedAt: 20, messageCount: 15 },
+        { id: 'b', title: 'Session b', createdAt: 10, updatedAt: 30, messageCount: 15 },
       ],
       unreadableIds: [],
     });
@@ -206,7 +215,7 @@ describe('IndexedDbSessionRepository', () => {
         title: 'Session a',
         createdAt: 10,
         updatedAt: 20,
-        messageCount: 13,
+        messageCount: 15,
         messages,
       },
     ]);
@@ -354,6 +363,18 @@ describe('IndexedDbSessionRepository', () => {
       `with a change ${name}`,
       { messages: [{ id: 'p', role: 'assistant', kind: 'proposal', edits }] },
     ]),
+    [
+      'with an undo notice of a file outside the project',
+      { messages: [{ id: 'n', role: 'undo', proposalId: 'p', undone: ['/x'], refused: [] }] },
+    ],
+    [
+      'with an undo refusal without its problem',
+      {
+        messages: [
+          { id: 'n', role: 'undo', proposalId: 'p', undone: [], refused: [{ path: 'a.tex' }] },
+        ],
+      },
+    ],
   ])('lists a session %s as unreadable and does not load it', async (_name, overrides) => {
     await repository.save(session('a'));
     await storeRaw(rawRecord(overrides));

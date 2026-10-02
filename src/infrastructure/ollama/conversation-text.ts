@@ -5,6 +5,7 @@ import {
   type ConversationSummary,
   type ExchangeMessage,
   type ProposalMessage,
+  type UndoMessage,
 } from '../../domain/conversation';
 import type { ConversationView } from '../../domain/conversation-view';
 import type { ToolRecord } from '../../domain/agent-transcript';
@@ -48,6 +49,8 @@ export function entryText(message: ExchangeMessage, outdated: ReadonlySet<ToolRe
       return `[${message.role}] ${message.text.trim()}`;
     case 'assistant':
       return `[${message.role}] ${assistantText(message)}`;
+    case 'undo':
+      return `[editor] ${undoText(message)}`;
     case 'tool':
       return `[${message.role}] ${describeRecord(message.record)}:${LINE_BREAK}${renderUnlessOutdated(
         message.record,
@@ -55,6 +58,16 @@ export function entryText(message: ExchangeMessage, outdated: ReadonlySet<ToolRe
         (record) => renderShortRecord(record, OLDER_RESULT_CHARS, OLDER_RESULT_SHORTENED),
       )}`;
   }
+}
+
+function undoText({ undone, refused }: UndoMessage): string {
+  const restored = undone.length
+    ? [
+        `The user undid the applied edits of an earlier change in ${undone.join(', ')}; those files are back as they were before it.`,
+      ]
+    : [];
+  const kept = refused.map(({ path, problem }) => `${path} was not undone: ${problem}`);
+  return lines(...restored, ...kept);
 }
 
 function assistantText(message: AssistantMessage): string {
@@ -68,6 +81,7 @@ const EDIT_OUTCOME: Record<EditStatus, string> = {
   [EditStatus.Rejected]: 'rejected',
   [EditStatus.Failed]: 'failed to apply',
   [EditStatus.Discarded]: 'discarded without a decision',
+  [EditStatus.Undone]: 'applied, then undone by the user',
 };
 
 function describeProposal({ edits }: ProposalMessage): string {

@@ -705,6 +705,35 @@ describe('assistant agent', () => {
     expect(texts('.ola-ai.is-applied > .ola-result-status')).toEqual(['Applied']);
   });
 
+  it('undoes a turn, keeps it undone over a reload and tells the model', async () => {
+    const { sessions, send, click, texts, ollama, ide, editorText } = await start({
+      replies: [boldExperimentEdit, reply('ACTION: answer', 'TEXT:', 'It was undone.')],
+    });
+    await send('Make the word experiment bold.');
+    await click('.ola-apply', () => {
+      expect(texts('.ola-system')).toContain('Compiled without errors.');
+    });
+    expect(editorText().split('\n')[3]).toBe(BOLD_EXPERIMENT);
+    await click('.ola-undo', () => {
+      expect(texts('.ola-undo-notice')).toEqual([
+        'Undone: main.tex is back as before this change.',
+      ]);
+    });
+    expect(editorText().split('\n')[3]).toBe(EXPERIMENT_LINE);
+    expect(texts('.ola-ai.is-undone > .ola-result-status')).toEqual(['Undone']);
+    expect(texts('.ola-undo')).toEqual([]);
+    expect(ide.compileCount).toBe(1);
+    await send('Is the word still bold?');
+    expect(itemAt(ollama.prompts, 1, 'prompt').userMessage).toContain(
+      '[editor] The user undid the applied edits of an earlier change in main.tex',
+    );
+    const reloaded = await start({ sessions });
+    expect(reloaded.texts('.ola-undo-notice')).toEqual([
+      'Undone: main.tex is back as before this change.',
+    ]);
+    expect(reloaded.texts('.ola-undo')).toEqual([]);
+  });
+
   it('applies and rejects single edits of a change and compiles after the last one', async () => {
     const twoPlaces = reply(
       'ACTION: edit',

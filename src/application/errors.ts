@@ -31,6 +31,18 @@ export class NothingToCompactError extends OperationalError {
   }
 }
 
+export class NothingToUndoError extends OperationalError {
+  constructor() {
+    super('Hans has applied nothing of this change that could be undone.');
+  }
+}
+
+export class UndecidedEditsError extends OperationalError {
+  constructor() {
+    super('Apply or reject the open edits of this change before undoing it.');
+  }
+}
+
 export class AgentMistakeLimitError extends OperationalError {
   constructor(lastMistake: Error) {
     super(

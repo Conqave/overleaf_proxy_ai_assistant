@@ -167,6 +167,31 @@ describe('conversation history', () => {
 });
 
 describe('change history', () => {
+  it('tells the model which files the user undid and which were left as they are', () => {
+    const notice = {
+      id: 'n',
+      role: 'undo' as const,
+      proposalId: 'p',
+      undone: ['main.tex'],
+      refused: [{ path: 'refs.bib', problem: 'refs.bib changed after Hans edited it.' }],
+    };
+    expect(promptOf({ conversation: viewConversation([notice]) })).toContain(
+      '[editor] The user undid the applied edits of an earlier change in main.tex; those files are back as they were before it.\nrefs.bib was not undone: refs.bib changed after Hans edited it.',
+    );
+  });
+
+  it('shows an undone edit to the model as applied and then undone', () => {
+    const command = createDocumentCommand({
+      operation: 'delete',
+      target: { lineNumber: 3, lineText: 'Old.' },
+    });
+    expect(
+      promptOf({
+        conversation: viewConversation([proposalOf('p', editWith('main.tex', command, 'undone'))]),
+      }),
+    ).toContain('[assistant] [proposal applied, then undone by the user] main.tex line 3: delete');
+  });
+
   it('shows the model the outcome of every edit of a change', () => {
     const replace = createDocumentCommand({
       operation: 'replace',

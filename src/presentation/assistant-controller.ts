@@ -19,6 +19,7 @@ import { RequestSupersededError } from '../application/errors';
 import type { OperationLock } from '../application/operation-lock';
 import type { PreviewChangeSetFile } from '../application/preview-change-set-file';
 import type { RejectChangeSet } from '../application/reject-change-set';
+import type { UndoChangeSet } from '../application/undo-change-set';
 import { InvariantViolation, OperationalError } from '../domain/errors';
 import type { AssistantView, ViewEvents } from './assistant-view';
 import {
@@ -37,6 +38,7 @@ export interface UseCases {
   lock: Pick<OperationLock, 'onChange'>;
   rejectChange: RejectChangeSet;
   previewChange: PreviewChangeSetFile;
+  undoChange: UndoChangeSet;
   restoreSession: RestoreLatestSession;
   startNewConversation: StartNewConversation;
   compactConversation: CompactConversation;
@@ -113,6 +115,24 @@ export class AssistantController implements ViewEvents {
         await this.useCases.previewChange.execute(proposalId, path, (progress) => {
           this.showProgress(view, progress);
         });
+      } finally {
+        view.setStatus('');
+      }
+    });
+  }
+
+  undo(proposalId: string): Promise<void> {
+    const view = this.requireView();
+    return this.guard(async () => {
+      try {
+        const { message, notice } = await this.useCases.undoChange.execute(
+          proposalId,
+          (progress) => {
+            this.showProgress(view, progress);
+          },
+        );
+        view.updateMessage(message);
+        view.appendMessage(notice);
       } finally {
         view.setStatus('');
       }
