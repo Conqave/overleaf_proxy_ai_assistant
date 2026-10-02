@@ -17,9 +17,9 @@ http {
         '' close;
     }
 
-    map "$http_origin $scheme://$http_host" $assistant_foreign_origin {
+    map "$http_origin $http_host" $assistant_foreign_origin {
         "~^ " 0;
-        "~^(\S+) \1$" 0;
+        "~^https?://(\S+) \1$" 0;
         default 1;
     }
 

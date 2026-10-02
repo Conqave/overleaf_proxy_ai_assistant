@@ -385,6 +385,15 @@ describe('nginx proxy', () => {
     expect(sessionChecks()).toHaveLength(checks);
   });
 
+  it('accepts the same host behind a proxy that terminates HTTPS', async () => {
+    const httpsOrigin = base.replace('http://', 'https://');
+    for (const path of [OLLAMA_PATH, WEB_SEARCH_PATH]) {
+      expect((await fetch(`${base}${path}`, signedIn({ Origin: httpsOrigin }))).status).not.toBe(
+        403,
+      );
+    }
+  });
+
   it('accepts requests without an Origin, as a same-origin client may send them', async () => {
     const response = await fetch(`${base}${OLLAMA_PATH}`, {
       method: 'POST',
