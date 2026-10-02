@@ -1,5 +1,5 @@
 import { VIEW_TEXT } from './message-format';
-import type { PanelSize, PanelSizeStore } from '../ports/panel-size-store';
+import type { PanelSize, PanelPreferences } from '../ports/panel-preferences';
 import { DEFAULT_PANEL_SIZE, fitPanelSize } from './panel-size';
 
 const KEY_STEP_PX = 10;
@@ -34,7 +34,7 @@ export class PanelResizer {
   constructor(
     private readonly window: PanelWindow,
     private readonly panel: HTMLElement,
-    private readonly store: PanelSizeStore,
+    private readonly preferences: Pick<PanelPreferences, 'loadSize' | 'saveSize'>,
   ) {
     this.handle = window.document.createElement('button');
     this.handle.type = 'button';
@@ -59,7 +59,7 @@ export class PanelResizer {
     window.addEventListener('resize', () => {
       this.show(this.size);
     });
-    this.size = this.fit(store.load() ?? DEFAULT_PANEL_SIZE);
+    this.size = this.fit(preferences.loadSize() ?? DEFAULT_PANEL_SIZE);
     this.show(this.size);
   }
 
@@ -90,7 +90,7 @@ export class PanelResizer {
     if (this.drag === null || event.pointerId !== this.drag.pointerId) return;
     this.drag = null;
     this.panel.classList.remove('is-resizing');
-    this.store.save(this.size);
+    this.preferences.saveSize(this.size);
   }
 
   private resizeByKey(event: KeyboardEvent): void {
@@ -104,7 +104,7 @@ export class PanelResizer {
       height: shown.height + growth.height * step,
     });
     this.show(this.size);
-    this.store.save(this.size);
+    this.preferences.saveSize(this.size);
   }
 
   private fit(size: PanelSize): PanelSize {

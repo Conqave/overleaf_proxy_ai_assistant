@@ -1,4 +1,4 @@
-import type { PanelSize } from '../ports/panel-size-store';
+import type { PanelSize } from '../ports/panel-preferences';
 
 export const DEFAULT_PANEL_SIZE: PanelSize = { width: 380, height: 640 };
 

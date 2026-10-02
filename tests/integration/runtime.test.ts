@@ -261,6 +261,9 @@ function undefinedCommandLog(ide: FakeOverleafIde): () => unknown {
   };
 }
 
+const PANEL_SIZE_KEY = 'ola-panel-size';
+const PANEL_COLLAPSED_KEY = 'ola-panel-collapsed';
+
 describe('assistant startup', () => {
   it('opens with badge, panel and welcome message and warms the model', async () => {
     const { doc, messages, ollama } = await start({});
@@ -273,6 +276,23 @@ describe('assistant startup', () => {
     expect(messages()).toEqual([expect.stringContaining('Ready to help with this document')]);
     button(doc, '.ola-badge').click();
     expect(element(doc, '#ola-root').classList.contains('is-collapsed')).toBe(true);
+  });
+
+  it('remembers a collapsed panel in this browser over a reload', async () => {
+    const opened = await start({});
+    button(opened.doc, '.ola-badge').click();
+    const remembered = opened.browser.window.localStorage.getItem(PANEL_COLLAPSED_KEY);
+    expect(remembered).toBe('true');
+    const reloaded = await start({
+      prepare: (browser) => {
+        browser.window.localStorage.setItem(PANEL_COLLAPSED_KEY, String(remembered));
+      },
+    });
+    const root = element(reloaded.doc, '#ola-root');
+    expect(root.classList.contains('is-collapsed')).toBe(true);
+    button(reloaded.doc, '.ola-badge').click();
+    expect(root.classList.contains('is-collapsed')).toBe(false);
+    expect(reloaded.browser.window.localStorage.getItem(PANEL_COLLAPSED_KEY)).toBe('false');
   });
 
   it('is injected only once and keeps one preview in a reopened editor', async () => {
@@ -338,8 +358,6 @@ describe('assistant startup', () => {
     expect(browser.document.getElementById('ola-root')).toBeNull();
   });
 });
-
-const PANEL_SIZE_KEY = 'ola-panel-size';
 
 function panelSize(doc: Document): { width: string; height: string } {
   const panel = element(doc, '.ola-panel');

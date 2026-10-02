@@ -3,7 +3,7 @@ import type { PendingWebSearch } from '../application/web-search-approval';
 import type { ContextPressure } from '../domain/context-usage';
 import type { ChatMessage, ConversationMessage } from '../domain/conversation';
 import { InvariantViolation } from '../domain/errors';
-import type { PanelSizeStore } from '../ports/panel-size-store';
+import type { PanelPreferences } from '../ports/panel-preferences';
 import css from './assistant.css?raw';
 import { ChangeSetCard } from './change-set-card';
 import { ChatTranscript } from './chat-transcript';
@@ -32,7 +32,7 @@ export class AssistantView {
     return document.getElementById(ROOT_ID) !== null;
   }
 
-  constructor(document: Document, events: ViewEvents, panelSize: PanelSizeStore) {
+  constructor(document: Document, events: ViewEvents, preferences: PanelPreferences) {
     const dom = new DomBuilder(document);
     injectStyles(dom);
     this.root = dom.el('div');
@@ -40,7 +40,10 @@ export class AssistantView {
 
     const badge = dom.button('ola-badge', VIEW_TEXT.badge);
     badge.prepend(dom.el('span', 'ola-dot'));
-    badge.addEventListener('click', () => this.root.classList.toggle('is-collapsed'));
+    this.root.classList.toggle('is-collapsed', preferences.loadCollapsed());
+    badge.addEventListener('click', () => {
+      preferences.saveCollapsed(this.root.classList.toggle('is-collapsed'));
+    });
 
     this.header = new PanelHeader(dom, {
       newConversation: () => void events.newConversation(),
@@ -64,7 +67,7 @@ export class AssistantView {
     this.input = new RequestInput(dom, (text) => void events.send(text));
 
     const panel = dom.el('section', 'ola-panel');
-    const resizer = new PanelResizer(windowOf(document), panel, panelSize);
+    const resizer = new PanelResizer(windowOf(document), panel, preferences);
     panel.append(
       resizer.handle,
       this.header.element,

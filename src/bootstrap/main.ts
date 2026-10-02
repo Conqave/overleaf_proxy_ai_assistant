@@ -49,7 +49,7 @@ import {
 } from '../infrastructure/overleaf/overleaf-store';
 import { IndexedDbSessionRepository } from '../infrastructure/persistence/indexed-db-session-repository';
 import { OverleafSessionArchive } from '../infrastructure/overleaf/overleaf-session-archive';
-import { LocalStoragePanelSize } from '../infrastructure/persistence/local-storage-panel-size';
+import { LocalStoragePanelPreferences } from '../infrastructure/persistence/local-storage-panel-preferences';
 import { AssistantController } from '../presentation/assistant-controller';
 import { AssistantView } from '../presentation/assistant-view';
 import {
@@ -169,7 +169,7 @@ function compose(
   });
 
   void controller.attach(
-    new AssistantView(window.document, controller, new LocalStoragePanelSize(window)),
+    new AssistantView(window.document, controller, new LocalStoragePanelPreferences(window)),
   );
   void preloadOllamaModel(client);
 }

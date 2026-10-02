@@ -1,7 +1,7 @@
 import { JSDOM } from 'jsdom';
 import { describe, expect, it } from 'vitest';
 import { PanelResizer } from '../../../src/presentation/panel-resizer';
-import { LocalStoragePanelSize } from '../../../src/infrastructure/persistence/local-storage-panel-size';
+import { LocalStoragePanelPreferences } from '../../../src/infrastructure/persistence/local-storage-panel-preferences';
 import { pointerEventOf } from '../../support/guards';
 
 const KEY = 'ola-panel-size';
@@ -23,7 +23,7 @@ function openPage(width = 1600, height = 1000) {
   viewport(width, height);
   const mount = () => {
     const panel = window.document.createElement('section');
-    const resizer = new PanelResizer(window, panel, new LocalStoragePanelSize(window));
+    const resizer = new PanelResizer(window, panel, new LocalStoragePanelPreferences(window));
     panel.append(resizer.handle);
     window.document.body.append(panel);
     const shown = () => ({

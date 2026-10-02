@@ -1,6 +1,9 @@
-import type { PanelSize, PanelSizeStore } from '../../ports/panel-size-store';
+import type { PanelPreferences, PanelSize } from '../../ports/panel-preferences';
 
-const STORAGE_KEY = 'ola-panel-size';
+const SIZE_KEY = 'ola-panel-size';
+const COLLAPSED_KEY = 'ola-panel-collapsed';
+const COLLAPSED = 'true';
+const EXPANDED = 'false';
 
 const UNAVAILABLE_STORAGE = new Set(['SecurityError', 'QuotaExceededError']);
 
@@ -9,32 +12,43 @@ export interface StorageWindow {
   readonly DOMException: typeof DOMException;
 }
 
-export class LocalStoragePanelSize implements PanelSizeStore {
+export class LocalStoragePanelPreferences implements PanelPreferences {
   constructor(private readonly window: StorageWindow) {}
 
-  load(): PanelSize | null {
-    const stored = this.readStored();
+  loadSize(): PanelSize | null {
+    const stored = this.read(SIZE_KEY);
     if (stored === null) return null;
     const size = parseJson(stored);
     return isStoredPanelSize(size) ? { width: size.width, height: size.height } : null;
   }
 
-  save(size: PanelSize): void {
-    const text = JSON.stringify({ width: size.width, height: size.height });
-    try {
-      this.window.localStorage.setItem(STORAGE_KEY, text);
-    } catch (error) {
-      if (!this.isUnavailableStorage(error)) throw error;
-      console.warn('[overleaf-ai-assistant] panel size not remembered:', error.message);
-    }
+  saveSize(size: PanelSize): void {
+    this.write(SIZE_KEY, JSON.stringify({ width: size.width, height: size.height }));
   }
 
-  private readStored(): string | null {
+  loadCollapsed(): boolean {
+    return this.read(COLLAPSED_KEY) === COLLAPSED;
+  }
+
+  saveCollapsed(collapsed: boolean): void {
+    this.write(COLLAPSED_KEY, collapsed ? COLLAPSED : EXPANDED);
+  }
+
+  private read(key: string): string | null {
     try {
-      return this.window.localStorage.getItem(STORAGE_KEY);
+      return this.window.localStorage.getItem(key);
     } catch (error) {
       if (!this.isUnavailableStorage(error)) throw error;
       return null;
+    }
+  }
+
+  private write(key: string, text: string): void {
+    try {
+      this.window.localStorage.setItem(key, text);
+    } catch (error) {
+      if (!this.isUnavailableStorage(error)) throw error;
+      console.warn('[overleaf-ai-assistant] panel layout not remembered:', error.message);
     }
   }
 

@@ -38,7 +38,7 @@ import {
 } from '../../../src/ports/errors';
 import { AssistantController } from '../../../src/presentation/assistant-controller';
 import { AssistantView } from '../../../src/presentation/assistant-view';
-import { LocalStoragePanelSize } from '../../../src/infrastructure/persistence/local-storage-panel-size';
+import { LocalStoragePanelPreferences } from '../../../src/infrastructure/persistence/local-storage-panel-preferences';
 import {
   coverAllButLastTurn,
   FakeAgent,
@@ -165,7 +165,7 @@ async function openAssistantWith(
     conversation,
   });
   await controller.attach(
-    new AssistantView(window.document, controller, new LocalStoragePanelSize(window)),
+    new AssistantView(window.document, controller, new LocalStoragePanelPreferences(window)),
   );
   const texts = (selector: string) =>
     Array.from(window.document.querySelectorAll(selector)).map((n) => n.textContent);
