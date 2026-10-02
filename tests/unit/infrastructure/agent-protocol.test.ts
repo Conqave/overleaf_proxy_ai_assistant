@@ -136,10 +136,10 @@ describe('agent exchange', () => {
     };
     const { prompt, system } = createAgentExchange(request({ transcript: [part] }), budget).request;
     expect(prompt).toContain(
-      'Result 1 (read_file ch.tex from line 10 to 11):\n10: Line 10.\n11: Line 11.\n[Showing lines 10–11 of 30. Read another range with START_LINE and END_LINE, or search.]',
+      'Result 1 (read_file ch.tex from line 10 to 11):\n[Showing only lines 10–11 of 30; the file has 30 lines and the others exist but are not shown here. Read another range with START_LINE and END_LINE, or search.]\n10: Line 10.\n11: Line 11.',
     );
     expect(system).toContain('add START_LINE and END_LINE (line numbers, both optional)');
-    expect(system).toContain('A result "Showing lines A–B of N" shows only part of the file');
+    expect(system).toContain('A result "Showing only lines A–B of N" shows only part of the file');
   });
 
   it('shows an empty file as empty', () => {

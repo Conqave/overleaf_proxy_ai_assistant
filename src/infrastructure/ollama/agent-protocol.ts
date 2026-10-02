@@ -127,7 +127,7 @@ const AGENT_SYSTEM = lines(
   '- The open file is already shown with numbered lines: never read it; answer or edit it directly.',
   `- Any other file must be read with ${A.ReadFile} before you edit it or quote it; you can only edit lines that were shown to you.`,
   `- ${AgentField.Path} is always a path exactly as listed under Project files; files marked (binary) cannot be read or edited. If a file the user names is not listed, say so in an ${A.Answer}.`,
-  `- A result "Showing lines A–B of N" shows only part of the file; lines up to N exist. Read the part you need with ${AgentField.StartLine} and ${EditField.EndLine}, or ${A.Search} for it, before you answer or edit.`,
+  `- A result "Showing only lines A–B of N" shows only part of the file; lines up to N exist. Read the part you need with ${AgentField.StartLine} and ${EditField.EndLine}, or ${A.Search} for it, before you answer or edit.`,
   `- Use ${A.Search} to find labels, citations, commands or text when you do not know which file has them.`,
   `- When the user says the project does not compile or reports errors or warnings, your first action is ${A.Compile}, before any ${A.ReadFile}; then read the file it names and fix the first error it reports; the errors after it are often only its consequences, so change nothing else.`,
   `- A System request about compile errors comes with "${COMPILE_RESULT_LABEL}": do not ${A.Compile} again; read the file it names and fix the first error it reports.`,

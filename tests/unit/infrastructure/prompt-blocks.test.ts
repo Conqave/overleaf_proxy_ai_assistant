@@ -91,7 +91,7 @@ describe('conversation history', () => {
     expect(prompt).toContain('[user] message 14');
   });
 
-  it('shows earlier lookups shortened, with their notices at the edge', () => {
+  it('shows earlier lookups shortened, the part they show first and the shortening last', () => {
     const lines = Array.from({ length: 300 }, (_, i) => `Line ${String(i + 1)} of the chapter.`);
     const prompt = promptOf({
       conversation: viewConversation([
@@ -113,14 +113,15 @@ describe('conversation history', () => {
         },
       ]),
     });
-    const read = /\[tool\] read_file ch\.tex lines 1–300 of 900:\n1: Line 1[^]*?\n\[tool\]/.exec(
-      prompt,
-    );
+    const read =
+      /\[tool\] read_file ch\.tex lines 1–300 of 900:\n\[Showing only lines 1–300 of 900; the file has 900 lines and the others exist but are not shown here\. Read another range with START_LINE and END_LINE, or search\.\]\n1: Line 1[^]*?\n\[tool\]/.exec(
+        prompt,
+      );
     if (read === null) throw new TestFixtureError('the earlier read is missing');
     expect(read[0]).toContain('[AUTOCOMPACTED: omitted');
     expect(read[0]).toContain('300: Line 300 of the chapter.');
     expect(read[0]).toContain(
-      '[Showing lines 1–300 of 900. Read another range with START_LINE and END_LINE, or search.]\n[shortened to 2000 characters; repeat the lookup to see it whole]',
+      '300: Line 300 of the chapter.\n[shortened to 2000 characters; repeat the lookup to see it whole]',
     );
     expect(read[0].length).toBeLessThan(2_400);
     expect(prompt).toContain('[tool] search "fig":\n(no matches)');

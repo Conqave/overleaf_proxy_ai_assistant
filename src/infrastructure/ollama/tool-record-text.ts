@@ -11,6 +11,7 @@ const EMPTY_FILE = '(empty file)';
 const MORE_MATCHES = '(more matches or text omitted; search for something more specific)';
 
 interface RecordText {
+  readonly preface: readonly string[];
   readonly body: string;
   readonly notices: readonly string[];
 }
@@ -32,9 +33,10 @@ export function renderShortRecord(
   maxChars: number,
   fullerLookup: string,
 ): string {
-  const { body, notices } = recordText(record);
-  if (body.length <= maxChars) return lines(body, ...notices);
+  const { preface, body, notices } = recordText(record);
+  if (body.length <= maxChars) return lines(...preface, body, ...notices);
   return lines(
+    ...preface,
     compact(body, maxChars),
     ...notices,
     `[shortened to ${String(maxChars)} characters; ${fullerLookup}]`,
@@ -44,15 +46,16 @@ export function renderShortRecord(
 function recordText(record: ToolRecord): RecordText {
   switch (record.tool) {
     case AgentTool.ReadFile: {
-      if (record.totalLines === 0) return { body: EMPTY_FILE, notices: [] };
+      if (record.totalLines === 0) return { preface: [], body: EMPTY_FILE, notices: [] };
       const { first, last } = record.shown;
       const body = lines(...record.lines.map((text, index) => numberLine(first + index, text)));
-      if (first === 1 && last === record.totalLines) return { body, notices: [] };
+      if (first === 1 && last === record.totalLines) return { preface: [], body, notices: [] };
       return {
-        body,
-        notices: [
-          `[Showing lines ${String(first)}–${String(last)} of ${String(record.totalLines)}. Read another range with ${AgentField.StartLine} and ${EditField.EndLine}, or search.]`,
+        preface: [
+          `[Showing only lines ${String(first)}–${String(last)} of ${String(record.totalLines)}; the file has ${String(record.totalLines)} lines and the others exist but are not shown here. Read another range with ${AgentField.StartLine} and ${EditField.EndLine}, or search.]`,
         ],
+        body,
+        notices: [],
       };
     }
     case AgentTool.Search: {
@@ -62,10 +65,10 @@ function recordText(record: ToolRecord): RecordText {
       const listed = found.length ? lines(...found) : NO_MATCHES;
       const body = compact(listed, SEARCH_OUTPUT_CHARS);
       const isComplete = !record.truncated && body === listed;
-      return { body, notices: isComplete ? [] : [MORE_MATCHES] };
+      return { preface: [], body, notices: isComplete ? [] : [MORE_MATCHES] };
     }
     case AgentTool.Compile:
-      return { body: diagnosticsText(record.diagnostics), notices: [] };
+      return { preface: [], body: diagnosticsText(record.diagnostics), notices: [] };
   }
 }
 
