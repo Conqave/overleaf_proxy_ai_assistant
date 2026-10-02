@@ -913,6 +913,14 @@ describe('AssistantController sessions', () => {
     expect(buttons('.ola-session-open')).toHaveLength(1);
   });
 
+  it('closes the list when Hans starts working on a request', async () => {
+    const { controller, window } = await openAssistant(older, latest);
+    await controller.showSessions();
+    expect(window.document.querySelector('.ola-sessions.is-open')).not.toBeNull();
+    await controller.send('add the knuth84 entry');
+    expect(window.document.querySelector('.ola-sessions.is-open')).toBeNull();
+  });
+
   it('says when the project has no saved sessions', async () => {
     const { controller, texts } = await openAssistant();
     await controller.showSessions();

@@ -74,6 +74,7 @@ export class AssistantController implements ViewEvents {
 
   compact(): Promise<void> {
     const view = this.requireView();
+    view.closeSessionList();
     return this.guard(async () => {
       try {
         await this.useCases.compactConversation.execute((progress) => {
@@ -87,6 +88,7 @@ export class AssistantController implements ViewEvents {
 
   send(text: string): Promise<void> {
     const view = this.requireView();
+    view.closeSessionList();
     return this.guard(async () => {
       try {
         const result = await this.useCases.handleRequest.execute(text, (progress) => {

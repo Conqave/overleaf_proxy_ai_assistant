@@ -589,7 +589,7 @@ describe('assistant sessions', () => {
     expect(texts('.ola-session-title')).toEqual([SECOND, FIRST]);
   });
 
-  it('locks the session actions while a request runs', async () => {
+  it('closes the session list for a request and locks its actions while it runs', async () => {
     const { doc, ollama, showSessions, click, texts, messages } = await twoSessions();
     ollama.reply({ hang: true });
     await showSessions();
@@ -598,6 +598,8 @@ describe('assistant sessions', () => {
     await vi.waitFor(() => {
       expect(ollama.prompts).toHaveLength(3);
     }, PAGE_WAIT);
+    expect(doc.querySelector('.ola-sessions.is-open')).toBeNull();
+    await showSessions();
     const actions = Array.from(doc.querySelectorAll<HTMLButtonElement>('.ola-session-btn'));
     expect(actions.length).toBeGreaterThan(0);
     expect(actions.every((action) => action.disabled)).toBe(true);
