@@ -39,7 +39,7 @@ export class OverleafProjectAdapter implements ProjectPort {
   private readonly compiler: OverleafCompiler;
 
   constructor(private readonly deps: OverleafProjectDependencies) {
-    this.compiler = new OverleafCompiler(deps.window, deps.store);
+    this.compiler = new OverleafCompiler(deps.window, deps.store, deps.files);
   }
 
   listFiles(): readonly ProjectFile[] {

@@ -10,6 +10,7 @@ import { OverleafProjectFiles } from '../../../src/infrastructure/overleaf/overl
 import { OverleafToolbarContractError } from '../../../src/infrastructure/overleaf/overleaf-compiler';
 import { OverleafStore, StoreKey } from '../../../src/infrastructure/overleaf/overleaf-store';
 import {
+  BuildOutputDeleteError,
   CompileTimeoutError,
   CompileWithoutResultError,
   EditsNotSavedError,
@@ -322,10 +323,32 @@ describe('OverleafProjectAdapter.compile', () => {
     expect(ide.store.watcherCount).toBe(0);
   });
 
-  it('reports a compile that ends with an empty log and no new PDF as a failure', async () => {
+  it('reports a compile that ends with an empty log and no new PDF also after a fresh build', async () => {
     ide.compileOutcome = 'no-output';
     await expect(adapter.compile(cancel.signal)).rejects.toThrow(UnexplainedCompileFailureError);
+    expect(requests).toEqual(['/project/project-1/output']);
+    expect(ide.compileCount).toBe(2);
     expect(ide.store.watcherCount).toBe(0);
+  });
+
+  it('clears a stale build that names no error and reports the errors of a fresh one', async () => {
+    ide.compileOutcome = 'no-output';
+    ide.logEntries = { ...EMPTY_LOG_ENTRIES, errors: [{ message: 'Undefined control sequence.' }] };
+    answer = () => {
+      ide.compileOutcome = 'pdf';
+      return Promise.resolve(new Response(null, { status: 204 }));
+    };
+    await expect(adapter.compile(cancel.signal)).resolves.toEqual([
+      { level: 'error', message: 'Undefined control sequence.' },
+    ]);
+    expect(requests).toEqual(['/project/project-1/output']);
+  });
+
+  it('reports a build output that Overleaf refuses to clear', async () => {
+    ide.compileOutcome = 'no-output';
+    answer = () => Promise.resolve(new Response('', { status: 500 }));
+    await expect(adapter.compile(cancel.signal)).rejects.toThrow(BuildOutputDeleteError);
+    expect(ide.compileCount).toBe(1);
   });
 
   it('reports the errors of a compile that produces no PDF, also when repeated', async () => {

@@ -10,6 +10,7 @@ import {
 import { pause, throwAbortReason, withDeadline } from '../deadline';
 import { formatDuration } from '../duration';
 import { readCompileDiagnostics } from './compile-log';
+import type { OverleafProjectFiles } from './overleaf-project-files';
 import { StoreKey, type OverleafStore } from './overleaf-store';
 
 const RECOMPILE_EVENT = 'pdf:recompile';
@@ -19,6 +20,7 @@ const SAVE_POLL_MS = 25;
 const SAVE_MS = 20_000;
 const COMPILE_MS = 240_000;
 const COMPILE_LOG_MS = 15_000;
+const RECENT_COMPILE_LOCK_MS = 2_000;
 
 export class OverleafToolbarContractError extends NamedError {
   constructor(problem: string) {
@@ -30,6 +32,7 @@ export class OverleafCompiler {
   constructor(
     private readonly window: Window & typeof globalThis,
     private readonly store: OverleafStore,
+    private readonly files: OverleafProjectFiles,
   ) {}
 
   async compile(cancel: CancellationSignal): Promise<readonly CompileDiagnostic[]> {
@@ -63,14 +66,28 @@ export class OverleafCompiler {
   private async recompile(signal: AbortSignal): Promise<readonly CompileDiagnostic[]> {
     const button = this.recompileButton();
     if (!(await this.whenIdle(button, signal))) throwAbortReason(signal);
-    const previousPdf = this.store.get(StoreKey.PdfUrl);
-    const diagnostics = readCompileDiagnostics(await this.compileLog(button, signal));
-    const hasErrors = diagnostics.some(({ level }) => level === DiagnosticLevel.Error);
-    if (!hasErrors && this.store.get(StoreKey.PdfUrl) === previousPdf) {
+    const diagnostics = await this.compileOnce(button, signal);
+    if (diagnostics !== null) return diagnostics;
+    await this.files.deleteBuildOutput(signal);
+    await pause(RECENT_COMPILE_LOCK_MS, signal);
+    signal.throwIfAborted();
+    const rebuilt = await this.compileOnce(button, signal);
+    if (rebuilt === null) {
       throw new UnexplainedCompileFailureError(
         'Overleaf finished the compile without a new PDF and without naming an error; see the PDF pane for the reason.',
       );
     }
+    return rebuilt;
+  }
+
+  private async compileOnce(
+    button: HTMLElement,
+    signal: AbortSignal,
+  ): Promise<readonly CompileDiagnostic[] | null> {
+    const previousPdf = this.store.get(StoreKey.PdfUrl);
+    const diagnostics = readCompileDiagnostics(await this.compileLog(button, signal));
+    const hasErrors = diagnostics.some(({ level }) => level === DiagnosticLevel.Error);
+    if (!hasErrors && this.store.get(StoreKey.PdfUrl) === previousPdf) return null;
     return diagnostics;
   }
 

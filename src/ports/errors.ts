@@ -48,6 +48,8 @@ export class CompileWithoutResultError extends OperationalError {}
 
 export class UnexplainedCompileFailureError extends OperationalError {}
 
+export class BuildOutputDeleteError extends OperationalError {}
+
 export class EditsNotSavedError extends OperationalError {}
 
 export class NoOpenTextFileError extends OperationalError {}

@@ -7,6 +7,7 @@ import {
 } from '../../domain/project-file';
 import type { CancellationSignal } from '../../ports/cancellation';
 import {
+  BuildOutputDeleteError,
   ProjectFileReadError,
   ProjectFileReadTimeoutError,
   ProjectFileWriteError,
@@ -71,6 +72,20 @@ export class OverleafProjectFiles {
         await this.upload(folderId, name, text, path, signal);
       },
     );
+  }
+
+  async deleteBuildOutput(signal: AbortSignal): Promise<void> {
+    const response = await this.request(
+      `/project/${this.deps.projectId}/output`,
+      { method: 'DELETE', headers: { 'X-Csrf-Token': this.deps.csrfToken } },
+      'clear the compile output',
+      signal,
+    );
+    if (!response.ok) {
+      throw new BuildOutputDeleteError(
+        `The compile output could not be cleared: Overleaf answered HTTP ${String(response.status)}.`,
+      );
+    }
   }
 
   private async download(file: ProjectFile, signal: AbortSignal): Promise<string> {
