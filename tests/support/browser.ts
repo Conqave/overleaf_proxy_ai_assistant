@@ -44,6 +44,9 @@ export function openBrowser(ollama: FakeOllama, indexedDB: Pick<IDBFactory, 'ope
   Object.assign(window.Range.prototype, {
     getClientRects: () => [],
   });
+  Object.assign(window.HTMLElement.prototype, {
+    setPointerCapture: () => undefined,
+  });
   return {
     expectsConsoleErrors: false,
     window,

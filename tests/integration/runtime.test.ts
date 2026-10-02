@@ -19,7 +19,7 @@ import {
   FIXTURE_DOCUMENT,
   type FakeOverleafIde,
 } from '../support/fake-overleaf';
-import { itemAt } from '../support/guards';
+import { itemAt, pointerEventOf } from '../support/guards';
 import { readStoredSessions, storeRawSession } from '../support/session-store';
 import { TestFixtureError } from '../support/test-errors';
 
@@ -311,6 +311,56 @@ describe('assistant startup', () => {
       );
     }, PAGE_WAIT);
     expect(browser.document.getElementById('ola-root')).toBeNull();
+  });
+});
+
+const PANEL_SIZE_KEY = 'ola-panel-size';
+
+function panelSize(doc: Document): { width: string; height: string } {
+  const panel = element(doc, '.ola-panel');
+  return {
+    width: panel.style.getPropertyValue('--ola-panel-width'),
+    height: panel.style.getPropertyValue('--ola-panel-height'),
+  };
+}
+
+function dragCorner({ browser, doc }: Session, from: number, to: number): void {
+  const handle = element(doc, '.ola-resize-handle');
+  const PagePointerEvent = pointerEventOf(browser.window);
+  for (const [type, offset] of [
+    ['pointerdown', from],
+    ['pointermove', (from + to) / 2],
+    ['pointermove', to],
+    ['pointerup', to],
+  ] as const) {
+    handle.dispatchEvent(
+      new PagePointerEvent(type, {
+        pointerId: 1,
+        isPrimary: true,
+        button: 0,
+        clientX: offset,
+        clientY: offset,
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+  }
+}
+
+describe('assistant panel', () => {
+  it('resizes by dragging its corner and keeps the size over a reload', async () => {
+    const opened = await start({});
+    expect(panelSize(opened.doc)).toEqual({ width: '380px', height: '640px' });
+    dragCorner(opened, 500, 420);
+    expect(panelSize(opened.doc)).toEqual({ width: '460px', height: '672px' });
+    const remembered = opened.browser.window.localStorage.getItem(PANEL_SIZE_KEY);
+    expect(remembered).toBe('{"width":460,"height":672}');
+    const reloaded = await start({
+      prepare: (browser) => {
+        browser.window.localStorage.setItem(PANEL_SIZE_KEY, String(remembered));
+      },
+    });
+    expect(panelSize(reloaded.doc)).toEqual({ width: '460px', height: '672px' });
   });
 });
 

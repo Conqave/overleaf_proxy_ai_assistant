@@ -41,9 +41,11 @@
   position: fixed;
   right: 20px;
   bottom: 72px;
-  width: 380px;
-  height: min(640px, calc(100vh - 96px));
+  width: var(--ola-panel-width);
+  height: var(--ola-panel-height);
+  max-width: calc(100vw - 40px);
   max-height: calc(100vh - 96px);
+  container-type: inline-size;
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -55,6 +57,41 @@
 }
 #ola-root.is-collapsed .ola-panel {
   display: none;
+}
+#ola-root .ola-panel.is-resizing {
+  user-select: none;
+}
+#ola-root .ola-resize-handle {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 0;
+  border-radius: 12px 0 6px 0;
+  background:
+    linear-gradient(
+        135deg,
+        transparent 40%,
+        rgba(255, 255, 255, 0.45) 40% 50%,
+        transparent 50% 62%,
+        rgba(255, 255, 255, 0.45) 62% 72%,
+        transparent 72%
+      )
+      0 0 / 12px 12px no-repeat,
+    transparent;
+  cursor: nwse-resize;
+  touch-action: none;
+  z-index: 1;
+}
+#ola-root .ola-resize-handle:hover,
+#ola-root .ola-panel.is-resizing .ola-resize-handle {
+  background-color: rgba(255, 255, 255, 0.12);
+}
+#ola-root .ola-resize-handle:focus-visible {
+  outline: 2px solid #7fc8f8;
+  outline-offset: -2px;
 }
 #ola-root .ola-head {
   display: grid;
@@ -72,6 +109,13 @@
 }
 #ola-root .ola-head-actions {
   justify-content: flex-end;
+}
+@container (min-width: 560px) {
+  #ola-root .ola-head {
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 12px;
+  }
 }
 #ola-root .ola-context {
   margin-left: auto;
@@ -600,7 +644,11 @@
     right: 12px;
     bottom: 64px;
     width: auto;
+    max-width: none;
     height: min(620px, calc(100vh - 88px));
     max-height: calc(100vh - 88px);
+  }
+  #ola-root .ola-resize-handle {
+    display: none;
   }
 }

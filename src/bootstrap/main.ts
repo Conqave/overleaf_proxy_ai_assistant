@@ -35,6 +35,7 @@ import {
   StoreKey,
 } from '../infrastructure/overleaf/overleaf-store';
 import { IndexedDbSessionRepository } from '../infrastructure/persistence/indexed-db-session-repository';
+import { LocalStoragePanelSize } from '../infrastructure/persistence/local-storage-panel-size';
 import { AssistantController } from '../presentation/assistant-controller';
 import { AssistantView } from '../presentation/assistant-view';
 import { ConfigurationError, loadConfig, type AssistantConfig } from './config';
@@ -114,7 +115,9 @@ function compose(
     conversation,
   });
 
-  void controller.attach(new AssistantView(window.document, controller));
+  void controller.attach(
+    new AssistantView(window.document, controller, new LocalStoragePanelSize(window)),
+  );
   void preloadOllamaModel(client);
 }
 

@@ -54,6 +54,8 @@ export const VIEW_TEXT = {
   showFileHint: 'Open this file and preview its open edits',
   undo: 'Undo this turn',
   undoHint: 'Take back every edit Hans applied in this change',
+  resizeLabel: 'Resize the Hans panel',
+  resizeHint: 'Drag to resize; arrow keys change width and height, Shift for larger steps',
   contextHint: 'Tokens of the last prompt sent to the model / context window of the model',
   welcomeTitle: 'Ready to help with this document',
   welcomeCopy:

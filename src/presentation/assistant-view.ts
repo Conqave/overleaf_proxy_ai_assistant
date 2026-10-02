@@ -22,6 +22,8 @@ import type { SessionSummary } from '../domain/session';
 import css from './assistant.css?raw';
 import { InvariantViolation } from '../domain/errors';
 import { MarkdownRenderer } from './markdown-renderer';
+import { PanelResizer } from './panel-resizer';
+import type { PanelSizeStore } from './panel-size';
 import {
   changeSetStatusText,
   compactionFiles,
@@ -83,6 +85,7 @@ export class AssistantView {
   constructor(
     private readonly document: Document,
     private readonly events: ViewEvents,
+    panelSize: PanelSizeStore,
   ) {
     this.markdown = new MarkdownRenderer(document);
     this.injectStyles();
@@ -155,7 +158,8 @@ export class AssistantView {
     const body = this.el('div', 'ola-body');
     body.append(label, this.sendButton);
     const panel = this.el('section', 'ola-panel');
-    panel.append(head, this.sessionList, this.chat, body);
+    const resizer = new PanelResizer(windowOf(document), panel, panelSize);
+    panel.append(resizer.handle, head, this.sessionList, this.chat, body);
     this.root.append(panel, badge);
     document.body.appendChild(this.root);
   }
@@ -551,4 +555,10 @@ export class AssistantView {
     if (text !== undefined) node.textContent = text;
     return node;
   }
+}
+
+function windowOf(document: Document): Window {
+  const window = document.defaultView;
+  if (window === null) throw new InvariantViolation('the assistant needs a document with a window');
+  return window;
 }

@@ -26,6 +26,7 @@ import type { ConversationSession } from '../../../src/domain/session';
 import { FileOpenTimeoutError } from '../../../src/ports/errors';
 import { AssistantController } from '../../../src/presentation/assistant-controller';
 import { AssistantView } from '../../../src/presentation/assistant-view';
+import { LocalStoragePanelSize } from '../../../src/infrastructure/persistence/local-storage-panel-size';
 import {
   coverAllButLastTurn,
   FakeAgent,
@@ -134,7 +135,9 @@ async function openAssistantWith(
     deleteSession: new DeleteSession(sessionDeps),
     conversation,
   });
-  await controller.attach(new AssistantView(window.document, controller));
+  await controller.attach(
+    new AssistantView(window.document, controller, new LocalStoragePanelSize(window)),
+  );
   const texts = (selector: string) =>
     Array.from(window.document.querySelectorAll(selector)).map((n) => n.textContent);
   const click = (selector: string) => {
