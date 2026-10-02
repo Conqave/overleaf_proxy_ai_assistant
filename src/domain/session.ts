@@ -13,6 +13,11 @@ import { carriesWebContent } from './web-search';
 export const MAX_SESSION_MESSAGES = 80;
 export const MAX_SESSION_TITLE_LENGTH = 80;
 
+export interface SessionScope {
+  readonly userId: string;
+  readonly projectId: string;
+}
+
 export interface SessionSummary {
   readonly id: string;
   readonly title: string;

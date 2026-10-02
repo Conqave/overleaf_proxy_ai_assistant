@@ -4,14 +4,17 @@ import type { UserMessage } from '../../../src/domain/conversation';
 import { createDocumentCommand } from '../../../src/domain/document-command';
 import { EmptySessionExportError, ForeignProjectExportError } from '../../../src/domain/errors';
 import { ProjectFileKind, type ProjectFile } from '../../../src/domain/project-file';
-import { MAX_SESSION_TITLE_LENGTH, type ConversationSession } from '../../../src/domain/session';
+import {
+  MAX_SESSION_TITLE_LENGTH,
+  type ConversationSession,
+  type SessionScope,
+} from '../../../src/domain/session';
 import {
   createSessionExport,
   getSessionExportPath,
   importSessionExport,
   isSessionExportPath,
   listSessionExports,
-  type SessionScope,
 } from '../../../src/domain/session-export';
 import { editWith, proposalOf } from '../../support/proposals';
 

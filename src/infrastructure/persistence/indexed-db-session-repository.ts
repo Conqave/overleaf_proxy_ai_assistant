@@ -1,6 +1,7 @@
 import {
   summarizeSession,
   type ConversationSession,
+  type SessionScope,
   type SessionSummary,
 } from '../../domain/session';
 import {
@@ -9,7 +10,6 @@ import {
   UnreadableSessionError,
 } from '../../ports/errors';
 import type { SessionListing, SessionRepository } from '../../ports/session-repository';
-import type { OverleafPageIdentity } from '../overleaf/overleaf-page';
 import { parseStoredSession, toStoredSession } from './stored-conversation-format';
 import { UnknownStoredFormatError } from './stored-fields';
 
@@ -40,7 +40,7 @@ export class IndexedDbSessionRepository implements SessionRepository {
 
   constructor(
     private readonly window: { readonly indexedDB: Pick<IDBFactory, 'open'> },
-    private readonly scope: OverleafPageIdentity,
+    private readonly scope: SessionScope,
   ) {}
 
   async list(): Promise<SessionListing> {

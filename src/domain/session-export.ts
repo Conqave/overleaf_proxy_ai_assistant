@@ -2,7 +2,12 @@ import { recordImportedEdits } from './change-set';
 import { AssistantMessageKind, type ConversationMessage } from './conversation';
 import { EmptySessionExportError, ForeignProjectExportError } from './errors';
 import { PATH_SEPARATOR, type ProjectFile } from './project-file';
-import { createSessionTitle, discardUndecidedProposals, type ConversationSession } from './session';
+import {
+  createSessionTitle,
+  discardUndecidedProposals,
+  type ConversationSession,
+  type SessionScope,
+} from './session';
 
 export const SESSION_EXPORT_FOLDER = 'hans-sessions';
 export const IMPORTED_TITLE_PREFIX = 'Imported: ';
@@ -17,11 +22,6 @@ const UNDECOMPOSED_LETTERS: readonly (readonly [string, string])[] = [
   ['æ', 'ae'],
   ['œ', 'oe'],
 ];
-
-export interface SessionScope {
-  readonly userId: string;
-  readonly projectId: string;
-}
 
 export interface ExportedSession {
   readonly title: string;

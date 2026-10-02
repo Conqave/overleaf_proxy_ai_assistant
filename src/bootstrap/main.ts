@@ -23,6 +23,7 @@ import { ReviewAppliedChange } from '../application/review-applied-change';
 import { WebSearchApproval } from '../application/web-search-approval';
 import { WebSearchTool } from '../application/web-search-tool';
 import { createAgentPolicies } from '../domain/agent-policy';
+import type { SessionScope } from '../domain/session';
 import { createUuid } from '../infrastructure/browser/uuid';
 import { ExaWebSearch } from '../infrastructure/mcp/exa-web-search';
 import { McpClient } from '../infrastructure/mcp/mcp-client';
@@ -93,7 +94,8 @@ function compose(
   });
   const project = new OverleafProjectAdapter({ window, store, bridge, files });
   const newId = (): string => createUuid(window.crypto);
-  const sessions = new IndexedDbSessionRepository(window, identity);
+  const scope: SessionScope = { userId: identity.userId, projectId: identity.projectId };
+  const sessions = new IndexedDbSessionRepository(window, scope);
   const conversation = new ConversationLog({ sessions, newId, now: () => Date.now() });
   const pendingChanges = new PendingChanges({ conversation, editor });
   const createController = (): AbortController => new AbortController();
@@ -133,7 +135,7 @@ function compose(
     ...sessionDeps,
     archive: new ProjectSessionArchive(files),
     project,
-    scope: identity,
+    scope,
     newId,
     now: () => Date.now(),
   };

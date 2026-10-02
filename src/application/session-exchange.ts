@@ -5,8 +5,8 @@ import {
   getSessionExportPath,
   importSessionExport,
   listSessionExports,
-  type SessionScope,
 } from '../domain/session-export';
+import type { SessionScope } from '../domain/session';
 import type { ProjectPort } from '../ports/project-port';
 import type { SessionArchive } from '../ports/session-archive';
 import { leaveCurrentSession, type SessionDeps } from './conversation-session';

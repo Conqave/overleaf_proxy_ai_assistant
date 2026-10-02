@@ -52,9 +52,8 @@ import {
   type WebSearchResult,
 } from '../../domain/web-search';
 import { createProjectPath } from '../../domain/project-file';
-import type { ConversationSession } from '../../domain/session';
+import type { ConversationSession, SessionScope } from '../../domain/session';
 import type { ExportedSession } from '../../domain/session-export';
-import type { OverleafPageIdentity } from '../overleaf/overleaf-page';
 import {
   getArray,
   getBoolean,
@@ -360,10 +359,7 @@ export interface StoredSession {
   readonly imported: ImportedHistory | null;
 }
 
-export function toStoredSession(
-  session: ConversationSession,
-  scope: OverleafPageIdentity,
-): StoredSession {
+export function toStoredSession(session: ConversationSession, scope: SessionScope): StoredSession {
   return {
     userId: scope.userId,
     projectId: scope.projectId,
@@ -389,10 +385,7 @@ export function parseSessionContent(data: unknown): ExportedSession {
   };
 }
 
-export function parseStoredSession(
-  data: unknown,
-  scope: OverleafPageIdentity,
-): ConversationSession {
+export function parseStoredSession(data: unknown, scope: SessionScope): ConversationSession {
   const fields = getFields(data);
   if (getString(fields, 'userId') !== scope.userId) {
     throw new UnknownStoredFormatError('stored for another user');

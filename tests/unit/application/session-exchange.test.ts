@@ -12,7 +12,7 @@ import { EditStatus } from '../../../src/domain/change-set';
 import type { ConversationMessage } from '../../../src/domain/conversation';
 import { createDocumentCommand } from '../../../src/domain/document-command';
 import { ForeignProjectExportError, ProjectFileNotFoundError } from '../../../src/domain/errors';
-import type { SessionScope } from '../../../src/domain/session-export';
+import type { SessionScope } from '../../../src/domain/session';
 import { SessionNotFoundError, UnreadableSessionExportError } from '../../../src/ports/errors';
 import {
   FakeEditor,
