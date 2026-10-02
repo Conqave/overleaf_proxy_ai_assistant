@@ -17,6 +17,11 @@ const problem = (raw: string): string => {
 };
 
 describe('parseAgentDecision tool calls', () => {
+  it('points out a list marker only in front of a field the action takes', () => {
+    expect(problem('ACTION: compile\n- now')).not.toContain('list marker');
+    expect(problem('ACTION: search\nQUERY: ab\n- TASK: x')).not.toContain('list marker');
+  });
+
   it('names a repeated field of an edit without the lookup advice', () => {
     expect(
       problem(
@@ -92,6 +97,11 @@ describe('parseAgentDecision tool calls', () => {
       'must be relative to the project root',
     ],
     ['a read with a task', 'ACTION: read_file\nPATH: a.tex\nTASK: x', 'remove TASK'],
+    [
+      'field lines written as a list',
+      'ACTION: read_file\nPATH: a.tex\n- START_LINE: 1\n-END_LINE: 20',
+      'unexpected lines "- START_LINE: 1", "-END_LINE: 20"; every line before CONTENT: must be one of PATH, START_LINE, END_LINE followed by ": "; write each field line at the very start of its line, without a list marker such as "- " in front',
+    ],
     [
       'two files in one read',
       'ACTION: read_file\nPATH: a.tex\nPATH: b.tex',

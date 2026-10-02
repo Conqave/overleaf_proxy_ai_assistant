@@ -328,8 +328,20 @@ function rejectUnexpected(
     problems.push(
       `unexpected ${subject} ${quoted}; every line before ${CONTENT_MARKER} ${allowed}`,
     );
+    if (unexpectedLines.some((row) => isListedField(row, names))) {
+      problems.push(
+        'write each field line at the very start of its line, without a list marker such as "- " in front',
+      );
+    }
   }
   if (problems.length) throw new InvalidAssistantResponse(problems.join('; '));
+}
+
+const LISTED_FIELD = /^\s*[-*•]\s*([A-Z][A-Z_]*):/;
+
+function isListedField(row: string, names: readonly string[]): boolean {
+  const name = LISTED_FIELD.exec(row)?.[1];
+  return name !== undefined && names.includes(name);
 }
 
 function getOptionalField(fields: ReadonlyMap<string, string>, name: string): string | undefined {
