@@ -1,10 +1,8 @@
 import { AgentTool, type AgentDecision, type ToolCall } from '../../domain/agent-action';
-import {
-  AGENT_POLICY,
-  AgentRole,
-  countToolCallsLeft,
-  type AgentPolicy,
-} from '../../domain/agent-policy';
+import { AgentRole, countToolCallsLeft, type AgentPolicy } from '../../domain/agent-policy';
+import { MAX_EDITS_PER_CHANGE } from '../../domain/change-set';
+import { MAX_DELEGATION_RESULT_CHARS } from '../../domain/delegation';
+import { MAX_SEARCH_MATCHES } from '../../domain/project-search';
 import {
   findUncheckedFiles,
   recordToolTurn,
@@ -135,14 +133,14 @@ const SEARCH_LOOKUP: readonly string[] = [
 ];
 
 const SCOPED_SEARCH_LOOKUP: readonly string[] = [
-  `- ${A.Search}: finds a text in the text files of the project, case-insensitively, and lists each matching line as path:line: text, at most ${String(AGENT_POLICY.maxSearchMatches)} lines. Use it to find where a \\label, \\cite key, \\ref, command or phrase is. Without ${AgentField.Path} it searches the whole project; with ${AgentField.Path} set to one file or one folder exactly as listed under Project files it searches only there.`,
+  `- ${A.Search}: finds a text in the text files of the project, case-insensitively, and lists each matching line as path:line: text, at most ${String(MAX_SEARCH_MATCHES)} lines. Use it to find where a \\label, \\cite key, \\ref, command or phrase is. Without ${AgentField.Path} it searches the whole project; with ${AgentField.Path} set to one file or one folder exactly as listed under Project files it searches only there.`,
   actionLine(A.Search),
   fieldLine(AgentField.Query, '\\cite{'),
   fieldLine(AgentField.Path, 'chapters/intro.tex'),
 ];
 
-const DELEGATE_LOOKUP: readonly string[] = [
-  `- ${A.Delegate}: hands a research task to a helper that starts with an empty context of its own, does its own ${A.ReadFile} and ${A.Search} lookups, cannot edit, and returns only its short findings as the result of this lookup. Use it as your first lookup when the request asks to check, list or compare every item of a kind across several files (every \\cite key against the .bib files, all tables of several chapters, every \\ref against its \\label) and only the findings matter, so that the full text of those files stays out of your context; never for a single file or a single ${A.Search}. At most ${String(AGENT_POLICY.maxDelegations)} per request. ${AgentField.Task} is one line that says everything the helper needs: what to check and what to report, with path:line; ${AgentField.Files} (optional) lists the files or folders to check, separated by "${FILE_SEPARATOR}".`,
+const delegateLookup = (policy: AgentPolicy): readonly string[] => [
+  `- ${A.Delegate}: hands a research task to a helper that starts with an empty context of its own, does its own ${A.ReadFile} and ${A.Search} lookups, cannot edit, and returns only its short findings as the result of this lookup. Use it as your first lookup when the request asks to check, list or compare every item of a kind across several files (every \\cite key against the .bib files, all tables of several chapters, every \\ref against its \\label) and only the findings matter, so that the full text of those files stays out of your context; never for a single file or a single ${A.Search}. At most ${String(policy.maxDelegations)} per request. ${AgentField.Task} is one line that says everything the helper needs: what to check and what to report, with path:line; ${AgentField.Files} (optional) lists the files or folders to check, separated by "${FILE_SEPARATOR}".`,
   actionLine(A.Delegate),
   fieldLine(
     AgentField.Task,
@@ -197,7 +195,7 @@ const mainSystem = (policy: AgentPolicy): string => {
     ...SEARCH_LOOKUP,
     `- ${A.Compile}: compiles the project and lists its errors and warnings. Use it only when the request is about compile errors, warnings or a broken build.`,
     actionLine(A.Compile),
-    ...DELEGATE_LOOKUP,
+    ...delegateLookup(policy),
     ...(webSearch ? WEB_SEARCH_LOOKUP : []),
     '',
     'Replies end the request.',
@@ -212,7 +210,7 @@ const mainSystem = (policy: AgentPolicy): string => {
     actionLine(A.Edit),
     fieldLine(AgentField.Path, '<file path exactly as listed under Project files>'),
     EDIT_FORMAT,
-    `For several changes (several places or several files), repeat the block from ${AgentField.Path} to its content once per change, at most ${String(AGENT_POLICY.maxEditsPerChange)} blocks in one reply; every block starts with its own ${AgentField.Path} line, also for another place in the same file, and the content of a block ends where the next ${AgentField.Path} line starts.`,
+    `For several changes (several places or several files), repeat the block from ${AgentField.Path} to its content once per change, at most ${String(MAX_EDITS_PER_CHANGE)} blocks in one reply; every block starts with its own ${AgentField.Path} line, also for another place in the same file, and the content of a block ends where the next ${AgentField.Path} line starts.`,
     '',
     'How to work:',
     '- The open file is already shown with numbered lines: never read it; answer or edit it directly.',
@@ -220,7 +218,7 @@ const mainSystem = (policy: AgentPolicy): string => {
     `- ${AgentField.Path} is always a path exactly as listed under Project files; files marked (binary) cannot be read or edited. If a file the user names is not listed, say so in an ${A.Answer}.`,
     partialReadRule('answer or edit'),
     `- Use ${A.Search} to find labels, citations, commands or text when you do not know which file has them.`,
-    `- When the user asks to check, list or compare every item of a kind across several files (every \\cite key against the .bib files, all tables or figures of several chapters, every \\ref against its \\label), your first action is ${A.Delegate}, before any ${A.Search} or ${A.ReadFile}: one ${A.Search} lists at most ${String(AGENT_POLICY.maxSearchMatches)} lines and would miss the rest. Then answer from its findings.`,
+    `- When the user asks to check, list or compare every item of a kind across several files (every \\cite key against the .bib files, all tables or figures of several chapters, every \\ref against its \\label), your first action is ${A.Delegate}, before any ${A.Search} or ${A.ReadFile}: one ${A.Search} lists at most ${String(MAX_SEARCH_MATCHES)} lines and would miss the rest. Then answer from its findings.`,
     `- When a ${A.Search} result says that more matches were omitted and the request needs all of them, ${A.Delegate} the check instead of searching again.`,
     `- A ${A.Delegate} result holds only the helper's findings: answer from it, and read the lines you change with ${A.ReadFile} before an ${A.Edit}.`,
     `- When the user says the project does not compile or reports errors or warnings, your first action is ${A.Compile}, before any ${A.ReadFile}: you cannot compile in your head, and only its result shows the real errors and where they are; then read the file it names and fix the first error it reports; the errors after it are often only its consequences, so the fix is an ${A.Edit} with a single block and changes nothing else.`,
@@ -293,7 +291,7 @@ const subagentSystem = (policy: AgentPolicy): string =>
     ...SCOPED_SEARCH_LOOKUP,
     '',
     'The reply ends the task.',
-    `- ${A.Answer}: your findings for Hans in at most ${String(AGENT_POLICY.maxDelegationResultChars)} characters: only the facts the task asks for, each with its path:line, without introduction or advice. When nothing matches, say so; when you could not check everything, say what is left unchecked.`,
+    `- ${A.Answer}: your findings for Hans in at most ${String(MAX_DELEGATION_RESULT_CHARS)} characters: only the facts the task asks for, each with its path:line, without introduction or advice. When nothing matches, say so; when you could not check everything, say what is left unchecked.`,
     actionLine(A.Answer),
     TEXT_MARKER,
     '<the findings>',

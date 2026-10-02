@@ -5,11 +5,10 @@ import {
   type AgentReply,
   type ToolCall,
 } from '../../domain/agent-action';
-import { AGENT_POLICY, type AgentPolicy } from '../../domain/agent-policy';
+import type { AgentPolicy } from '../../domain/agent-policy';
 import type { EditRequest } from '../../domain/change-set';
 import {
   createDocumentCommand,
-  DocumentOperation,
   type DocumentCommand,
   type DocumentCommandInput,
 } from '../../domain/document-command';
@@ -157,12 +156,6 @@ const PATH_LINE = createFieldPattern([AgentField.Path]);
 
 function parseEditReply(rows: readonly string[]): AgentReply {
   const blocks = splitEditBlocks(rows);
-  const { maxEditsPerChange } = AGENT_POLICY;
-  if (blocks.length > maxEditsPerChange) {
-    throw new InvalidAssistantResponse(
-      `one ${AgentAction.Edit} reply carries at most ${String(maxEditsPerChange)} edit blocks, but this one has ${String(blocks.length)}; send at most ${String(maxEditsPerChange)} blocks: merge changes of neighbouring lines into one ${DocumentOperation.Replace} with ${EditField.Line} and ${EditField.EndLine}, or leave the rest for a later request`,
-    );
-  }
   if (blocks.length === 1) return { kind: 'edit', edits: blocks.map(parseEditBlock) };
   return {
     kind: 'edit',

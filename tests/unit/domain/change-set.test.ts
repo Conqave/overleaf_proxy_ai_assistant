@@ -1,15 +1,21 @@
 import { describe, expect, it } from 'vitest';
 import {
   canUndoEdits,
+  checkEditCount,
   createChangeSet,
   decideEdits,
   getUndoOrder,
   recordAppliedEdits,
   recordUndoneEdits,
+  MAX_EDITS_PER_CHANGE,
   restoreChangeSet,
 } from '../../../src/domain/change-set';
 import { createDocumentCommand } from '../../../src/domain/document-command';
-import { InvalidChangeSetError, InvariantViolation } from '../../../src/domain/errors';
+import {
+  InvalidChangeSetError,
+  InvariantViolation,
+  TooManyEditsError,
+} from '../../../src/domain/errors';
 
 const request = (path: string, lineNumber: number) => ({
   path,
@@ -21,14 +27,20 @@ const request = (path: string, lineNumber: number) => ({
 const applied = (line: number) => ({ line, before: ['x', 'y'], after: ['y'] });
 
 describe('change sets', () => {
-  it('holds one to eight proposed edits', () => {
+  it('holds at least one proposed edit', () => {
     expect(createChangeSet([request('a.tex', 1)])).toEqual([
       { ...request('a.tex', 1), status: 'proposed' },
     ]);
     expect(() => createChangeSet([])).toThrow(InvalidChangeSetError);
-    expect(() =>
-      createChangeSet(Array.from({ length: 9 }, (_, i) => request('a.tex', i + 1))),
-    ).toThrow(InvalidChangeSetError);
+  });
+
+  it('lets the agent propose at most the maximum of edits in one change', () => {
+    expect(() => {
+      checkEditCount(MAX_EDITS_PER_CHANGE);
+    }).not.toThrow();
+    expect(() => {
+      checkEditCount(MAX_EDITS_PER_CHANGE + 1);
+    }).toThrow(TooManyEditsError);
   });
 
   it('numbers applied edits in the order they were applied, across applies', () => {

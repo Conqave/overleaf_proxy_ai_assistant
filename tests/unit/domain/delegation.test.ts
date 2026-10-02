@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { AGENT_POLICY, SUBAGENT_POLICY } from '../../../src/domain/agent-policy';
+import { SUBAGENT_POLICY } from '../../../src/domain/agent-policy';
+import { MAX_DELEGATION_RESULT_CHARS } from '../../../src/domain/delegation';
 import {
   createDelegationReport,
   failDelegation,
@@ -7,7 +8,7 @@ import {
 } from '../../../src/domain/delegation';
 import { InvalidToolRecordError } from '../../../src/domain/errors';
 
-const LIMIT = AGENT_POLICY.maxDelegationResultChars;
+const LIMIT = MAX_DELEGATION_RESULT_CHARS;
 
 describe('delegation report', () => {
   it('keeps short findings whole', () => {

@@ -1,5 +1,4 @@
-import { NamedError, OperationalError } from '../domain/errors';
-import { AGENT_POLICY } from '../domain/agent-policy';
+import { AgentMistakeError, NamedError, OperationalError } from '../domain/errors';
 import type { AutoApprovalScope } from './web-search-approval';
 
 export class EmptyRequestError extends OperationalError {
@@ -59,9 +58,12 @@ export class UndecidedEditsError extends OperationalError {
 }
 
 export class AgentMistakeLimitError extends OperationalError {
-  constructor(readonly lastMistake: Error) {
+  constructor(
+    readonly lastMistake: AgentMistakeError,
+    readonly limit: number,
+  ) {
     super(
-      `The assistant took ${String(AGENT_POLICY.maxConsecutiveMistakes)} invalid steps in a row and stopped (last: ${lastMistake.message}). Please rephrase the request.`,
+      `The assistant took ${String(limit)} invalid steps in a row and stopped (last: ${lastMistake.message}). Please rephrase the request.`,
       { cause: lastMistake },
     );
   }
@@ -76,8 +78,8 @@ export class FailureRecordingError extends NamedError {
   }
 }
 
-export class InvalidChangeSetEditError extends NamedError {
-  constructor(index: number, count: number, path: string, mistake: Error) {
+export class InvalidChangeSetEditError extends AgentMistakeError {
+  constructor(index: number, count: number, path: string, mistake: AgentMistakeError) {
     super(`edit ${String(index + 1)} of ${String(count)} (${path}): ${mistake.message}`, {
       cause: mistake,
     });

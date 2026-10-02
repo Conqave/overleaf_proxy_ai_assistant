@@ -1,5 +1,6 @@
-import { AGENT_POLICY } from './agent-policy';
 import { InvalidToolRecordError } from './errors';
+
+export const MAX_DELEGATION_RESULT_CHARS = 1_500;
 
 export const DelegationOutcome = {
   Finished: 'finished',
@@ -22,10 +23,10 @@ export type DelegationReport =
 
 export function finishDelegation(text: string, lookups: number): DelegationReport {
   const result = text.trim();
-  const truncated = result.length > AGENT_POLICY.maxDelegationResultChars;
+  const truncated = result.length > MAX_DELEGATION_RESULT_CHARS;
   return createDelegationReport({
     outcome: DelegationOutcome.Finished,
-    text: truncated ? result.slice(0, AGENT_POLICY.maxDelegationResultChars) : result,
+    text: truncated ? result.slice(0, MAX_DELEGATION_RESULT_CHARS) : result,
     truncated,
     lookups,
   });
@@ -34,7 +35,7 @@ export function finishDelegation(text: string, lookups: number): DelegationRepor
 export function failDelegation(problem: string, lookups: number): DelegationReport {
   return createDelegationReport({
     outcome: DelegationOutcome.Failed,
-    problem: problem.trim().slice(0, AGENT_POLICY.maxDelegationResultChars),
+    problem: problem.trim().slice(0, MAX_DELEGATION_RESULT_CHARS),
     lookups,
   });
 }

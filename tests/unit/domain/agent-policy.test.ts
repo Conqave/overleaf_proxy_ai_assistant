@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest';
 import {
-  AGENT_POLICY,
   checkFilesChecked,
   checkReply,
   checkToolCall,
@@ -135,14 +134,18 @@ describe('delegation policy', () => {
   const task = (index: number): string => `Check every citation of chapter ${String(index)}`;
 
   it('lets the main agent delegate up to its limit of delegations per request', () => {
-    const used = repeat(AGENT_POLICY.maxDelegations - 1, (i) => delegateTurn(task(i)));
+    const used = repeat(MAIN.maxDelegations - 1, (i) => delegateTurn(task(i)));
     expect(() => {
       checkToolCall(MAIN, used, { tool: 'delegate', task: task(9), files: [] });
     }).not.toThrow();
   });
 
+  it('gives the subagent no delegations', () => {
+    expect(SUBAGENT_POLICY.maxDelegations).toBe(0);
+  });
+
   it('refuses a delegation beyond the limit even with lookups left', () => {
-    const used = repeat(AGENT_POLICY.maxDelegations, (i) => delegateTurn(task(i)));
+    const used = repeat(MAIN.maxDelegations, (i) => delegateTurn(task(i)));
     expect(countToolCallsLeft(MAIN, used)).toBeGreaterThan(0);
     expect(() => {
       checkToolCall(MAIN, used, { tool: 'delegate', task: task(9), files: [] });
@@ -320,20 +323,36 @@ describe('reply policy', () => {
 });
 
 describe('agent mistake policy', () => {
-  const limit = AGENT_POLICY.maxConsecutiveMistakes;
+  const limit = MAIN.maxConsecutiveMistakes;
 
   it('allows fewer consecutive mistakes than the limit', () => {
-    expect(hasMistakesLeft([])).toBe(true);
-    expect(hasMistakesLeft(repeat(limit - 1, (i) => mistakeTurn(`m${String(i)}`)))).toBe(true);
+    expect(hasMistakesLeft(MAIN, [])).toBe(true);
+    expect(
+      hasMistakesLeft(
+        MAIN,
+        repeat(limit - 1, (i) => mistakeTurn(`m${String(i)}`)),
+      ),
+    ).toBe(true);
+  });
+
+  it('takes the limit of consecutive mistakes from the policy of the role', () => {
+    const strict = { ...SUBAGENT_POLICY, maxConsecutiveMistakes: 1 };
+    expect(hasMistakesLeft(strict, [mistakeTurn('m')])).toBe(false);
+    expect(hasMistakesLeft(SUBAGENT_POLICY, [mistakeTurn('m')])).toBe(true);
   });
 
   it('stops at the limit of consecutive mistakes', () => {
-    expect(hasMistakesLeft(repeat(limit, (i) => mistakeTurn(`m${String(i)}`)))).toBe(false);
+    expect(
+      hasMistakesLeft(
+        MAIN,
+        repeat(limit, (i) => mistakeTurn(`m${String(i)}`)),
+      ),
+    ).toBe(false);
   });
 
   it('counts only the mistakes after the last tool call', () => {
     const earlier = repeat(limit - 1, (i) => mistakeTurn(`e${String(i)}`));
     const later = repeat(limit - 1, (i) => mistakeTurn(`l${String(i)}`));
-    expect(hasMistakesLeft([...earlier, readTurn('a.tex'), ...later])).toBe(true);
+    expect(hasMistakesLeft(MAIN, [...earlier, readTurn('a.tex'), ...later])).toBe(true);
   });
 });

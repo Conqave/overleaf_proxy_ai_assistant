@@ -1,6 +1,7 @@
-import { AGENT_POLICY } from './agent-policy';
 import type { SearchMatch } from './agent-transcript';
 import type { DocumentSnapshot } from './document';
+
+export const MAX_SEARCH_MATCHES = 20;
 
 export interface SearchedFile {
   readonly path: string;
@@ -20,7 +21,7 @@ export function searchProject(files: readonly SearchedFile[], query: string): Se
     ),
   );
   return {
-    matches: Object.freeze(all.slice(0, AGENT_POLICY.maxSearchMatches)),
-    truncated: all.length > AGENT_POLICY.maxSearchMatches,
+    matches: Object.freeze(all.slice(0, MAX_SEARCH_MATCHES)),
+    truncated: all.length > MAX_SEARCH_MATCHES,
   };
 }

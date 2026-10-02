@@ -1,7 +1,8 @@
-import { AGENT_POLICY } from './agent-policy';
 import type { DocumentCommand } from './document-command';
-import { InvalidChangeSetError, InvariantViolation } from './errors';
+import { InvalidChangeSetError, InvariantViolation, TooManyEditsError } from './errors';
 import type { AppliedEdit, AppliedSplice } from './file-change';
+
+export const MAX_EDITS_PER_CHANGE = 8;
 
 export const EditStatus = {
   Proposed: 'proposed',
@@ -44,7 +45,7 @@ export interface FileEdits {
 }
 
 export function createChangeSet(requests: readonly EditRequest[]): readonly ProposedEdit[] {
-  checkEditCount(requests.length);
+  if (requests.length === 0) throw new InvalidChangeSetError('a change has at least one edit');
   return Object.freeze(
     requests.map(({ path, command }) =>
       Object.freeze({ path, command, status: EditStatus.Proposed }),
@@ -63,10 +64,10 @@ export function restoreChangeSet(edits: readonly ProposedEdit[]): readonly Propo
   return Object.freeze(edits.map((edit) => Object.freeze({ ...edit })));
 }
 
-function checkEditCount(count: number): void {
-  if (count < 1 || count > AGENT_POLICY.maxEditsPerChange) {
-    throw new InvalidChangeSetError(
-      `a change has 1 to ${String(AGENT_POLICY.maxEditsPerChange)} edits, not ${String(count)}`,
+export function checkEditCount(count: number): void {
+  if (count > MAX_EDITS_PER_CHANGE) {
+    throw new TooManyEditsError(
+      `one change carries at most ${String(MAX_EDITS_PER_CHANGE)} edits, but this one has ${String(count)}; merge changes of neighbouring lines into one replacement of their line range, or leave the rest for a later request`,
     );
   }
 }

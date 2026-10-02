@@ -7,7 +7,7 @@ import {
   type ToolCall,
   type WebSearchCall,
 } from '../domain/agent-action';
-import type { EditRequest } from '../domain/change-set';
+import { checkEditCount, type EditRequest } from '../domain/change-set';
 import {
   checkFilesChecked,
   checkReply,
@@ -15,23 +15,7 @@ import {
   type AgentPolicy,
 } from '../domain/agent-policy';
 import { assertEditShown, getShownDocument, type AgentTurn } from '../domain/agent-transcript';
-import {
-  DelegationLimitError,
-  DocumentRangeError,
-  DocumentTargetNotFoundError,
-  NotATextFileError,
-  OverlappingEditsError,
-  ProjectFileNotFoundError,
-  ReadRangeError,
-  ReplyNotAllowedError,
-  RepeatedToolCallError,
-  ToolBudgetExhaustedError,
-  ScopedSearchNotAllowedError,
-  ToolNotAllowedError,
-  UncheckedFilesError,
-  UnreadFileEditError,
-  UnshownLinesEditError,
-} from '../domain/errors';
+import { AgentMistakeError } from '../domain/errors';
 import { checkSeparateEdits } from '../domain/file-change';
 import { findSearchScope, findTextFile, type TextFile } from '../domain/project-file';
 import { ResolvedEdit } from '../domain/resolved-edit';
@@ -73,45 +57,6 @@ export type AcceptedDecision =
   | AcceptedDelegation
   | AcceptedWebSearch
   | AcceptedReply;
-
-export type AgentMistake =
-  | ToolNotAllowedError
-  | ScopedSearchNotAllowedError
-  | ReplyNotAllowedError
-  | DelegationLimitError
-  | UncheckedFilesError
-  | ToolBudgetExhaustedError
-  | RepeatedToolCallError
-  | ProjectFileNotFoundError
-  | NotATextFileError
-  | UnreadFileEditError
-  | UnshownLinesEditError
-  | ReadRangeError
-  | DocumentTargetNotFoundError
-  | DocumentRangeError
-  | OverlappingEditsError
-  | InvalidChangeSetEditError;
-
-export function isAgentMistake(error: unknown): error is AgentMistake {
-  return (
-    error instanceof ToolNotAllowedError ||
-    error instanceof ScopedSearchNotAllowedError ||
-    error instanceof ReplyNotAllowedError ||
-    error instanceof DelegationLimitError ||
-    error instanceof UncheckedFilesError ||
-    error instanceof ToolBudgetExhaustedError ||
-    error instanceof RepeatedToolCallError ||
-    error instanceof ProjectFileNotFoundError ||
-    error instanceof NotATextFileError ||
-    error instanceof UnreadFileEditError ||
-    error instanceof UnshownLinesEditError ||
-    error instanceof ReadRangeError ||
-    error instanceof DocumentTargetNotFoundError ||
-    error instanceof DocumentRangeError ||
-    error instanceof OverlappingEditsError ||
-    error instanceof InvalidChangeSetEditError
-  );
-}
 
 export function acceptDecision(
   decision: AgentDecision,
@@ -170,6 +115,7 @@ function acceptReply(
     case 'question':
       return { kind: reply.kind, text: reply.text };
     case 'edit': {
+      checkEditCount(reply.edits.length);
       const changes = reply.edits.map((request, index) =>
         reply.edits.length === 1
           ? acceptEdit(request, workspace, transcript)
@@ -191,7 +137,7 @@ function acceptEditOfMany(
   try {
     return acceptEdit(request, workspace, transcript);
   } catch (error) {
-    if (!isAgentMistake(error)) throw error;
+    if (!(error instanceof AgentMistakeError)) throw error;
     throw new InvalidChangeSetEditError(index, count, request.path, error);
   }
 }

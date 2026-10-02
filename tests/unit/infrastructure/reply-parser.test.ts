@@ -420,15 +420,12 @@ describe('parseAgentDecision edit blocks', () => {
     expect(edits.map(({ path }) => path)).toEqual(['a.tex', 'b.tex']);
   });
 
-  it('accepts eight blocks and asks for fewer when there are more', () => {
-    const blocks = (count: number) =>
-      ['ACTION: edit', ...Array.from({ length: count }, (_, i) => block('main.tex', i + 1))].join(
-        '\n',
-      );
-    expect(editsOf(blocks(8))).toHaveLength(8);
-    expect(problem(blocks(9))).toBe(
-      'one edit reply carries at most 8 edit blocks, but this one has 9; send at most 8 blocks: merge changes of neighbouring lines into one replace with LINE and END_LINE, or leave the rest for a later request',
-    );
+  it('parses every block and leaves the size of the change to its acceptance', () => {
+    const blocks = [
+      'ACTION: edit',
+      ...Array.from({ length: 9 }, (_, i) => block('main.tex', i + 1)),
+    ];
+    expect(editsOf(blocks.join('\n'))).toHaveLength(9);
   });
 
   it('names the block that is wrong', () => {

@@ -1,14 +1,9 @@
 import { AgentTool, type AgentDecision } from '../domain/agent-action';
-import {
-  AGENT_POLICY,
-  hasMistakesLeft,
-  type AgentPolicies,
-  type AgentPolicy,
-} from '../domain/agent-policy';
+import { hasMistakesLeft, type AgentPolicies, type AgentPolicy } from '../domain/agent-policy';
 import type { AgentTurn, ToolResult, ToolTurn } from '../domain/agent-transcript';
 import type { ConversationView } from '../domain/conversation-view';
 import { failDelegation, finishDelegation } from '../domain/delegation';
-import { InvariantViolation } from '../domain/errors';
+import { AgentMistakeError, InvariantViolation } from '../domain/errors';
 import { listTextFiles } from '../domain/project-file';
 import type {
   AgentPort,
@@ -22,12 +17,10 @@ import type { CancellationSignal } from '../ports/cancellation';
 import { AssistantContextOverflowError, AssistantProtocolError } from '../ports/errors';
 import {
   acceptDecision,
-  isAgentMistake,
   type AcceptedDecision,
   type AcceptedDelegation,
   type AcceptedReply,
   type AcceptedWebSearch,
-  type AgentMistake,
 } from './agent-decision';
 import type { AgentProgress } from './agent-progress';
 import type { ConversationCompactor } from './conversation-compactor';
@@ -101,8 +94,8 @@ export class AgentLoop {
       try {
         accepted = acceptDecision(decision, { request, policy }, workspace, transcript);
       } catch (error) {
-        if (!isAgentMistake(error)) throw error;
-        recordMistake(transcript, decision, error);
+        if (!(error instanceof AgentMistakeError)) throw error;
+        recordMistake(policy, transcript, decision, error);
         continue;
       }
       let result: ToolResult;
@@ -121,8 +114,8 @@ export class AgentLoop {
           try {
             result = await this.deps.tools.run(accepted.run, onProgress, signal);
           } catch (error) {
-            if (!isAgentMistake(error)) throw error;
-            recordMistake(transcript, decision, error);
+            if (!(error instanceof AgentMistakeError)) throw error;
+            recordMistake(policy, transcript, decision, error);
             continue;
           }
       }
@@ -183,7 +176,7 @@ export class AgentLoop {
       outcome = await this.run(subtask);
     } catch (error) {
       if (error instanceof AgentMistakeLimitError) {
-        const problem = `the subagent stopped after ${String(AGENT_POLICY.maxConsecutiveMistakes)} invalid steps in a row (last: ${error.lastMistake.message})`;
+        const problem = `the subagent stopped after ${String(error.limit)} invalid steps in a row (last: ${error.lastMistake.message})`;
         return { tool: AgentTool.Delegate, report: failDelegation(problem, lookups) };
       }
       if (error instanceof AssistantProtocolError) {
@@ -217,10 +210,13 @@ export class AgentLoop {
 }
 
 function recordMistake(
+  policy: AgentPolicy,
   transcript: AgentTurn[],
   decision: AgentDecision,
-  mistake: AgentMistake,
+  mistake: AgentMistakeError,
 ): void {
   transcript.push({ kind: 'mistake', decision, problem: mistake.message });
-  if (!hasMistakesLeft(transcript)) throw new AgentMistakeLimitError(mistake);
+  if (!hasMistakesLeft(policy, transcript)) {
+    throw new AgentMistakeLimitError(mistake, policy.maxConsecutiveMistakes);
+  }
 }

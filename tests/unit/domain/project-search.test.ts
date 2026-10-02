@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { AGENT_POLICY } from '../../../src/domain/agent-policy';
 import { createDocumentSnapshot } from '../../../src/domain/document';
-import { searchProject } from '../../../src/domain/project-search';
+import { MAX_SEARCH_MATCHES, searchProject } from '../../../src/domain/project-search';
 
 describe('searchProject', () => {
   it('finds lines case-insensitively across files', () => {
@@ -22,12 +21,12 @@ describe('searchProject', () => {
   });
 
   it('caps the matches', () => {
-    const lines = Array.from({ length: AGENT_POLICY.maxSearchMatches + 1 }, () => 'hit');
+    const lines = Array.from({ length: MAX_SEARCH_MATCHES + 1 }, () => 'hit');
     const outcome = searchProject(
       [{ path: 'a.tex', document: createDocumentSnapshot(lines) }],
       'hit',
     );
-    expect(outcome.matches).toHaveLength(AGENT_POLICY.maxSearchMatches);
+    expect(outcome.matches).toHaveLength(MAX_SEARCH_MATCHES);
     expect(outcome.truncated).toBe(true);
   });
 });

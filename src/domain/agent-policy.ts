@@ -15,14 +15,6 @@ import {
   UncheckedFilesError,
 } from './errors';
 
-export const AGENT_POLICY = {
-  maxSearchMatches: 20,
-  maxConsecutiveMistakes: 3,
-  maxEditsPerChange: 8,
-  maxDelegations: 2,
-  maxDelegationResultChars: 1_500,
-} as const;
-
 export const AgentRole = {
   Main: 'main',
   Subagent: 'subagent',
@@ -37,6 +29,8 @@ export interface AgentPolicy {
   readonly replies: readonly AgentReplyKind[];
   readonly scopedSearch: boolean;
   readonly maxToolCalls: number;
+  readonly maxDelegations: number;
+  readonly maxConsecutiveMistakes: number;
 }
 
 export const SUBAGENT_POLICY: AgentPolicy = Object.freeze({
@@ -45,6 +39,8 @@ export const SUBAGENT_POLICY: AgentPolicy = Object.freeze({
   replies: Object.freeze(['answer'] as const),
   scopedSearch: true,
   maxToolCalls: 10,
+  maxDelegations: 0,
+  maxConsecutiveMistakes: 3,
 });
 
 export interface AgentCapabilities {
@@ -69,6 +65,8 @@ export function createAgentPolicies({ webSearch }: AgentCapabilities): AgentPoli
     replies: Object.freeze(['answer', 'question', 'edit'] as const),
     scopedSearch: false,
     maxToolCalls: 6,
+    maxDelegations: 2,
+    maxConsecutiveMistakes: 3,
   });
   return Object.freeze({ main, subagent: SUBAGENT_POLICY });
 }
@@ -101,9 +99,9 @@ export function checkToolCall(
   const earlier = turns.find((turn) => isSameToolCall(turn.call, call));
   if (earlier !== undefined) throw new RepeatedToolCallError(repeatedCallProblem(policy, earlier));
   const delegations = turns.filter((turn) => turn.call.tool === AgentTool.Delegate).length;
-  if (call.tool === AgentTool.Delegate && delegations >= AGENT_POLICY.maxDelegations) {
+  if (call.tool === AgentTool.Delegate && delegations >= policy.maxDelegations) {
     throw new DelegationLimitError(
-      `all ${String(AGENT_POLICY.maxDelegations)} delegations of this request are used; do the remaining lookups yourself or reply`,
+      `all ${String(policy.maxDelegations)} delegations of this request are used; do the remaining lookups yourself or reply`,
     );
   }
 }
@@ -142,8 +140,8 @@ export function checkFilesChecked(
   }
 }
 
-export function hasMistakesLeft(transcript: readonly AgentTurn[]): boolean {
+export function hasMistakesLeft(policy: AgentPolicy, transcript: readonly AgentTurn[]): boolean {
   const lastToolTurn = transcript.findLastIndex((turn) => turn.kind === 'tool');
   const trailingMistakes = transcript.length - 1 - lastToolTurn;
-  return trailingMistakes < AGENT_POLICY.maxConsecutiveMistakes;
+  return trailingMistakes < policy.maxConsecutiveMistakes;
 }

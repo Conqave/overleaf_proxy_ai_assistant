@@ -42,9 +42,10 @@ import {
 } from '../../../src/application/web-search-approval';
 import { WebSearchTool } from '../../../src/application/web-search-tool';
 import type { AgentDecision, ToolCall } from '../../../src/domain/agent-action';
-import type { EditRequest } from '../../../src/domain/change-set';
+import { MAX_EDITS_PER_CHANGE, type EditRequest } from '../../../src/domain/change-set';
 import type { CompileDiagnostic } from '../../../src/domain/agent-transcript';
-import { AGENT_POLICY, SUBAGENT_POLICY } from '../../../src/domain/agent-policy';
+import { SUBAGENT_POLICY } from '../../../src/domain/agent-policy';
+import { MAX_DELEGATION_RESULT_CHARS } from '../../../src/domain/delegation';
 import { MAIN_AGENT_POLICY } from '../../support/policies';
 import { createDocumentSnapshot, type DocumentSnapshot } from '../../../src/domain/document';
 import { createDocumentCommand } from '../../../src/domain/document-command';
@@ -579,19 +580,19 @@ describe('HandleAssistantRequest', () => {
   });
 
   it('gives up after too many consecutive mistakes', async () => {
-    const mistakes = Array.from({ length: AGENT_POLICY.maxConsecutiveMistakes }, () =>
+    const mistakes = Array.from({ length: MAIN_AGENT_POLICY.maxConsecutiveMistakes }, () =>
       editOf('gone.tex', MAIN, 4),
     );
     agent.will(...mistakes);
     await expect(send('add more')).rejects.toThrow(AgentMistakeLimitError);
-    expect(agent.requests).toHaveLength(AGENT_POLICY.maxConsecutiveMistakes);
+    expect(agent.requests).toHaveLength(MAIN_AGENT_POLICY.maxConsecutiveMistakes);
     expect(pendingChanges.discardAll()).toEqual([]);
     expect(editor.preview).toBeNull();
   });
 
   it('starts counting mistakes again after a successful tool call', async () => {
     const mistake = editOf('gone.tex', MAIN, 4);
-    const almost = AGENT_POLICY.maxConsecutiveMistakes - 1;
+    const almost = MAIN_AGENT_POLICY.maxConsecutiveMistakes - 1;
     agent.will(
       ...Array.from({ length: almost }, () => mistake),
       tool({ tool: 'compile' }),
@@ -1300,7 +1301,7 @@ describe('delegation to a subagent', () => {
   });
 
   it('turns repeated mistakes of the subagent into a failed delegation the main agent sees', async () => {
-    const limit = AGENT_POLICY.maxConsecutiveMistakes;
+    const limit = SUBAGENT_POLICY.maxConsecutiveMistakes;
     agent.will(delegate(), ...Array.from({ length: limit }, () => tool({ tool: 'compile' })));
     agent.will(answer('The check failed.'));
     const result = await send('check');
@@ -1315,7 +1316,7 @@ describe('delegation to a subagent', () => {
 
   it('stops the subagent at its own step limit', async () => {
     const lookups = SUBAGENT_POLICY.maxToolCalls;
-    const limit = AGENT_POLICY.maxConsecutiveMistakes;
+    const limit = SUBAGENT_POLICY.maxConsecutiveMistakes;
     agent.will(
       delegate(),
       ...Array.from({ length: lookups + limit }, (_, index) =>
@@ -1349,12 +1350,12 @@ describe('delegation to a subagent', () => {
   });
 
   it('cuts the findings of the subagent at the policy limit', async () => {
-    const long = 'x'.repeat(AGENT_POLICY.maxDelegationResultChars + 10);
+    const long = 'x'.repeat(MAX_DELEGATION_RESULT_CHARS + 10);
     agent.will(delegate(), answer(long), answer('Done.'));
     await send('check');
     expect(delegationOf(0).report).toEqual({
       outcome: 'finished',
-      text: long.slice(0, AGENT_POLICY.maxDelegationResultChars),
+      text: long.slice(0, MAX_DELEGATION_RESULT_CHARS),
       truncated: true,
       lookups: 0,
     });
@@ -1394,7 +1395,7 @@ describe('delegation to a subagent', () => {
     expect(itemAt(agent.requests, 5, 'main step').transcript.at(-1)).toEqual({
       kind: 'mistake',
       decision: other(3),
-      problem: `all ${String(AGENT_POLICY.maxDelegations)} delegations of this request are used; do the remaining lookups yourself or reply`,
+      problem: `all ${String(MAIN_AGENT_POLICY.maxDelegations)} delegations of this request are used; do the remaining lookups yourself or reply`,
     });
   });
 });
@@ -2133,6 +2134,19 @@ describe('change sets', () => {
         decision: editsOf(changeNumbers, twice),
         problem:
           'edits 1 and 2 both change main.tex at or next to line 4; send one edit for those lines instead of two',
+      },
+    ]);
+  });
+
+  it('sends a change with too many edits back to the agent once', async () => {
+    const many = Array.from({ length: MAX_EDITS_PER_CHANGE + 1 }, () => addIntro);
+    agent.will(editsOf(...many), answer('Fewer then.'));
+    await send('change everything');
+    expect(requestAt(1).transcript).toEqual([
+      {
+        kind: 'mistake',
+        decision: editsOf(...many),
+        problem: `one change carries at most ${String(MAX_EDITS_PER_CHANGE)} edits, but this one has ${String(MAX_EDITS_PER_CHANGE + 1)}; merge changes of neighbouring lines into one replacement of their line range, or leave the rest for a later request`,
       },
     ]);
   });

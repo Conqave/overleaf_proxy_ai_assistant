@@ -2,7 +2,6 @@ import { readFileSync } from 'node:fs';
 import { IDBFactory } from 'fake-indexeddb';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { COMPILE_FIX_REQUEST } from '../../src/application/handle-assistant-request';
-import { AGENT_POLICY } from '../../src/domain/agent-policy';
 import { MAIN_AGENT_POLICY } from '../support/policies';
 import type { ConversationMessage } from '../../src/domain/conversation';
 import { IndexedDbSessionRepository } from '../../src/infrastructure/persistence/indexed-db-session-repository';
@@ -1411,7 +1410,7 @@ describe('assistant under interference', () => {
   it.each([
     [
       'reads of a file missing from the project',
-      Array.from({ length: AGENT_POLICY.maxConsecutiveMistakes }, () =>
+      Array.from({ length: MAIN_AGENT_POLICY.maxConsecutiveMistakes }, () =>
         reply('ACTION: read_file', 'PATH: gone.tex'),
       ),
       'The project has no file gone.tex',
@@ -1422,7 +1421,7 @@ describe('assistant under interference', () => {
         ...Array.from({ length: MAIN_AGENT_POLICY.maxToolCalls }, (_, index) =>
           reply('ACTION: search', `QUERY: term${String(index)}`),
         ),
-        ...Array.from({ length: AGENT_POLICY.maxConsecutiveMistakes * 2 }, (_, index) =>
+        ...Array.from({ length: MAIN_AGENT_POLICY.maxConsecutiveMistakes * 2 }, (_, index) =>
           reply('ACTION: search', `QUERY: extra${String(index)}`),
         ),
       ],
