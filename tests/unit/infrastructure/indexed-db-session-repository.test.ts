@@ -106,6 +106,11 @@ const messages: ConversationMessage[] = [
     },
   },
   {
+    id: 't2b',
+    role: 'tool',
+    record: { tool: 'search', query: '\\cite{', path: 'chapters', matches: [], truncated: false },
+  },
+  {
     id: 't3',
     role: 'tool',
     record: {
@@ -328,6 +333,10 @@ describe('IndexedDbSessionRepository', () => {
           },
         ],
         ['of a search without its query', { tool: 'search', matches: [], truncated: false }],
+        [
+          'of a search in a broken path',
+          { tool: 'search', query: 'q', path: '/abs', matches: [], truncated: false },
+        ],
         [
           'of a search match at line zero',
           {

@@ -148,13 +148,16 @@ function parseRecord(value: unknown): ToolRecord {
   switch (tool) {
     case AgentTool.ReadFile:
       return parseReadRecord(fields);
-    case AgentTool.Search:
-      return {
+    case AgentTool.Search: {
+      const record = {
         tool,
         query: getString(fields, 'query'),
         matches: getArray(fields, 'matches').map(parseMatch),
         truncated: getBoolean(fields, 'truncated'),
       };
+      if (!fields.has('path')) return record;
+      return { ...record, path: parsePath(fields.get('path')) };
+    }
     case AgentTool.Compile:
       return { tool, diagnostics: getArray(fields, 'diagnostics').map(parseDiagnostic) };
     case AgentTool.Delegate:

@@ -72,6 +72,24 @@ export function findTextFile(files: readonly ProjectFile[], path: string): TextF
   return file;
 }
 
+export function findSearchScope(
+  files: readonly ProjectFile[],
+  path: string | undefined,
+): readonly TextFile[] {
+  const texts = listTextFiles(files);
+  if (path === undefined) return texts;
+  const scope = texts.filter((file) => isInScope(file.path, path));
+  if (scope.length) return scope;
+  if (files.some((file) => file.path === path)) {
+    throw new NotATextFileError(`${path} is not a text file.`);
+  }
+  throw new ProjectFileNotFoundError(`The project has no file or folder ${path}.`);
+}
+
+export function isInScope(path: string, scope: string | undefined): boolean {
+  return scope === undefined || path === scope || path.startsWith(`${scope}${PATH_SEPARATOR}`);
+}
+
 export function listTextFiles(files: readonly ProjectFile[]): readonly TextFile[] {
   return files.filter((file) => file.kind === ProjectFileKind.Text);
 }

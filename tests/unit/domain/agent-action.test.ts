@@ -39,6 +39,31 @@ describe('createToolCall', () => {
     expect(createToolCall({ tool: 'compile' })).toEqual({ tool: 'compile' });
   });
 
+  it('accepts a file or folder to search in', () => {
+    expect(createToolCall({ tool: 'search', query: 'abc', path: 'chapters' })).toEqual({
+      tool: 'search',
+      query: 'abc',
+      path: 'chapters',
+    });
+  });
+
+  it('says how to search the whole project when a search path is invalid', () => {
+    expect(() => createToolCall({ tool: 'search', query: 'abc', path: '.' })).toThrow(
+      new InvalidToolCallError(
+        'path "." must be relative to the project root, without empty, "." or ".." parts; leave the path out to search the whole project',
+      ),
+    );
+  });
+
+  it('tells searches in different places apart', () => {
+    const everywhere = createToolCall({ tool: 'search', query: 'abc' });
+    const inChapters = createToolCall({ tool: 'search', query: 'abc', path: 'chapters' });
+    expect(isSameToolCall(everywhere, inChapters)).toBe(false);
+    expect(isSameToolCall(inChapters, { tool: 'search', query: 'abc', path: 'chapters' })).toBe(
+      true,
+    );
+  });
+
   it('accepts a line range for read_file', () => {
     expect(createToolCall({ tool: 'read_file', path: 'a.tex', startLine: 5, endLine: 9 })).toEqual({
       tool: 'read_file',
@@ -59,7 +84,8 @@ describe('createToolCall', () => {
     ['a one-character query', { tool: 'search', query: ' x ' }],
     ['a too long query', { tool: 'search', query: 'x'.repeat(201) }],
     ['a multi-line query', { tool: 'search', query: 'ab\ncd' }],
-    ['search with a path', { tool: 'search', query: 'abc', path: 'a.tex' }],
+    ['search in a broken path', { tool: 'search', query: 'abc', path: '../a.tex' }],
+    ['search with lines', { tool: 'search', query: 'abc', path: 'a.tex', startLine: 1 }],
     ['compile with a path', { tool: 'compile', path: 'main.tex' }],
     ['delegate without a task', { tool: 'delegate' }],
     ['a too short task', { tool: 'delegate', task: ' short ' }],

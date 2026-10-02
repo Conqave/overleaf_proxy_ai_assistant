@@ -23,7 +23,7 @@ import {
 import { HARMONY_FRAMING_CHARS } from './harmony-format';
 import { getCorrectionReserveChars, type ProtocolExchange } from './correction-exchange';
 import { parseAgentDecision } from './reply-parser';
-import { diagnosticsText, renderShortRecord } from './tool-record-text';
+import { describeSearch, diagnosticsText, renderShortRecord } from './tool-record-text';
 import { conversationText, getViewRecords } from './conversation-text';
 import { findOutdatedReads, renderUnlessOutdated } from './outdated-reads';
 import {
@@ -123,6 +123,13 @@ const SEARCH_LOOKUP: readonly string[] = [
   `- ${A.Search}: finds a text in every text file of the project, case-insensitively, and lists each matching line as path:line: text. Use it to find where a \\label, \\cite key, \\ref, command or phrase is.`,
   actionLine(A.Search),
   fieldLine(AgentField.Query, '\\label{fig:frog}'),
+];
+
+const SCOPED_SEARCH_LOOKUP: readonly string[] = [
+  `- ${A.Search}: finds a text in the text files of the project, case-insensitively, and lists each matching line as path:line: text, at most ${String(AGENT_POLICY.maxSearchMatches)} lines. Use it to find where a \\label, \\cite key, \\ref, command or phrase is. Without ${AgentField.Path} it searches the whole project; with ${AgentField.Path} set to one file or one folder exactly as listed under Project files it searches only there.`,
+  actionLine(A.Search),
+  fieldLine(AgentField.Query, '\\cite{'),
+  fieldLine(AgentField.Path, 'chapters/intro.tex'),
 ];
 
 const DELEGATE_LOOKUP: readonly string[] = [
@@ -248,7 +255,7 @@ const SUBAGENT_SYSTEM = lines(
   '',
   LOOKUP_INTRO,
   ...READ_FILE_LOOKUP,
-  ...SEARCH_LOOKUP,
+  ...SCOPED_SEARCH_LOOKUP,
   '',
   'The reply ends the task.',
   `- ${A.Answer}: your findings for Hans in at most ${String(AGENT_POLICY.maxDelegationResultChars)} characters: only the facts the task asks for, each with its path:line, without introduction or advice. When nothing matches, say so; when you could not check everything, say what is left unchecked.`,
@@ -258,8 +265,8 @@ const SUBAGENT_SYSTEM = lines(
   '',
   'How to work:',
   `- Start with the files the task names. Use ${A.Search} to find commands, \\cite keys, labels or text across the files, and ${A.ReadFile} to check them in context.`,
-  `- Every reply is one lookup: one ${A.ReadFile} with one ${AgentField.Path}, or one ${A.Search} with one ${AgentField.Query}. To read several files, read them one after another, one file per reply.`,
-  `- ${A.Search} always covers the whole project and lists at most ${String(AGENT_POLICY.maxSearchMatches)} matching lines; it cannot be limited to one file. When its result says that more matches were omitted, ${A.ReadFile} the files the task names one by one instead of searching again.`,
+  `- Every reply is one lookup: one ${A.ReadFile} with one ${AgentField.Path}, or one ${A.Search} with one ${AgentField.Query}. To read or search several files, take them one after another, one file per reply.`,
+  `- When a ${A.Search} result says that more matches were omitted, search each file the task names on its own with ${AgentField.Path}, or ${A.ReadFile} it, instead of repeating the search.`,
   `- ${AgentField.Path} is always a path exactly as listed under Project files; files marked (binary) cannot be read.`,
   PARTIAL_READ_RULE,
   ...STEP_RULES,
@@ -597,7 +604,7 @@ function describeCall(call: ToolCall): string {
       if (call.range === undefined) return `${call.tool} ${call.path}`;
       return `${call.tool} ${call.path} from line ${String(call.range.startLine)}${call.range.endLine === undefined ? '' : ` to ${String(call.range.endLine)}`}`;
     case AgentTool.Search:
-      return `${call.tool} ${JSON.stringify(call.query)}`;
+      return describeSearch(call.query, call.path);
     case AgentTool.Compile:
       return call.tool;
     case AgentTool.Delegate:

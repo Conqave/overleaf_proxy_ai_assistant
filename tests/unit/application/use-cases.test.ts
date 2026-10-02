@@ -421,6 +421,35 @@ describe('HandleAssistantRequest', () => {
     expect(progress).toContainEqual({ stage: 'searching', query: 'KNUTH' });
   });
 
+  it('searches only the file or folder the agent names', async () => {
+    agent.will(
+      tool({ tool: 'search', query: 'knuth', path: 'chapters' }),
+      tool({ tool: 'search', query: 'knuth', path: 'appendix' }),
+      answer('Only the intro mentions knuth.'),
+    );
+    await send('where is knuth mentioned in the chapters?');
+    expect(project.reads).toEqual(['chapters/intro.tex']);
+    expect(requestAt(2).transcript).toEqual([
+      {
+        kind: 'tool',
+        call: { tool: 'search', query: 'knuth', path: 'chapters' },
+        result: {
+          tool: 'search',
+          matches: [{ path: 'chapters/intro.tex', lineNumber: 1, lineText: 'Intro about knuth.' }],
+          truncated: false,
+        },
+      },
+      {
+        kind: 'mistake',
+        decision: tool({ tool: 'search', query: 'knuth', path: 'appendix' }),
+        problem: 'The project has no file or folder appendix.',
+      },
+    ]);
+    expect(storedMessages()).toContainEqual(
+      objectContaining({ record: objectContaining({ query: 'knuth', path: 'chapters' }) }),
+    );
+  });
+
   it('cancels the other reads of a search when one fails and waits for them', async () => {
     const mainRead = Promise.withResolvers<DocumentSnapshot>();
     project.willRead('main.tex', new PendingStep(() => mainRead.promise));

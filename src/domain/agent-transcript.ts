@@ -62,6 +62,7 @@ export interface ReadRecord {
 export interface SearchRecord {
   readonly tool: typeof AgentTool.Search;
   readonly query: string;
+  readonly path?: string;
   readonly matches: readonly SearchMatch[];
   readonly truncated: boolean;
 }
@@ -120,7 +121,9 @@ export function recordToolTurn({ call, result }: ToolTurn): ToolRecord {
       if (call.tool !== AgentTool.Search) {
         throw new InvariantViolation(`a search result came from a ${call.tool} call`);
       }
-      return { ...result, query: call.query };
+      return call.path === undefined
+        ? { ...result, query: call.query }
+        : { ...result, query: call.query, path: call.path };
     case AgentTool.Compile:
       return result;
     case AgentTool.Delegate:

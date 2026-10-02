@@ -14,7 +14,7 @@ export type AgentTool = (typeof AgentTool)[keyof typeof AgentTool];
 
 export type ToolCall =
   | { readonly tool: typeof AgentTool.ReadFile; readonly path: string; readonly range?: ReadRange }
-  | { readonly tool: typeof AgentTool.Search; readonly query: string }
+  | { readonly tool: typeof AgentTool.Search; readonly query: string; readonly path?: string }
   | { readonly tool: typeof AgentTool.Compile }
   | DelegateCall;
 
@@ -59,11 +59,13 @@ export function createToolCall(input: ToolCallInput): ToolCall {
       const range = createReadRange(input.startLine, input.endLine);
       return Object.freeze(range === undefined ? { tool, path } : { tool, path, range });
     }
-    case AgentTool.Search:
-      rejectArgument(tool, 'path', input.path);
+    case AgentTool.Search: {
       rejectLineArguments(tool, input);
       rejectDelegationArguments(tool, input);
-      return Object.freeze({ tool, query: parseQuery(input.query) });
+      const query = parseQuery(input.query);
+      if (input.path === undefined) return Object.freeze({ tool, query });
+      return Object.freeze({ tool, query, path: parseSearchPath(input.path) });
+    }
     case AgentTool.Compile:
       rejectArgument(tool, 'path', input.path);
       rejectArgument(tool, 'query', input.query);
@@ -95,7 +97,11 @@ export function isSameToolCall(first: ToolCall, second: ToolCall): boolean {
         isSameReadRange(first.range, second.range)
       );
     case AgentTool.Search:
-      return second.tool === AgentTool.Search && second.query === first.query;
+      return (
+        second.tool === AgentTool.Search &&
+        second.query === first.query &&
+        second.path === first.path
+      );
     case AgentTool.Compile:
       return second.tool === AgentTool.Compile;
     case AgentTool.Delegate:
@@ -128,6 +134,18 @@ function parseToolPath(value: unknown): string {
   } catch (error) {
     if (!(error instanceof InvalidProjectPathError)) throw error;
     throw new InvalidToolCallError(error.message, { cause: error });
+  }
+}
+
+function parseSearchPath(value: unknown): string {
+  try {
+    return createProjectPath(value);
+  } catch (error) {
+    if (!(error instanceof InvalidProjectPathError)) throw error;
+    throw new InvalidToolCallError(
+      `${error.message}; leave the path out to search the whole project`,
+      { cause: error },
+    );
   }
 }
 

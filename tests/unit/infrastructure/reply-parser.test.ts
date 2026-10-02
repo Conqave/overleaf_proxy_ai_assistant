@@ -38,6 +38,10 @@ describe('parseAgentDecision tool calls', () => {
       { tool: 'read_file', path: 'refs.bib', range: { startLine: 1, endLine: 80 } },
     ],
     [
+      'ACTION: search\nQUERY: \\cite{\nPATH: chapters/ch5.tex',
+      { tool: 'search', query: '\\cite{', path: 'chapters/ch5.tex' },
+    ],
+    [
       'ACTION: delegate\nTASK: List every table without \\caption, with path:line',
       { tool: 'delegate', task: 'List every table without \\caption, with path:line', files: [] },
     ],
@@ -57,9 +61,9 @@ describe('parseAgentDecision tool calls', () => {
     ['a path outside the project', 'ACTION: read_file\nPATH: ../x.tex', 'must be relative'],
     ['a read without a path', 'ACTION: read_file', 'read_file requires a path'],
     [
-      'a search with a path',
-      'ACTION: search\nQUERY: ab\nPATH: main.tex',
-      'ACTION: search takes only QUERY; remove PATH',
+      'a search with a task',
+      'ACTION: search\nQUERY: ab\nTASK: Check every key',
+      'ACTION: search takes only QUERY, PATH; remove TASK',
     ],
     ['a one-letter query', 'ACTION: search\nQUERY: a', 'must have 2 to 200 characters'],
     ['a compile with content', 'ACTION: compile\nCONTENT:\nx', 'has no content'],

@@ -39,7 +39,7 @@ const ACTION_LINE = createFieldPattern([AgentField.Action]);
 
 const TOOL_FIELDS: Readonly<Record<ToolCall['tool'], readonly string[]>> = {
   [AgentAction.ReadFile]: [AgentField.Path, AgentField.StartLine, EditField.EndLine],
-  [AgentAction.Search]: [AgentField.Query],
+  [AgentAction.Search]: [AgentField.Query, AgentField.Path],
   [AgentAction.Compile]: [],
   [AgentAction.Delegate]: [AgentField.Task, AgentField.Files],
 };

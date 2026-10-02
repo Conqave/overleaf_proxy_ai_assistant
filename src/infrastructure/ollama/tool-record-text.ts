@@ -9,7 +9,7 @@ import { compact, LINE_BREAK, lines } from './prompt-blocks';
 const NO_PROBLEMS = '(no problems)';
 const NO_MATCHES = '(no matches)';
 const EMPTY_FILE = '(empty file)';
-const MORE_MATCHES = '(more matches or text omitted; search for something more specific)';
+const MORE_MATCHES = `(more matches or text omitted; search for something more specific or only in one file or folder with ${AgentField.Path})`;
 
 interface RecordText {
   readonly preface: readonly string[];
@@ -23,12 +23,17 @@ export function describeRecord(record: ToolRecord): string {
       if (record.totalLines === 0) return `${record.tool} ${record.path}`;
       return `${record.tool} ${record.path} lines ${String(record.shown.first)}–${String(record.shown.last)} of ${String(record.totalLines)}`;
     case AgentTool.Search:
-      return `${record.tool} ${JSON.stringify(record.query)}`;
+      return describeSearch(record.query, record.path);
     case AgentTool.Compile:
       return record.tool;
     case AgentTool.Delegate:
       return `${record.tool} ${JSON.stringify(record.task)}`;
   }
+}
+
+export function describeSearch(query: string, path: string | undefined): string {
+  const searched = `${AgentTool.Search} ${JSON.stringify(query)}`;
+  return path === undefined ? searched : `${searched} in ${path}`;
 }
 
 export function renderShortRecord(

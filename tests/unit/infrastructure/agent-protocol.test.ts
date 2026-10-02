@@ -202,7 +202,9 @@ describe('agent exchange', () => {
     expect(
       shown
         .trimEnd()
-        .endsWith('(more matches or text omitted; search for something more specific)'),
+        .endsWith(
+          '(more matches or text omitted; search for something more specific or only in one file or folder with PATH)',
+        ),
     ).toBe(true);
   });
 
@@ -353,6 +355,23 @@ describe('subagent exchange', () => {
     ).toContain(
       'Reply again with exactly one action: the first line ACTION: read_file|search|answer,',
     );
+  });
+
+  it('documents a search in one file or folder only to the subagent', () => {
+    const scoped =
+      'with PATH set to one file or one folder exactly as listed under Project files it searches only there';
+    expect(createAgentExchange(subtask(), budget).request.system).toContain(scoped);
+    expect(createAgentExchange(request(), budget).request.system).not.toContain(scoped);
+  });
+
+  it('names the place a search covered', () => {
+    const scoped: AgentTurn = {
+      kind: 'tool',
+      call: { tool: AgentTool.Search, query: '\\cite{', path: 'chapters' },
+      result: { tool: AgentTool.Search, matches: [], truncated: false },
+    };
+    const { prompt } = createAgentExchange(subtask({ transcript: [scoped] }), budget).request;
+    expect(prompt).toContain('Result 1 (search "\\\\cite{" in chapters):\n(no matches)');
   });
 
   it('shows the main agent the findings of a delegation as a numbered result', () => {

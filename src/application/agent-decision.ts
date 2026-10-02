@@ -25,7 +25,7 @@ import {
   UnshownLinesEditError,
 } from '../domain/errors';
 import { checkSeparateEdits } from '../domain/file-change';
-import { findTextFile, listTextFiles, type TextFile } from '../domain/project-file';
+import { findSearchScope, findTextFile, type TextFile } from '../domain/project-file';
 import { ResolvedEdit } from '../domain/resolved-edit';
 import type { ReadRange } from '../domain/read-window';
 import type { AgentWorkspace } from '../ports/agent-port';
@@ -125,7 +125,11 @@ function planToolRun(
     case AgentTool.ReadFile:
       return { tool: call.tool, file: findTextFile(workspace.files, call.path), range: call.range };
     case AgentTool.Search:
-      return { tool: call.tool, query: call.query, files: listTextFiles(workspace.files) };
+      return {
+        tool: call.tool,
+        query: call.query,
+        files: findSearchScope(workspace.files, call.path),
+      };
     case AgentTool.Compile:
       return { tool: call.tool };
   }

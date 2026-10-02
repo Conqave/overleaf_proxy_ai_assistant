@@ -4,7 +4,12 @@ import {
   NotATextFileError,
   ProjectFileNotFoundError,
 } from '../../../src/domain/errors';
-import { createProjectFiles, findTextFile, listTextFiles } from '../../../src/domain/project-file';
+import {
+  createProjectFiles,
+  findSearchScope,
+  findTextFile,
+  listTextFiles,
+} from '../../../src/domain/project-file';
 
 const files = createProjectFiles([
   { id: 'd1', path: 'main.tex', kind: 'text' },
@@ -22,6 +27,21 @@ describe('project files', () => {
       'main.tex',
       'chapters/intro.tex',
     ]);
+  });
+
+  it('searches every text file, one file or the text files of one folder', () => {
+    const paths = (path?: string) => findSearchScope(files, path).map((file) => file.path);
+    expect(paths()).toEqual(['main.tex', 'chapters/intro.tex']);
+    expect(paths('main.tex')).toEqual(['main.tex']);
+    expect(paths('chapters')).toEqual(['chapters/intro.tex']);
+  });
+
+  it('refuses to search an unknown place, a binary file or a folder without text files', () => {
+    expect(() => findSearchScope(files, 'chapter')).toThrow(
+      new ProjectFileNotFoundError('The project has no file or folder chapter.'),
+    );
+    expect(() => findSearchScope(files, 'figures/plot.png')).toThrow(NotATextFileError);
+    expect(() => findSearchScope(files, 'figures')).toThrow(ProjectFileNotFoundError);
   });
 
   it('rejects an unknown path and a binary file', () => {
