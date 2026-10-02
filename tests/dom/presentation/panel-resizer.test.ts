@@ -101,11 +101,11 @@ describe('PanelResizer', () => {
     const { pointer, shown } = mount();
     pointer('pointerdown', 500, 300);
     pointer('pointermove', 900, 900);
-    expect(shown()).toEqual({ width: '320px', height: '360px' });
+    expect(shown()).toEqual({ width: '320px', height: '480px' });
     pointer('pointermove', -2000, -2000);
-    expect(shown()).toEqual({ width: '1560px', height: '904px' });
+    expect(shown()).toEqual({ width: '1560px', height: '848px' });
     pointer('pointercancel', -2000, -2000);
-    expect(stored()).toBe('{"width":1560,"height":904}');
+    expect(stored()).toBe('{"width":1560,"height":848}');
   });
 
   it('ignores secondary buttons and other pointers', () => {
@@ -141,7 +141,7 @@ describe('PanelResizer', () => {
     key('ArrowLeft', true);
     expect(shown()).toEqual({ width: '430px', height: '640px' });
     viewport(400, 500);
-    expect(shown()).toEqual({ width: '360px', height: '404px' });
+    expect(shown()).toEqual({ width: '360px', height: '348px' });
     viewport(1600, 1000);
     expect(shown()).toEqual({ width: '430px', height: '640px' });
     expect(stored()).toBe('{"width":430,"height":640}');

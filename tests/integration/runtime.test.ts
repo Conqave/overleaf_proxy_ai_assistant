@@ -379,17 +379,17 @@ function typingBubble(doc: Document): HTMLElement {
 describe('assistant panel', () => {
   it('resizes by dragging its corner and keeps the size over a reload', async () => {
     const opened = await start({});
-    expect(panelSize(opened.doc)).toEqual({ width: '380px', height: '640px' });
+    expect(panelSize(opened.doc)).toEqual({ width: '380px', height: '616px' });
     dragCorner(opened, 500, 420);
-    expect(panelSize(opened.doc)).toEqual({ width: '460px', height: '672px' });
+    expect(panelSize(opened.doc)).toEqual({ width: '460px', height: '616px' });
     const remembered = opened.browser.window.localStorage.getItem(PANEL_SIZE_KEY);
-    expect(remembered).toBe('{"width":460,"height":672}');
+    expect(remembered).toBe('{"width":460,"height":616}');
     const reloaded = await start({
       prepare: (browser) => {
         browser.window.localStorage.setItem(PANEL_SIZE_KEY, String(remembered));
       },
     });
-    expect(panelSize(reloaded.doc)).toEqual({ width: '460px', height: '672px' });
+    expect(panelSize(reloaded.doc)).toEqual({ width: '460px', height: '616px' });
   });
 
   it('shows a typing bubble while Hans works and removes it when the work ends', async () => {

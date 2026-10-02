@@ -43,8 +43,6 @@
   bottom: 72px;
   width: var(--ola-panel-width);
   height: var(--ola-panel-height);
-  max-width: calc(100vw - 40px);
-  max-height: calc(100vh - 96px);
   container-type: inline-size;
   display: flex;
   flex-direction: column;
@@ -424,7 +422,7 @@
   padding: 12px;
   background: #243342;
   flex: 1;
-  min-height: 0;
+  min-height: 200px;
   overflow: auto;
 }
 #ola-root .ola-msg {

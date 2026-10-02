@@ -19,17 +19,17 @@ describe('fitPanelSize', () => {
     expect(fitPanelSize({ width: 100, height: 50 }, LARGE_VIEWPORT)).toEqual(MIN_PANEL_SIZE);
   });
 
-  it('keeps the panel inside the viewport margins', () => {
+  it('keeps the panel inside the viewport margins and below the editor toolbar', () => {
     expect(fitPanelSize({ width: 5000, height: 5000 }, LARGE_VIEWPORT)).toEqual({
       width: 1560,
-      height: 904,
+      height: 848,
     });
   });
 
   it('lets the viewport win over the minimum on a small screen', () => {
     expect(fitPanelSize(DEFAULT_PANEL_SIZE, { width: 300, height: 400 })).toEqual({
       width: 260,
-      height: 304,
+      height: 248,
     });
   });
 
