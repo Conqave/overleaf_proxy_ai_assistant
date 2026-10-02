@@ -25,6 +25,7 @@ import type {
 } from '../application/session-exchange';
 import type { RejectChangeSet } from '../application/reject-change-set';
 import type { UndoChangeSet } from '../application/undo-change-set';
+import type { WebSearchApproval, WebSearchDecision } from '../application/web-search-approval';
 import { InvariantViolation, OperationalError } from '../domain/errors';
 import type { AssistantView, ViewEvents } from './assistant-view';
 import {
@@ -55,6 +56,7 @@ export interface UseCases {
   exportSession: ExportSession;
   listSessionExports: ListSessionExports;
   importSession: ImportSession;
+  webSearchApproval: Pick<WebSearchApproval, 'decide'>;
   conversation: Pick<ConversationLog, 'epoch' | 'messages' | 'takePersistenceFailure'>;
 }
 
@@ -146,6 +148,12 @@ export class AssistantController implements ViewEvents {
       } finally {
         view.setStatus('');
       }
+    });
+  }
+
+  decideWebSearch(id: string, decision: WebSearchDecision): Promise<void> {
+    return this.guard(() => {
+      this.useCases.webSearchApproval.decide(id, decision);
     });
   }
 
@@ -300,12 +308,16 @@ export class AssistantController implements ViewEvents {
           this.showContextUsage(view, progress.progress.contextUsage);
         }
         break;
+      case 'awaiting-approval':
+        view.showWebSearchApproval(progress.search);
+        break;
+      case 'approval-decided':
+        view.removeWebSearchApproval(progress.id);
+        break;
       case 'thinking':
       case 'reading':
       case 'searching':
       case 'compiling':
-      case 'awaiting-approval':
-      case 'approval-decided':
       case 'searching-web':
       case 'delegating':
       case 'opening':

@@ -16,6 +16,9 @@ import {
   delegationTitle,
   progressStatus,
   sessionDetails,
+  webResultSource,
+  webSearchMeta,
+  webSearchTitle,
 } from '../../../src/presentation/message-format';
 import { editWith, proposalOf } from '../../support/proposals';
 
@@ -133,6 +136,14 @@ describe('progressStatus', () => {
     [{ stage: 'reading', path: 'sample.bib' } as const, 'Hans is reading sample.bib'],
     [{ stage: 'searching', query: '\\label{fig}' } as const, 'Hans is searching for \\label{fig}'],
     [{ stage: 'compiling' } as const, 'Hans is compiling the project'],
+    [
+      { stage: 'awaiting-approval', search: { id: 'a', query: 'LaTeX DOI' } } as const,
+      'Hans is waiting for your approval of a web search',
+    ],
+    [
+      { stage: 'searching-web', query: 'LaTeX DOI' } as const,
+      'Hans is searching the web for LaTeX DOI',
+    ],
     [{ stage: 'opening', path: 'refs.bib' } as const, 'Hans is opening refs.bib'],
     [
       { stage: 'delegating', task: 'Check keys', fileCount: 12 } as const,
@@ -192,6 +203,51 @@ describe('delegation card text', () => {
     } as const;
     expect(delegationTitle(failed)).toBe('Subagent stopped: Check keys');
     expect(delegationMeta(failed)).toBe('4 lookups');
+  });
+});
+
+describe('web search card text', () => {
+  const found = (truncated: boolean, count: number) => ({
+    tool: 'web_search' as const,
+    query: 'LaTeX DOI',
+    outcome: {
+      status: 'found' as const,
+      results: Array.from({ length: count }, (_, index) => ({
+        title: `T${String(index)}`,
+        url: `https://example.org/${String(index)}`,
+        snippet: '',
+      })),
+      truncated,
+    },
+  });
+
+  it('names the query and how the search ended', () => {
+    expect(webSearchTitle(found(false, 1))).toBe('Web search: LaTeX DOI');
+    expect(
+      webSearchTitle({ tool: 'web_search', query: 'LaTeX DOI', outcome: { status: 'denied' } }),
+    ).toBe('Web search denied: LaTeX DOI');
+    expect(
+      webSearchTitle({
+        tool: 'web_search',
+        query: 'LaTeX DOI',
+        outcome: { status: 'failed', problem: 'down' },
+      }),
+    ).toBe('Web search failed: LaTeX DOI');
+  });
+
+  it('counts the results and says when their excerpts were shortened', () => {
+    expect(webSearchMeta(found(false, 1))).toBe('1 result');
+    expect(webSearchMeta(found(true, 5))).toBe('5 results · excerpts shortened');
+    expect(webSearchMeta(found(false, 0))).toBe('No results');
+    expect(
+      webSearchMeta({ tool: 'web_search', query: 'LaTeX DOI', outcome: { status: 'denied' } }),
+    ).toBeUndefined();
+  });
+
+  it('shows the host and the date of a result', () => {
+    const result = { title: 'T', url: 'https://dl.acm.org/doi/10.5555/63364', snippet: '' };
+    expect(webResultSource(result)).toBe('dl.acm.org');
+    expect(webResultSource({ ...result, published: '1986' })).toBe('dl.acm.org · 1986');
   });
 });
 

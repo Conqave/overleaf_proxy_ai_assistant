@@ -711,3 +711,42 @@
     display: none;
   }
 }
+#ola-root .ola-approval {
+  border-color: rgba(241, 196, 15, 0.45);
+}
+#ola-root .ola-approval-query {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+#ola-root .ola-approval-option {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+  font-size: 12px;
+  cursor: pointer;
+}
+#ola-root .ola-approve-search {
+  background: #27ae60;
+}
+#ola-root .ola-web-search-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+#ola-root .ola-web-results {
+  margin-bottom: 0;
+  padding-left: 20px;
+}
+#ola-root .ola-web-result + .ola-web-result {
+  margin-top: 6px;
+}
+#ola-root .ola-web-link {
+  color: #8fd3ff;
+  overflow-wrap: anywhere;
+}
+#ola-root .ola-web-source {
+  color: rgba(255, 255, 255, 0.6);
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}

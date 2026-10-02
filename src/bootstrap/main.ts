@@ -17,6 +17,7 @@ import { PreviewChangeSetFile } from '../application/preview-change-set-file';
 import { RejectChangeSet } from '../application/reject-change-set';
 import { UndoChangeSet } from '../application/undo-change-set';
 import { ReviewAppliedChange } from '../application/review-applied-change';
+import { WebSearchApproval } from '../application/web-search-approval';
 import { createUuid } from '../infrastructure/browser/uuid';
 import { OllamaAgent } from '../infrastructure/ollama/ollama-agent';
 import { OllamaClient } from '../infrastructure/ollama/ollama-client';
@@ -128,6 +129,7 @@ function compose(
     exportSession: new ExportSession(exchangeDeps),
     listSessionExports: new ListSessionExports(exchangeDeps),
     importSession: new ImportSession(exchangeDeps),
+    webSearchApproval: new WebSearchApproval({ conversation, newId }),
     conversation,
   });
 

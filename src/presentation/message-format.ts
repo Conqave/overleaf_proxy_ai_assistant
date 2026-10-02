@@ -7,12 +7,13 @@ import type {
   UndoMessage,
   UndoRefusal,
 } from '../domain/conversation';
-import type { DelegateRecord } from '../domain/agent-transcript';
+import type { DelegateRecord, WebSearchRecord } from '../domain/agent-transcript';
 import { DelegationOutcome } from '../domain/delegation';
 import { DocumentOperation, type DocumentCommand } from '../domain/document-command';
 import type { SessionSummary } from '../domain/session';
 import { SESSION_EXPORT_FOLDER } from '../domain/session-export';
 import { PATH_SEPARATOR } from '../domain/project-file';
+import { WebSearchStatus, type WebSearchResult } from '../domain/web-search';
 
 const KIND_TITLE: Record<Exclude<AssistantMessage['kind'], 'proposal'>, string> = {
   explanation: 'Explanation',
@@ -71,6 +72,11 @@ export const VIEW_TEXT = {
   resizeLabel: 'Resize the Hans panel',
   resizeHint: 'Drag to resize; arrow keys change width and height, Shift for larger steps',
   contextHint: 'Tokens of the last prompt sent to the model / context window of the model',
+  approvalTitle: 'Hans wants to search the web',
+  approvalNote: 'Exa (exa.ai), an external search service, receives this query.',
+  approve: 'Approve',
+  deny: 'Deny',
+  approveForSession: 'Auto-approve web searches in this session',
   welcomeTitle: 'Ready to help with this document',
   welcomeCopy:
     'Ask for an explanation, a cleaner paragraph, or a precise LaTeX edit. I will show a suggestion before changing anything.',
@@ -265,6 +271,28 @@ export function delegationMeta({ files, report }: DelegateRecord): string {
     parts.push('cut at the length limit');
   }
   return parts.join(' · ');
+}
+
+export function webSearchTitle({ query, outcome }: WebSearchRecord): string {
+  switch (outcome.status) {
+    case WebSearchStatus.Found:
+      return `Web search: ${query}`;
+    case WebSearchStatus.Denied:
+      return `Web search denied: ${query}`;
+    case WebSearchStatus.Failed:
+      return `Web search failed: ${query}`;
+  }
+}
+
+export function webSearchMeta({ outcome }: WebSearchRecord): string | undefined {
+  if (outcome.status !== WebSearchStatus.Found) return undefined;
+  const found = outcome.results.length ? countOf(outcome.results.length, 'result') : 'No results';
+  return outcome.truncated ? `${found} · excerpts shortened` : found;
+}
+
+export function webResultSource({ url, published }: WebSearchResult): string {
+  const { host } = new URL(url);
+  return published === undefined ? host : `${host} · ${published}`;
 }
 
 export function progressStatus(progress: AgentProgress): string | null {

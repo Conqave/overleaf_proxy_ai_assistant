@@ -23,12 +23,18 @@ import { PreviewChangeSetFile } from '../../../src/application/preview-change-se
 import { RejectChangeSet } from '../../../src/application/reject-change-set';
 import { UndoChangeSet } from '../../../src/application/undo-change-set';
 import { ReviewAppliedChange } from '../../../src/application/review-applied-change';
+import { WebSearchApproval, WebSearchDecision } from '../../../src/application/web-search-approval';
+import { WebSearchTool } from '../../../src/application/web-search-tool';
 import type { AgentDecision } from '../../../src/domain/agent-action';
 import type { CompileDiagnostic } from '../../../src/domain/agent-transcript';
 import { createDocumentCommand } from '../../../src/domain/document-command';
 import { InvariantViolation } from '../../../src/domain/errors';
 import type { ConversationSession } from '../../../src/domain/session';
-import { AssistantUnreachableError, FileOpenTimeoutError } from '../../../src/ports/errors';
+import {
+  AssistantUnreachableError,
+  FileOpenTimeoutError,
+  WebSearchUnavailableError,
+} from '../../../src/ports/errors';
 import { AssistantController } from '../../../src/presentation/assistant-controller';
 import { AssistantView } from '../../../src/presentation/assistant-view';
 import { LocalStoragePanelSize } from '../../../src/infrastructure/persistence/local-storage-panel-size';
@@ -38,6 +44,7 @@ import {
   FakeEditor,
   FakeProject,
   FakeSummarizer,
+  FakeWebSearch,
   InMemorySessionArchive,
   InMemorySessionRepository,
   PendingStep,
@@ -106,6 +113,8 @@ async function openAssistantWith(
     newId,
     now: () => new Date('2026-10-01T12:00:00Z'),
   });
+  const webSearch = new FakeWebSearch();
+  const webSearchApproval = new WebSearchApproval({ conversation, newId });
   const handleRequest = new HandleAssistantRequest({
     agent,
     project,
@@ -116,7 +125,7 @@ async function openAssistantWith(
     newId,
     createController: () => new AbortController(),
     compactor,
-    webSearch: null,
+    webSearch: new WebSearchTool({ search: webSearch, approval: webSearchApproval }),
   });
   const review = new ReviewAppliedChange({ project, conversation, handleRequest });
   const sessionDeps = { sessions, conversation, pendingChanges, editor, lock };
@@ -151,6 +160,7 @@ async function openAssistantWith(
     exportSession: new ExportSession(exchangeDeps),
     listSessionExports: new ListSessionExports(exchangeDeps),
     importSession: new ImportSession(exchangeDeps),
+    webSearchApproval,
     conversation,
   });
   await controller.attach(
@@ -178,6 +188,7 @@ async function openAssistantWith(
     project,
     agent,
     summarizer,
+    webSearch,
     texts,
     click,
     buttons,
@@ -245,6 +256,151 @@ describe('AssistantController subagent', () => {
       expect.stringContaining('the subagent stopped after 3 invalid steps in a row'),
     ]);
     expect(texts('.ola-msg')).toHaveLength(3);
+  });
+});
+
+describe('AssistantController web search', () => {
+  const QUERY = 'Leslie Lamport LaTeX book DOI';
+  const SEARCH: AgentDecision = { kind: 'tool', call: { tool: 'web_search', query: QUERY } };
+  const answer = (text: string): AgentDecision => ({
+    kind: 'reply',
+    reply: { kind: 'answer', text },
+  });
+  const RESULTS = [
+    {
+      title: 'Latex: a document preparation system',
+      url: 'https://dl.acm.org/doi/abs/10.5555/63364',
+      snippet: 'Leslie Lamport',
+      published: '1986',
+    },
+    { title: 'LaTeX book', url: 'http://example.org/latex', snippet: '' },
+  ];
+
+  async function waitForApprovalCard({ document }: { document: Document }): Promise<void> {
+    await vi.waitFor(() => {
+      expect(document.querySelector('.ola-approval')).not.toBeNull();
+    });
+  }
+
+  it('asks for approval inline, then shows the status and the results collapsed with links', async () => {
+    const assistant = await openAssistantWith([SEARCH, answer('The DOI is 10.5555/63364.')]);
+    const { window, controller, webSearch, texts, click, buttons } = assistant;
+    let statusWhileSearching: (string | null)[] = [];
+    webSearch.will(
+      new PendingStep(() => {
+        statusWhileSearching = texts('.ola-status');
+        return Promise.resolve(RESULTS);
+      }),
+    );
+    const running = controller.send('find the DOI of the LaTeX book');
+    await waitForApprovalCard(window);
+    expect(texts('.ola-approval .ola-result-title')).toEqual(['Hans wants to search the web']);
+    expect(texts('.ola-approval-query')).toEqual([QUERY]);
+    expect(texts('.ola-approval .ola-result-meta')).toEqual([
+      'Exa (exa.ai), an external search service, receives this query.',
+    ]);
+    expect(texts('.ola-approval-option')).toEqual(['Auto-approve web searches in this session']);
+    expect(texts('.ola-status')).toEqual(['Hans is waiting for your approval of a web search']);
+    expect(buttons('.ola-send').every((button) => button.disabled)).toBe(true);
+    expect(buttons('.ola-approval button').every((button) => !button.disabled)).toBe(true);
+    click('.ola-approve-search');
+    await running;
+    expect(statusWhileSearching).toEqual([`Hans is searching the web for ${QUERY}`]);
+    expect(window.document.querySelector('.ola-approval')).toBeNull();
+    const card = window.document.querySelector('details.ola-web-search');
+    expect(card?.hasAttribute('open')).toBe(false);
+    expect(texts('.ola-web-search-title')).toEqual([`Web search: ${QUERY}`]);
+    expect(texts('.ola-web-search .ola-result-meta')).toEqual(['2 results']);
+    expect(texts('.ola-web-source')).toEqual(['dl.acm.org · 1986', 'example.org']);
+    const links = Array.from(window.document.querySelectorAll('a.ola-web-link'));
+    expect(
+      links.map((link) => ({
+        text: link.textContent,
+        href: link.getAttribute('href'),
+        target: link.getAttribute('target'),
+        rel: link.getAttribute('rel'),
+      })),
+    ).toEqual(
+      RESULTS.map(({ title, url }) => ({
+        text: title,
+        href: url,
+        target: '_blank',
+        rel: 'noopener noreferrer',
+      })),
+    );
+    expect(webSearch.queries).toEqual([QUERY]);
+  });
+
+  it('shows a denied search and lets the agent go on without it', async () => {
+    const assistant = await openAssistantWith([SEARCH, answer('I could not search.')]);
+    const { window, controller, webSearch, texts, click } = assistant;
+    const running = controller.send('find the DOI');
+    await waitForApprovalCard(window);
+    click('.ola-deny-search');
+    await running;
+    expect(webSearch.queries).toEqual([]);
+    expect(window.document.querySelector('.ola-approval')).toBeNull();
+    expect(texts('details.ola-web-search.is-denied .ola-web-search-title')).toEqual([
+      `Web search denied: ${QUERY}`,
+    ]);
+    expect(texts('.ola-msg').at(-1)).toContain('I could not search.');
+  });
+
+  it('stops asking in this session once the user auto-approves', async () => {
+    const assistant = await openAssistantWith([
+      SEARCH,
+      { kind: 'tool', call: { tool: 'web_search', query: 'LaTeX book publisher' } },
+      answer('Found both.'),
+    ]);
+    const { window, controller, webSearch, click } = assistant;
+    webSearch.will(RESULTS, []);
+    const running = controller.send('find the DOI and the publisher');
+    await waitForApprovalCard(window);
+    const option = window.document.querySelector('.ola-approval-session');
+    if (!(option instanceof window.HTMLInputElement)) {
+      throw new TestFixtureError('the approval card has no session option');
+    }
+    option.checked = true;
+    click('.ola-approve-search');
+    await running;
+    expect(webSearch.queries).toEqual([QUERY, 'LaTeX book publisher']);
+    expect(window.document.querySelectorAll('.ola-approval')).toHaveLength(0);
+  });
+
+  it('shows a failed search with its problem and reports a stale decision', async () => {
+    const assistant = await openAssistantWith([SEARCH, answer('Search is down.')]);
+    const { window, controller, webSearch, texts, click } = assistant;
+    webSearch.will(new WebSearchUnavailableError('Exa web search is unavailable: HTTP 502.'));
+    const running = controller.send('find the DOI');
+    await waitForApprovalCard(window);
+    click('.ola-approve-search');
+    await running;
+    expect(texts('details.ola-web-search.is-failed .ola-fold-body')).toEqual([
+      'Exa web search is unavailable: HTTP 502.',
+    ]);
+    await controller.decideWebSearch('id-404', WebSearchDecision.Approve);
+    expect(texts('.ola-error').at(-1)).toBe(
+      'Error: This web search no longer waits for a decision.',
+    );
+  });
+
+  it('shows stored web searches again when a session is reopened', async () => {
+    const { texts } = await openAssistant(
+      storedSession('stored', [
+        { id: 'u', role: 'user', text: 'find the DOI' },
+        {
+          id: 't',
+          role: 'tool',
+          record: {
+            tool: 'web_search',
+            query: QUERY,
+            outcome: { status: 'found', results: RESULTS, truncated: true },
+          },
+        },
+      ]),
+    );
+    expect(texts('.ola-web-search-title')).toEqual([`Web search: ${QUERY}`]);
+    expect(texts('.ola-web-search .ola-result-meta')).toEqual(['2 results · excerpts shortened']);
   });
 });
 

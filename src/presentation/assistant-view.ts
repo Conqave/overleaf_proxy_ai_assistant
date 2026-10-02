@@ -18,7 +18,9 @@ import {
   type UndoMessage,
 } from '../domain/conversation';
 import { AgentTool } from '../domain/agent-action';
-import type { DelegateRecord } from '../domain/agent-transcript';
+import type { DelegateRecord, WebSearchRecord } from '../domain/agent-transcript';
+import { WebSearchStatus } from '../domain/web-search';
+import { WebSearchDecision, type PendingWebSearch } from '../application/web-search-approval';
 import { DelegationOutcome } from '../domain/delegation';
 import { DocumentOperation } from '../domain/document-command';
 import type { ContextPressure } from '../application/handle-assistant-request';
@@ -44,16 +46,28 @@ import {
   undoNotice,
   undoRefusalNotice,
   VIEW_TEXT,
+  webResultSource,
+  webSearchMeta,
+  webSearchTitle,
 } from './message-format';
 
-interface DelegationMessage extends ToolMessage {
-  readonly record: DelegateRecord;
+interface ShownToolMessage extends ToolMessage {
+  readonly record: DelegateRecord | WebSearchRecord;
 }
 
-type ShownMessage = ChatMessage | CompactionSummaryMessage | UndoMessage | DelegationMessage;
+type ShownMessage = ChatMessage | CompactionSummaryMessage | UndoMessage | ShownToolMessage;
 
 function isShownMessage(message: ConversationMessage): message is ShownMessage {
-  return message.role !== 'tool' || message.record.tool === AgentTool.Delegate;
+  if (message.role !== 'tool') return true;
+  switch (message.record.tool) {
+    case AgentTool.Delegate:
+    case AgentTool.WebSearch:
+      return true;
+    case AgentTool.ReadFile:
+    case AgentTool.Search:
+    case AgentTool.Compile:
+      return false;
+  }
 }
 
 export interface ViewEvents {
@@ -70,6 +84,7 @@ export interface ViewEvents {
   showImports(): Promise<void>;
   importSession(path: string): Promise<void>;
   compact(): Promise<void>;
+  decideWebSearch(id: string, decision: WebSearchDecision): Promise<void>;
 }
 
 const ROOT_ID = 'ola-root';
@@ -96,6 +111,7 @@ export class AssistantView {
   private readonly messageNodes = new Map<string, HTMLElement>();
   private busy = false;
   private readonly proposalCards = new Map<string, HTMLElement>();
+  private readonly approvalCards = new Map<string, HTMLElement>();
 
   static isMounted(document: Document): boolean {
     return document.getElementById(ROOT_ID) !== null;
@@ -194,6 +210,7 @@ export class AssistantView {
     this.chat.replaceChildren(this.typing);
     this.messageNodes.clear();
     this.proposalCards.clear();
+    this.approvalCards.clear();
     const chat = messages.filter(isShownMessage);
     if (!chat.length) {
       this.showWelcome();
@@ -218,6 +235,47 @@ export class AssistantView {
     const node = this.renderMessage(message);
     shown.replaceWith(node);
     this.messageNodes.set(message.id, node);
+  }
+
+  showWebSearchApproval({ id, query }: PendingWebSearch): void {
+    const node = this.el('div', 'ola-msg ola-ai ola-approval');
+    const forSession = this.el('input', 'ola-approval-session');
+    forSession.type = 'checkbox';
+    const sessionLabel = this.el('label', 'ola-approval-option');
+    sessionLabel.append(forSession, this.el('span', undefined, VIEW_TEXT.approveForSession));
+    const decide = (decision: WebSearchDecision): void => {
+      for (const control of node.querySelectorAll('button, input')) {
+        control.setAttribute('disabled', '');
+      }
+      void this.events.decideWebSearch(id, decision);
+    };
+    const approve = this.el('button', 'ola-btn ola-approve-search', VIEW_TEXT.approve);
+    approve.type = 'button';
+    approve.addEventListener('click', () => {
+      decide(forSession.checked ? WebSearchDecision.ApproveForSession : WebSearchDecision.Approve);
+    });
+    const deny = this.el('button', 'ola-btn ola-deny-search', VIEW_TEXT.deny);
+    deny.type = 'button';
+    deny.addEventListener('click', () => {
+      decide(WebSearchDecision.Deny);
+    });
+    const actions = this.el('div', 'ola-result-actions');
+    actions.append(approve, deny);
+    node.append(
+      this.el('div', 'ola-result-title', VIEW_TEXT.approvalTitle),
+      this.el('div', 'ola-result-body ola-approval-query', query),
+      this.el('div', 'ola-result-meta', VIEW_TEXT.approvalNote),
+      sessionLabel,
+      actions,
+    );
+    this.chat.querySelector('.ola-welcome')?.remove();
+    this.approvalCards.set(id, node);
+    this.append(node);
+  }
+
+  removeWebSearchApproval(id: string): void {
+    this.approvalCards.get(id)?.remove();
+    this.approvalCards.delete(id);
   }
 
   showSessionList({ sessions, unreadableIds, currentId }: SessionList): void {
@@ -321,8 +379,51 @@ export class AssistantView {
       case 'assistant':
         return this.renderAssistant(message);
       case 'tool':
-        return this.renderDelegation(message.record);
+        return this.renderToolRecord(message.record);
     }
+  }
+
+  private renderToolRecord(record: DelegateRecord | WebSearchRecord): HTMLElement {
+    switch (record.tool) {
+      case AgentTool.Delegate:
+        return this.renderDelegation(record);
+      case AgentTool.WebSearch:
+        return this.renderWebSearch(record);
+    }
+  }
+
+  private renderWebSearch(record: WebSearchRecord): HTMLElement {
+    const node = this.fold('ola-web-search');
+    const title = webSearchTitle(record);
+    const summary = this.el('summary', 'ola-fold-title ola-web-search-title', title);
+    summary.title = title;
+    node.append(summary);
+    const { outcome } = record;
+    switch (outcome.status) {
+      case WebSearchStatus.Found: {
+        const list = this.el('ol', 'ola-fold-body ola-web-results');
+        for (const result of outcome.results) {
+          const link = this.el('a', 'ola-web-link', result.title);
+          link.href = result.url;
+          link.target = '_blank';
+          link.rel = 'noopener noreferrer';
+          const item = this.el('li', 'ola-web-result');
+          item.append(link, this.el('div', 'ola-web-source', webResultSource(result)));
+          list.append(item);
+        }
+        node.append(list);
+        break;
+      }
+      case WebSearchStatus.Denied:
+        node.classList.add('is-denied');
+        break;
+      case WebSearchStatus.Failed:
+        node.classList.add('is-failed');
+        node.append(this.el('div', 'ola-fold-body', outcome.problem));
+    }
+    const meta = webSearchMeta(record);
+    if (meta !== undefined) node.append(this.el('div', 'ola-result-meta', meta));
+    return node;
   }
 
   private renderAssistant(message: AssistantMessage): HTMLElement {
