@@ -116,6 +116,13 @@ describe('agent exchange', () => {
     expect(system).toMatch(/- Everything after CONTENT: [^\n]*no Markdown\./);
   });
 
+  it('teaches how to escape given text', () => {
+    const { system } = createAgentExchange(request(), budget).request;
+    expect(system).toContain(
+      '\\textbackslash{} for every \\, \\textasciitilde{} for ~ and \\textasciicircum{} for ^ (C:\\a\\b_c~1 becomes C:\\textbackslash{}a\\textbackslash{}b\\_c\\textasciitilde{}1); never \\~, \\^, \\backslash or \\\\ for them.',
+    );
+  });
+
   it('takes the language of the user message, not of the document or the examples', () => {
     const { system, prompt } = createAgentExchange(request(), budget).request;
     expect(prompt).toContain(

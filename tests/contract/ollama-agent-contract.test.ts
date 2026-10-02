@@ -823,6 +823,9 @@ const DENIED_SEARCH_HISTORY: readonly ConversationMessage[] = [
   },
 ];
 
+const ESCAPED_ABSTRACT_REQUEST =
+  'Set the abstract to this text exactly, escaped for LaTeX: Costs rose 50% & fell; see C:\\temp\\data_1 ~ok, x^2, #3 {a} — end.';
+
 describe('Ollama agent contract', () => {
   let model: ContractModel;
 
@@ -1171,6 +1174,36 @@ describe('Ollama agent contract', () => {
         DENIED_SEARCH_HISTORY,
       );
       expect(run.tools).toContain(AgentTool.WebSearch);
+    },
+    CASE_TIMEOUT_MS,
+  );
+
+  it(
+    'escapes LaTeX special characters of a text set exactly',
+    async () => {
+      const run = await runApplication(model, {
+        ...UNTOUCHED_PROJECT,
+        name: 'escaped abstract',
+        request: ESCAPED_ABSTRACT_REQUEST,
+      });
+      expect(run.result.kind).toBe('proposal');
+      if (run.result.kind !== 'proposal') return;
+      const content = run.result.message.edits
+        .map(({ command }) => ('content' in command ? command.content : ''))
+        .join('\n');
+      for (const escaped of [
+        /50\\%/,
+        /\\&/,
+        /C:\\textbackslash(\{\}|\s)temp\\textbackslash(\{\}|\s)data\\_1/,
+        /(\\textasciitilde(\{\}|\s)|\\~\{\})ok/,
+        /x(\\textasciicircum(\{\}|\s)|\\\^\{\})2|\$x\^\{?2\}?\$/,
+        /\\#3/,
+        /\\\{a\\\}/,
+        /---|—|\\textemdash\b/,
+      ]) {
+        expect(content).toMatch(escaped);
+      }
+      expect(content).not.toMatch(/\\[~^](?!\{\})|\\text\{—\}|\\backslash\b|\\\\/);
     },
     CASE_TIMEOUT_MS,
   );

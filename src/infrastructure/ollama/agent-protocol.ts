@@ -106,6 +106,7 @@ const EDIT_RULES = lines(
   'Content:',
   `- Everything after ${CONTENT_MARKER} is inserted verbatim: plain LaTeX source, one source line per line, no escaping, no fences, no Markdown.`,
   '- It must be valid LaTeX: close every environment you open.',
+  '- Text the user gives verbatim or asks to escape is plain text: write \\% \\& \\$ \\# \\_ \\{ \\} for those characters, \\textbackslash{} for every \\, \\textasciitilde{} for ~ and \\textasciicircum{} for ^ (C:\\a\\b_c~1 becomes C:\\textbackslash{}a\\textbackslash{}b\\_c\\textasciitilde{}1); never \\~, \\^, \\backslash or \\\\ for them.',
   '- When the user asks for new text without giving it (for example a section with one sentence), write suitable text yourself instead of asking.',
   '- Only the new or changed lines; never repeat unchanged surrounding lines and never rewrite the whole document.',
   'Several changes:',
