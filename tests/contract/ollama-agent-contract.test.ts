@@ -172,6 +172,83 @@ const LONG_TEXTS: ReadonlyMap<string, DocumentSnapshot> = new Map([
   ],
 ]);
 
+const CHAPTER_TOPICS = [
+  'Wprowadzenie',
+  'Przegląd literatury',
+  'Metodyka',
+  'Eksperymenty',
+  'Wyniki',
+  'Dyskusja',
+];
+const DEFINED_KEYS = [
+  'breiman01',
+  'cortes95',
+  'hastie09',
+  'bishop06',
+  'lecun15',
+  'goodfellow16',
+  'murphy12',
+  'vapnik98',
+  'friedman01',
+  'rumelhart86',
+  'hinton06',
+  'schmidhuber15',
+];
+const MISSING_KEYS = ['quinlan86', 'mitchell97'];
+
+function citedKey(chapter: number, paragraph: number): string {
+  if (chapter === 2 && paragraph === 4) return itemAt(MISSING_KEYS, 0, 'missing key');
+  if (chapter === 4 && paragraph === 1) return itemAt(MISSING_KEYS, 1, 'missing key');
+  return itemAt(DEFINED_KEYS, (chapter * 5 + paragraph) % DEFINED_KEYS.length, 'defined key');
+}
+
+function chapterText(chapter: number): DocumentSnapshot {
+  const topic = itemAt(CHAPTER_TOPICS, chapter, 'chapter topic');
+  return createDocumentSnapshot([
+    `\\chapter{${topic}}`,
+    `\\label{chap:${String(chapter + 1)}}`,
+    '',
+    ...Array.from({ length: 7 }, (_, paragraph) => [
+      `W tym akapicie rozdziału ${topic.toLowerCase()} omawiamy zagadnienie numer ${String(paragraph + 1)}, porównując podejścia klasyczne z nowszymi metodami uczenia maszynowego, co szczegółowo opisano w pracy~\\cite{${citedKey(chapter, paragraph)}}.`,
+      `Dodatkowe uwagi do zagadnienia ${String(paragraph + 1)} dotyczą doboru hiperparametrów, walidacji krzyżowej oraz interpretacji uzyskanych wyników w kontekście całej pracy.`,
+      '',
+    ]).flat(),
+  ]);
+}
+
+const CITATION_TEXTS: ReadonlyMap<string, DocumentSnapshot> = new Map([
+  [
+    MAIN,
+    createDocumentSnapshot([
+      '\\documentclass{report}',
+      '\\begin{document}',
+      '\\title{Praca dyplomowa}',
+      '\\maketitle',
+      ...CHAPTER_TOPICS.map((_, chapter) => `\\include{chapters/ch${String(chapter + 1)}}`),
+      '\\bibliographystyle{plain}',
+      '\\bibliography{refs}',
+      '\\end{document}',
+    ]),
+  ],
+  ...CHAPTER_TOPICS.map((_, chapter): [string, DocumentSnapshot] => [
+    `chapters/ch${String(chapter + 1)}.tex`,
+    chapterText(chapter),
+  ]),
+  [
+    'refs.bib',
+    createDocumentSnapshot(
+      DEFINED_KEYS.flatMap((key) => [
+        `@article{${key},`,
+        `  author = {Author of ${key}},`,
+        `  title = {Work ${key}},`,
+        `  year = {20${key.slice(-2)}}`,
+        '}',
+        '',
+      ]),
+    ),
+  ],
+]);
+
 const UNTOUCHED_PROJECT = {
   texts: TEXTS,
   diagnostics: [],
@@ -640,6 +717,32 @@ describe('Ollama agent contract', () => {
         line: referenceLine,
         content: textMatching(/\\ref\{sec:measurements\}/),
       });
+    },
+    CASE_TIMEOUT_MS,
+  );
+
+  it(
+    'delegates a check of every citation across the chapters and answers from its findings',
+    async () => {
+      const run = await runApplication(model, {
+        ...UNTOUCHED_PROJECT,
+        texts: CITATION_TEXTS,
+        name: 'citation check',
+        request:
+          'Sprawdź, czy każdy klucz \\cite we wszystkich rozdziałach w chapters/ jest zdefiniowany w refs.bib, i wypisz brakujące klucze.',
+      });
+      expect(run.tools).toContain(AgentTool.Delegate);
+      const delegations = run.conversation.filter(
+        (message) => message.role === 'tool' && message.record.tool === AgentTool.Delegate,
+      );
+      expect(delegations.length).toBeGreaterThan(0);
+      expect(run.result.message).toMatchObject({
+        kind: 'explanation',
+        text: textMatching(/^(?=[\s\S]*quinlan86)(?=[\s\S]*mitchell97)/),
+      });
+      for (const usage of run.usages) {
+        expect(usage.promptTokens).toBeLessThanOrEqual(usage.contextTokens);
+      }
     },
     CASE_TIMEOUT_MS,
   );
