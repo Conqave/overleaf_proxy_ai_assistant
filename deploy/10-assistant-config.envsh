@@ -27,9 +27,26 @@ echo "$OLLAMA_MODEL" | grep -Eq '^[A-Za-z0-9._:/-]+$' \
 
 assistant_positive_int ASSISTANT_STEP_TIMEOUT_MS "milliseconds one assistant step may wait for Ollama"
 
+case "${ASSISTANT_WEB_SEARCH:-}" in
+    on) ASSISTANT_WEB_SEARCH_ENABLED=true ;;
+    off) ASSISTANT_WEB_SEARCH_ENABLED=false ;;
+    '') assistant_config_fail "ASSISTANT_WEB_SEARCH is required (on or off)" ;;
+    *) assistant_config_fail "ASSISTANT_WEB_SEARCH must be on or off, got '$ASSISTANT_WEB_SEARCH'" ;;
+esac
+
+ASSISTANT_EXA_API_KEY="${ASSISTANT_EXA_API_KEY:-}"
+if [ -n "$ASSISTANT_EXA_API_KEY" ]; then
+    [ "$ASSISTANT_WEB_SEARCH" = on ] \
+        || assistant_config_fail "ASSISTANT_EXA_API_KEY is set, but ASSISTANT_WEB_SEARCH is off"
+    printf '%s' "$ASSISTANT_EXA_API_KEY" | grep -Eq '^[A-Za-z0-9_-]+$' \
+        || assistant_config_fail "ASSISTANT_EXA_API_KEY contains characters other than letters, digits, - and _"
+fi
+
 OLLAMA_PROXY_TIMEOUT_S=$((ASSISTANT_STEP_TIMEOUT_MS / 1000 + 30))
 ASSISTANT_OLLAMA_PATH=/ollama/main/api/generate
+ASSISTANT_WEB_SEARCH_PATH=/overleaf-ai-assistant/mcp/exa/
 
 export OVERLEAF_UPSTREAM OLLAMA_UPSTREAM OLLAMA_MODEL ASSISTANT_STEP_TIMEOUT_MS \
-    OLLAMA_PROXY_TIMEOUT_S ASSISTANT_OLLAMA_PATH
+    OLLAMA_PROXY_TIMEOUT_S ASSISTANT_OLLAMA_PATH ASSISTANT_WEB_SEARCH \
+    ASSISTANT_WEB_SEARCH_ENABLED ASSISTANT_EXA_API_KEY ASSISTANT_WEB_SEARCH_PATH
 unset assistant_value

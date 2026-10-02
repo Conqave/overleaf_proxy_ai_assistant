@@ -152,6 +152,7 @@ export class FakeOllama {
     ollamaEndpoint: '/ollama/main/api/generate',
     model: 'test-model',
     agentStepTimeoutMs: FAKE_AGENT_STEP_TIMEOUT_MS,
+    webSearch: { enabled: false, endpoint: '/overleaf-ai-assistant/mcp/exa/' },
   };
 
   reply(...replies: OllamaReply[]): this {

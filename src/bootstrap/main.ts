@@ -18,7 +18,10 @@ import { RejectChangeSet } from '../application/reject-change-set';
 import { UndoChangeSet } from '../application/undo-change-set';
 import { ReviewAppliedChange } from '../application/review-applied-change';
 import { WebSearchApproval } from '../application/web-search-approval';
+import { WebSearchTool } from '../application/web-search-tool';
 import { createUuid } from '../infrastructure/browser/uuid';
+import { ExaWebSearch } from '../infrastructure/mcp/exa-web-search';
+import { McpClient } from '../infrastructure/mcp/mcp-client';
 import { OllamaAgent } from '../infrastructure/ollama/ollama-agent';
 import { OllamaClient } from '../infrastructure/ollama/ollama-client';
 import { OllamaSummarizer } from '../infrastructure/ollama/ollama-summarizer';
@@ -43,7 +46,23 @@ import { ProjectSessionArchive } from '../infrastructure/persistence/project-ses
 import { LocalStoragePanelSize } from '../infrastructure/persistence/local-storage-panel-size';
 import { AssistantController } from '../presentation/assistant-controller';
 import { AssistantView } from '../presentation/assistant-view';
-import { ConfigurationError, loadConfig, type AssistantConfig } from './config';
+import {
+  ConfigurationError,
+  loadConfig,
+  type AssistantConfig,
+  type WebSearchConfig,
+} from './config';
+
+const MCP_CLIENT_INFO = { name: 'overleaf-ai-assistant', version: '1.0.0' };
+
+function createWebSearch(
+  window: Window & typeof globalThis,
+  config: WebSearchConfig,
+  approval: WebSearchApproval,
+): WebSearchTool {
+  const client = new McpClient(config.endpoint, MCP_CLIENT_INFO, window.fetch.bind(window));
+  return new WebSearchTool({ search: new ExaWebSearch(client), approval });
+}
 
 function compose(
   window: Window & typeof globalThis,
@@ -83,6 +102,7 @@ function compose(
     now: () => new Date(),
   });
 
+  const webSearchApproval = new WebSearchApproval({ conversation, newId });
   const handleRequest = new HandleAssistantRequest({
     agent,
     project,
@@ -93,7 +113,10 @@ function compose(
     newId,
     createController,
     compactor,
-    webSearch: null,
+    webSearch:
+      config.webSearch === null
+        ? null
+        : createWebSearch(window, config.webSearch, webSearchApproval),
   });
   const review = new ReviewAppliedChange({ project, conversation, handleRequest });
   const sessionDeps = { sessions, conversation, pendingChanges, editor, lock };
@@ -129,7 +152,7 @@ function compose(
     exportSession: new ExportSession(exchangeDeps),
     listSessionExports: new ListSessionExports(exchangeDeps),
     importSession: new ImportSession(exchangeDeps),
-    webSearchApproval: new WebSearchApproval({ conversation, newId }),
+    webSearchApproval,
     conversation,
   });
 

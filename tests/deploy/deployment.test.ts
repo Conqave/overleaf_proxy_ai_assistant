@@ -9,7 +9,7 @@ import {
   rmSync,
   writeFileSync,
 } from 'node:fs';
-import { createServer, type Server } from 'node:http';
+import { createServer, type IncomingHttpHeaders, type Server } from 'node:http';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -44,7 +44,13 @@ const VALID_ENV = {
   OLLAMA_UPSTREAM: '127.0.0.1:11434',
   OLLAMA_MODEL: 'gpt-oss:20b',
   ASSISTANT_STEP_TIMEOUT_MS: '900000',
+  ASSISTANT_WEB_SEARCH: 'off',
 };
+
+const EXA_API_KEY = 'exa-key_1234';
+const EXA_UPSTREAM = 'https://mcp.exa.ai/mcp';
+const WEB_SEARCH_PATH = '/overleaf-ai-assistant/mcp/exa/';
+const CONFIG_JSON = /return 200 '(\{"ollamaEndpoint".*\})';/;
 
 function validate(env: Record<string, string>) {
   const result = spawnSync('sh', ['-c', `. "${ENVSH}" && env`], {
@@ -92,6 +98,24 @@ describe('deployment configuration', () => {
     });
   });
 
+  it('turns web search on or off and takes an optional Exa key only when it is on', () => {
+    expect(validate(VALID_ENV).vars).toMatchObject({
+      ASSISTANT_WEB_SEARCH_ENABLED: 'false',
+      ASSISTANT_WEB_SEARCH_PATH: WEB_SEARCH_PATH,
+      ASSISTANT_EXA_API_KEY: '',
+    });
+    const anonymous = validate({ ...VALID_ENV, ASSISTANT_WEB_SEARCH: 'on' });
+    expect(anonymous.status).toBe(0);
+    expect(anonymous.vars).toMatchObject({ ASSISTANT_WEB_SEARCH_ENABLED: 'true' });
+    const keyed = validate({
+      ...VALID_ENV,
+      ASSISTANT_WEB_SEARCH: 'on',
+      ASSISTANT_EXA_API_KEY: EXA_API_KEY,
+    });
+    expect(keyed.status).toBe(0);
+    expect(keyed.vars).toMatchObject({ ASSISTANT_EXA_API_KEY: EXA_API_KEY });
+  });
+
   it.each([
     [
       'missing Overleaf upstream',
@@ -107,19 +131,55 @@ describe('deployment configuration', () => {
       'ASSISTANT_STEP_TIMEOUT_MS is required',
     ],
     ['non-numeric timeout', { ...VALID_ENV, ASSISTANT_STEP_TIMEOUT_MS: '15m' }, 'positive integer'],
+    [
+      'an unset web search switch',
+      { ...VALID_ENV, ASSISTANT_WEB_SEARCH: '' },
+      'ASSISTANT_WEB_SEARCH is required (on or off)',
+    ],
+    [
+      'a web search switch other than on or off',
+      { ...VALID_ENV, ASSISTANT_WEB_SEARCH: 'yes' },
+      "ASSISTANT_WEB_SEARCH must be on or off, got 'yes'",
+    ],
+    [
+      'an Exa key while web search is off',
+      { ...VALID_ENV, ASSISTANT_EXA_API_KEY: EXA_API_KEY },
+      'ASSISTANT_EXA_API_KEY is set, but ASSISTANT_WEB_SEARCH is off',
+    ],
+    [
+      'an Exa key that could break the configuration',
+      { ...VALID_ENV, ASSISTANT_WEB_SEARCH: 'on', ASSISTANT_EXA_API_KEY: 'key"; deny all;' },
+      'ASSISTANT_EXA_API_KEY contains characters other than letters, digits, - and _',
+    ],
   ])('fails start-up on %s', (_name, env, message) => {
     const { status, stderr } = validate(env);
     expect(status).not.toBe(0);
     expect(stderr).toContain(message);
+    expect(stderr).not.toContain('deny all');
   });
 
   it('renders a config.json the bundle accepts', () => {
-    const config = /return 200 '(\{"ollamaEndpoint".*\})';/.exec(render(validate(VALID_ENV).vars));
+    const config = CONFIG_JSON.exec(render(validate(VALID_ENV).vars));
     expect(parseConfig(JSON.parse(groupOf(config, 1, 'rendered config.json')))).toEqual({
       ollamaEndpoint: '/ollama/main/api/generate',
       model: 'gpt-oss:20b',
       agentStepTimeoutMs: 900000,
+      webSearch: null,
     });
+  });
+
+  it('publishes only the switch and the same-origin path of web search, never the key', () => {
+    const rendered = render(
+      validate({ ...VALID_ENV, ASSISTANT_WEB_SEARCH: 'on', ASSISTANT_EXA_API_KEY: EXA_API_KEY })
+        .vars,
+    );
+    const config = groupOf(CONFIG_JSON.exec(rendered), 1, 'rendered config.json');
+    expect(parseConfig(JSON.parse(config))).toMatchObject({
+      webSearch: { endpoint: WEB_SEARCH_PATH },
+    });
+    expect(config).not.toContain(EXA_API_KEY);
+    expect(rendered).toContain(`proxy_set_header x-api-key "${EXA_API_KEY}";`);
+    expect(rendered).toContain(`proxy_pass ${EXA_UPSTREAM};`);
   });
 
   it('leaves nginx variables untouched and hard-codes no address', () => {
@@ -127,7 +187,9 @@ describe('deployment configuration', () => {
     expect(rendered).toContain('$proxy_add_x_forwarded_for');
     expect(rendered).not.toMatch(/\$\{/);
     expect(readFileSync(TEMPLATE, 'utf8')).not.toMatch(/\d+\.\d+\.\d+\.\d+/);
-    expect(readFileSync(TEMPLATE, 'utf8')).not.toMatch(/unsafe-(inline|eval)|proxy_hide_header/);
+    expect(readFileSync(TEMPLATE, 'utf8')).not.toMatch(
+      /unsafe-(inline|eval)|proxy_hide_header\s+Content-Security-Policy/i,
+    );
   });
 
   it('ships a bundle that runs under a CSP without unsafe-eval', () => {
@@ -145,8 +207,18 @@ describe('nginx proxy', () => {
     host: string | undefined;
     origin: string | undefined;
   }[] = [];
+  const exaRequests: {
+    method: string | undefined;
+    url: string | undefined;
+    headers: IncomingHttpHeaders;
+  }[] = [];
+  let finishExa: () => void = () => undefined;
+  const exaFinish = new Promise<void>((resolve) => {
+    finishExa = resolve;
+  });
   let overleafServer: Server;
   let ollamaServer: Server;
+  let exaServer: Server;
   let base = '';
   let prefix = '';
 
@@ -171,29 +243,40 @@ describe('nginx proxy', () => {
       res.end(req.url === '/api/version' ? '{"version":"0"}' : '{"response":"{}"}');
     });
 
-    prefix = mkdtempSync(path.join(tmpdir(), 'ola-nginx-'));
-    chmodSync(prefix, 0o755);
-    mkdirSync(path.join(prefix, 'html'));
-    copyFileSync(
-      path.join(ROOT, 'dist/overleaf-ai-assistant.js'),
-      path.join(prefix, 'html/overleaf-ai-assistant.js'),
-    );
+    exaServer = await listen((req, res) => {
+      exaRequests.push({ method: req.method, url: req.url, headers: req.headers });
+      res.writeHead(200, {
+        'Content-Type': 'text/event-stream',
+        'Mcp-Session-Id': 'session-1',
+        'Set-Cookie': '__cf_bm=tracker; Path=/',
+        'Strict-Transport-Security': 'max-age=63072000',
+      });
+      res.write('event: message\ndata: {"first":true}\n\n');
+      void exaFinish.then(() => {
+        res.end('event: message\ndata: {"last":true}\n\n');
+      });
+    });
+
+    prefix = createPrefix();
     const { vars } = validate({
       ...VALID_ENV,
       OVERLEAF_UPSTREAM: `127.0.0.1:${String(portOf(overleafServer))}`,
       OLLAMA_UPSTREAM: `127.0.0.1:${String(portOf(ollamaServer))}`,
+      ASSISTANT_WEB_SEARCH: 'on',
+      ASSISTANT_EXA_API_KEY: EXA_API_KEY,
     });
-    base = await startNginx(prefix, render(vars));
+    base = await startNginx(prefix, pointWebSearchAt(render(vars), exaServer));
     await waitUntilHealthy(base);
   });
 
   afterAll(async () => {
-    if (prefix) {
-      execFileSync('nginx', ['-p', prefix, '-c', path.join(prefix, 'nginx.conf'), '-s', 'stop']);
-      await waitUntilStopped(prefix);
-      rmSync(prefix, { recursive: true, force: true });
-    }
-    await Promise.all([closeServer(overleafServer), closeServer(ollamaServer)]);
+    finishExa();
+    if (prefix) await stopNginx(prefix);
+    await Promise.all([
+      closeServer(overleafServer),
+      closeServer(ollamaServer),
+      closeServer(exaServer),
+    ]);
   });
 
   it('injects the assistant with the nonce of the unchanged upstream CSP', async () => {
@@ -240,6 +323,58 @@ describe('nginx proxy', () => {
     expect(ollamaRequests).toHaveLength(count);
   });
 
+  it("forwards web search to Exa without the browser's credentials and with the server key", async () => {
+    const response = await fetch(`${base}${WEB_SEARCH_PATH}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'application/json, text/event-stream',
+        'Mcp-Session-Id': 'session-1',
+        Cookie: 'overleaf_session2=secret',
+        Authorization: 'Bearer user-token',
+        Origin: 'http://overleaf.test',
+        Referer: 'http://overleaf.test/project/1',
+        'X-Csrf-Token': 'csrf-1',
+      },
+      body: '{"jsonrpc":"2.0","id":1,"method":"initialize"}',
+    });
+    expect(response.status).toBe(200);
+    expect(response.headers.get('mcp-session-id')).toBe('session-1');
+    expect(response.headers.get('set-cookie')).toBeNull();
+    expect(response.headers.get('strict-transport-security')).toBeNull();
+    const request = itemAt(exaRequests, -1, 'Exa request');
+    expect(request).toMatchObject({ method: 'POST', url: '/mcp' });
+    expect(request.headers).toMatchObject({
+      'x-api-key': EXA_API_KEY,
+      'mcp-session-id': 'session-1',
+      accept: 'application/json, text/event-stream',
+    });
+    for (const header of ['cookie', 'authorization', 'origin', 'referer', 'x-csrf-token']) {
+      expect(request.headers).not.toHaveProperty(header);
+    }
+    const reader = response.body?.getReader();
+    if (reader === undefined) throw new TestFixtureError('the web search answer has no body');
+    const first = await reader.read();
+    expect(new TextDecoder().decode(first.value)).toContain('{"first":true}');
+    finishExa();
+    let rest = '';
+    for (let chunk = await reader.read(); !chunk.done; chunk = await reader.read()) {
+      rest += new TextDecoder().decode(chunk.value);
+    }
+    expect(rest).toContain('{"last":true}');
+  });
+
+  it('accepts only POST for web search and keeps the key out of config.json', async () => {
+    const count = exaRequests.length;
+    expect((await fetch(`${base}${WEB_SEARCH_PATH}`)).status).toBe(403);
+    expect(exaRequests).toHaveLength(count);
+    const config = await (await fetch(`${base}/overleaf-ai-assistant/config.json`)).text();
+    expect(parseConfig(JSON.parse(config))).toMatchObject({
+      webSearch: { endpoint: WEB_SEARCH_PATH },
+    });
+    expect(config).not.toContain(EXA_API_KEY);
+  });
+
   it('reports process and upstream health separately', async () => {
     expect((await fetch(`${base}/healthz`)).status).toBe(200);
     expect(await (await fetch(`${base}/healthz/overleaf`)).text()).toBe('web is alive');
@@ -251,6 +386,60 @@ describe('nginx proxy', () => {
     expect((await fetch(`${base}/healthz`)).status).toBe(200);
   });
 });
+
+describe('nginx proxy with web search off', () => {
+  let exaServer: Server;
+  let exaCalls = 0;
+  let base = '';
+  let prefix = '';
+
+  beforeAll(async () => {
+    exaServer = await listen((_req, res) => {
+      exaCalls += 1;
+      res.end();
+    });
+    prefix = createPrefix();
+    base = await startNginx(prefix, pointWebSearchAt(render(validate(VALID_ENV).vars), exaServer));
+    await waitUntilHealthy(base);
+  });
+
+  afterAll(async () => {
+    if (prefix) await stopNginx(prefix);
+    await closeServer(exaServer);
+  });
+
+  it('answers web search with 404 and never reaches Exa', async () => {
+    const response = await fetch(`${base}${WEB_SEARCH_PATH}`, { method: 'POST', body: '{}' });
+    expect(response.status).toBe(404);
+    expect(exaCalls).toBe(0);
+    const config = await fetch(`${base}/overleaf-ai-assistant/config.json`);
+    expect(parseConfig(await config.json())).toMatchObject({ webSearch: null });
+  });
+});
+
+function createPrefix(): string {
+  const prefix = mkdtempSync(path.join(tmpdir(), 'ola-nginx-'));
+  chmodSync(prefix, 0o755);
+  mkdirSync(path.join(prefix, 'html'));
+  copyFileSync(BUNDLE, path.join(prefix, 'html/overleaf-ai-assistant.js'));
+  return prefix;
+}
+
+function pointWebSearchAt(rendered: string, server: Server): string {
+  if (!rendered.includes(`proxy_pass ${EXA_UPSTREAM};`)) {
+    throw new TestFixtureError(`the rendered configuration does not proxy to ${EXA_UPSTREAM}`);
+  }
+  return rendered.replace(
+    `proxy_pass ${EXA_UPSTREAM};`,
+    `proxy_pass http://127.0.0.1:${String(portOf(server))}/mcp;`,
+  );
+}
+
+async function stopNginx(prefix: string): Promise<void> {
+  execFileSync('nginx', ['-p', prefix, '-c', path.join(prefix, 'nginx.conf'), '-s', 'stop']);
+  await waitUntilStopped(prefix);
+  rmSync(prefix, { recursive: true, force: true });
+}
 
 function listen(handler: Parameters<typeof createServer>[1]): Promise<Server> {
   return new Promise((resolve) => {

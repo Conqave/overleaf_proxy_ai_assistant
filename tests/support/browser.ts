@@ -40,7 +40,15 @@ export function openBrowser(ollama: FakeOllama, indexedDB: Pick<IDBFactory, 'ope
   });
   const window = dom.window;
   let ide: FakeOverleafIde | null = null;
-  Object.assign(window, { fetch: ollama.fetch, Response, structuredClone, indexedDB });
+  Object.assign(window, {
+    fetch: ollama.fetch,
+    Response,
+    ReadableStream,
+    TransformStream,
+    TextDecoderStream,
+    structuredClone,
+    indexedDB,
+  });
   Object.assign(window.Range.prototype, {
     getClientRects: () => [],
   });
