@@ -1,5 +1,5 @@
 import { IDBFactory } from 'fake-indexeddb';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ConversationMessage } from '../../../src/domain/conversation';
 import { createDocumentCommand } from '../../../src/domain/document-command';
 import type { ConversationSession } from '../../../src/domain/session';
@@ -589,6 +589,35 @@ describe('IndexedDbSessionRepository', () => {
     await expect(repository.list()).rejects.toMatchObject({
       message: 'Could not open the saved sessions of this browser.',
       cause: { name: 'VersionError' },
+    });
+  });
+
+  it('opens the database again after a failed open', async () => {
+    (await settled(factory.open(SESSION_DATABASE, 2))).close();
+    await expect(repository.list()).rejects.toThrow(SessionStorageError);
+    await settled(factory.deleteDatabase(SESSION_DATABASE));
+    await expect(repository.list()).resolves.toEqual({ sessions: [], unreadableIds: [] });
+  });
+
+  it('closes its connection for a newer version and reports that version next time', async () => {
+    await repository.save(session('a'));
+    (await settled(factory.open(SESSION_DATABASE, 2))).close();
+    await expect(repository.list()).rejects.toMatchObject({
+      name: 'SessionStorageError',
+      cause: { name: 'VersionError' },
+    });
+  });
+
+  it('reports an open blocked by an older connection and opens once it is gone', async () => {
+    const older = await settled(factory.open(SESSION_DATABASE, 1));
+    const upgrading = new IndexedDbSessionRepository(
+      { indexedDB: { open: (name: string) => factory.open(name, 2) } },
+      SCOPE,
+    );
+    await expect(upgrading.list()).rejects.toThrow('another Overleaf tab');
+    older.close();
+    await vi.waitFor(async () => {
+      await expect(upgrading.list()).resolves.toEqual({ sessions: [], unreadableIds: [] });
     });
   });
 

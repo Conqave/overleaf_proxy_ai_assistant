@@ -111,7 +111,7 @@ export class IndexedDbSessionRepository implements SessionRepository {
     return this.database;
   }
 
-  private async openDatabase(): Promise<IDBDatabase> {
+  private openDatabase(): Promise<IDBDatabase> {
     const request = access('open', () =>
       this.window.indexedDB.open(SESSION_DATABASE, DATABASE_VERSION),
     );
@@ -119,7 +119,41 @@ export class IndexedDbSessionRepository implements SessionRepository {
       const store = request.result.createObjectStore(SESSION_STORE, { keyPath: KEY_PATH });
       store.createIndex(SCOPE_INDEX, SCOPE_KEY_PATH);
     };
-    return await succeeded(request, 'open');
+    const opening = new Promise<IDBDatabase>((resolve, reject) => {
+      let isRefused = false;
+      const refuse = (error: SessionStorageError): void => {
+        isRefused = true;
+        this.forget(opening);
+        reject(error);
+      };
+      request.onsuccess = () => {
+        const database = request.result;
+        if (isRefused) {
+          database.close();
+          return;
+        }
+        database.onversionchange = () => {
+          database.close();
+          this.forget(opening);
+        };
+        resolve(database);
+      };
+      request.onerror = () => {
+        refuse(storageError('open', request.error));
+      };
+      request.onblocked = () => {
+        refuse(
+          new SessionStorageError(
+            'Could not open the saved sessions: another Overleaf tab keeps an older version of them open; reload that tab.',
+          ),
+        );
+      };
+    });
+    return opening;
+  }
+
+  private forget(database: Promise<IDBDatabase>): void {
+    if (this.database === database) this.database = null;
   }
 
   private keyOf(id: string): IDBValidKey {
