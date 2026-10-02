@@ -89,7 +89,12 @@ export class OverleafProjectFiles {
   }
 
   private async download(file: ProjectFile, signal: AbortSignal): Promise<string> {
-    const response = await this.request(this.downloadUrl(file), {}, `read ${file.path}`, signal);
+    const response = await this.request(
+      this.downloadUrl(file),
+      { method: 'GET' },
+      `read ${file.path}`,
+      signal,
+    );
     if (response.status === HTTP_NOT_FOUND) {
       throw new ProjectTreeOutdatedError(
         `${file.path} was moved or deleted after the page loaded; reload Overleaf to see the current files.`,

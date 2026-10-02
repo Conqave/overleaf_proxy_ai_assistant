@@ -45,7 +45,9 @@ export class FakeOverleafServer {
 
   readonly fetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
     if (typeof input !== 'string') throw new TestFixtureError('Overleaf is fetched by URL text');
-    const request = { method: init?.method ?? 'GET', url: input };
+    const method = init?.method;
+    if (method === undefined) throw new TestFixtureError(`${input} is fetched without a method`);
+    const request = { method, url: input };
     this.requests.push(request);
     const answer = this.answersWith?.(request) ?? null;
     if (answer !== null) return answer;
