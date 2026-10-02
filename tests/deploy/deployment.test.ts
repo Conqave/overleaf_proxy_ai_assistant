@@ -30,6 +30,7 @@ const DOCKERFILE = path.join(ROOT, 'Dockerfile');
 const BUNDLE = path.join(ROOT, 'dist/overleaf-ai-assistant.js');
 const POLL_ATTEMPTS = 50;
 const POLL_INTERVAL_MS = 50;
+const PidFile = { Written: 'written', Removed: 'removed' } as const;
 const NGINX_START_ATTEMPTS = 3;
 
 for (const binary of ['nginx', 'envsubst']) {
@@ -246,6 +247,14 @@ describe('nginx proxy', () => {
   const sessionChecks = () => overleafRequests.filter(({ url }) => url === SESSION_ROUTE);
   const upstreamCalls = () => ollamaRequests.length + exaRequests.length;
 
+  beforeAll(() => {
+    prefix = createPrefix();
+  });
+
+  afterAll(async () => {
+    if (prefix !== '') await removeNginx(prefix);
+  });
+
   beforeAll(async () => {
     overleafServer = await listenRecording(overleafRequests, (req, res) => {
       if (req.url === '/status') {
@@ -287,7 +296,6 @@ describe('nginx proxy', () => {
       });
     });
 
-    prefix = createPrefix();
     const { vars } = validate({
       ...VALID_ENV,
       OVERLEAF_UPSTREAM: `127.0.0.1:${String(portOf(overleafServer))}`,
@@ -301,7 +309,6 @@ describe('nginx proxy', () => {
 
   afterAll(async () => {
     finishExa();
-    if (prefix) await stopNginx(prefix);
     await Promise.all([
       closeServer(overleafServer),
       closeServer(ollamaServer),
@@ -558,18 +565,24 @@ describe('nginx proxy with web search off', () => {
   let base = '';
   let prefix = '';
 
+  beforeAll(() => {
+    prefix = createPrefix();
+  });
+
+  afterAll(async () => {
+    if (prefix !== '') await removeNginx(prefix);
+  });
+
   beforeAll(async () => {
     exaServer = await listen((_req, res) => {
       exaCalls += 1;
       res.end();
     });
-    prefix = createPrefix();
     base = await startNginx(prefix, pointWebSearchAt(render(validate(VALID_ENV).vars), exaServer));
     await waitUntilHealthy(base);
   });
 
   afterAll(async () => {
-    if (prefix) await stopNginx(prefix);
     await closeServer(exaServer);
   });
 
@@ -600,10 +613,28 @@ function pointWebSearchAt(rendered: string, server: Server): string {
   );
 }
 
+async function removeNginx(prefix: string): Promise<void> {
+  try {
+    if (existsSync(pidFileOf(prefix))) await stopNginx(prefix);
+  } finally {
+    rmSync(prefix, { recursive: true, force: true });
+  }
+}
+
 async function stopNginx(prefix: string): Promise<void> {
-  execFileSync('nginx', ['-p', prefix, '-c', path.join(prefix, 'nginx.conf'), '-s', 'stop']);
-  await waitUntilStopped(prefix);
-  rmSync(prefix, { recursive: true, force: true });
+  const stopped = spawnSync(
+    'nginx',
+    ['-q', '-p', prefix, '-c', path.join(prefix, 'nginx.conf'), '-s', 'stop'],
+    { encoding: 'utf8' },
+  );
+  if (stopped.status !== 0) {
+    throw new TestFixtureError(`nginx in ${prefix} refused to stop: ${stopped.stderr}`);
+  }
+  await waitForPidFile(prefix, PidFile.Removed);
+}
+
+function pidFileOf(prefix: string): string {
+  return path.join(prefix, 'nginx.pid');
 }
 
 async function record(request: IncomingMessage): Promise<UpstreamRequest> {
@@ -653,7 +684,7 @@ function configureNginx(prefix: string, rendered: string, port: number): string 
     .replace('root /usr/share/nginx/html;', `root ${path.join(prefix, 'html')};`)
     .replace(
       'worker_processes auto;',
-      `worker_processes 1;\npid ${prefix}/nginx.pid;\nerror_log ${prefix}/error.log;`,
+      `worker_processes 1;\npid ${pidFileOf(prefix)};\nerror_log ${prefix}/error.log warn;`,
     )
     .replace(
       'http {',
@@ -668,7 +699,10 @@ async function startNginx(prefix: string, rendered: string): Promise<string> {
     writeFileSync(conf, configureNginx(prefix, rendered, port));
     execFileSync('nginx', ['-t', '-q', '-p', prefix, '-c', conf]);
     const started = spawnSync('nginx', ['-p', prefix, '-c', conf], { encoding: 'utf8' });
-    if (started.status === 0) return `http://127.0.0.1:${String(port)}`;
+    if (started.status === 0) {
+      await waitForPidFile(prefix, PidFile.Written);
+      return `http://127.0.0.1:${String(port)}`;
+    }
     if (!started.stderr.includes('Address already in use')) {
       throw new TestFixtureError(`nginx did not start: ${started.stderr}`);
     }
@@ -678,13 +712,16 @@ async function startNginx(prefix: string, rendered: string): Promise<string> {
   );
 }
 
-async function waitUntilStopped(prefix: string): Promise<void> {
-  const pidFile = path.join(prefix, 'nginx.pid');
+async function waitForPidFile(
+  prefix: string,
+  expected: (typeof PidFile)[keyof typeof PidFile],
+): Promise<void> {
+  const pidFile = pidFileOf(prefix);
   for (let attempt = 0; attempt < POLL_ATTEMPTS; attempt += 1) {
-    if (!existsSync(pidFile)) return;
+    if (existsSync(pidFile) === (expected === PidFile.Written)) return;
     await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
   }
-  throw new TestFixtureError(`nginx in ${prefix} did not stop`);
+  throw new TestFixtureError(`the pid file of nginx in ${prefix} was not ${expected}`);
 }
 
 async function waitUntilHealthy(base: string): Promise<void> {
