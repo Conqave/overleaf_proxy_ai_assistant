@@ -28,6 +28,8 @@ export class UnreadableSessionError extends PersistenceError {}
 
 export class SessionNotFoundError extends PersistenceError {}
 
+export class UnreadableSessionExportError extends OperationalError {}
+
 export class ProjectUnavailableError extends OperationalError {}
 
 export class ProjectFileReadError extends OperationalError {}

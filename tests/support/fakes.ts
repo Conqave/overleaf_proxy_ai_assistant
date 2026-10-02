@@ -30,6 +30,8 @@ import type {
 import type { ConversationView } from '../../src/domain/conversation-view';
 import type { CancellationSignal } from '../../src/ports/cancellation';
 import type { SessionListing, SessionRepository } from '../../src/ports/session-repository';
+import type { SessionArchive } from '../../src/ports/session-archive';
+import type { SessionExport } from '../../src/domain/session-export';
 import type { EditorPort } from '../../src/ports/editor-port';
 import type { ProjectPort } from '../../src/ports/project-port';
 import {
@@ -327,6 +329,26 @@ export class InMemorySessionRepository implements SessionRepository {
       throw new TestFixtureError(`${String(this.stored.size)} sessions are stored, not one`);
     }
     return session;
+  }
+}
+
+export class InMemorySessionArchive implements SessionArchive {
+  failure: Error | null = null;
+  readonly saved = new Map<string, SessionExport>();
+  readonly signals: CancellationSignal[] = [];
+
+  save(path: string, exported: SessionExport, signal: CancellationSignal): Promise<void> {
+    this.signals.push(signal);
+    if (this.failure) return Promise.reject(this.failure);
+    this.saved.set(path, structuredClone(exported));
+    return Promise.resolve();
+  }
+  load(file: ProjectFile, signal: CancellationSignal): Promise<SessionExport> {
+    this.signals.push(signal);
+    if (this.failure) return Promise.reject(this.failure);
+    const exported = this.saved.get(file.path);
+    if (exported === undefined) throw new TestFixtureError(`no export at ${file.path}`);
+    return Promise.resolve(structuredClone(exported));
   }
 }
 

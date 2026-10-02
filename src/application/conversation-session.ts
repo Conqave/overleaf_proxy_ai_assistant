@@ -12,7 +12,7 @@ export interface SessionList {
   readonly currentId: string | null;
 }
 
-interface SessionDeps {
+export interface SessionDeps {
   readonly sessions: SessionRepository;
   readonly conversation: ConversationLog;
   readonly pendingChanges: PendingChanges;
@@ -20,7 +20,7 @@ interface SessionDeps {
   readonly lock: OperationLock;
 }
 
-function leaveCurrentSession({ conversation, pendingChanges, editor }: SessionDeps): void {
+export function leaveCurrentSession({ conversation, pendingChanges, editor }: SessionDeps): void {
   if (pendingChanges.discardAll().length) editor.clearPreview();
   conversation.startNew();
 }
