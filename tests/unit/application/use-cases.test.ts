@@ -2223,11 +2223,10 @@ describe('change sets', () => {
     };
     await expect(undo.execute(changeId, record)).rejects.toThrow(RequestSupersededError);
     await Promise.all(resets);
-    expect(repository.stored.get(sessionId)?.messages.at(-1)).toMatchObject({
-      role: 'undo',
-      undone: ['main.tex'],
-      refused: [],
-    });
+    expect(repository.stored.get(sessionId)?.messages.slice(-2)).toMatchObject([
+      { role: 'undo', undone: ['main.tex'], refused: [] },
+      { role: 'notice', notice: { kind: 'cancelled' } },
+    ]);
     expect(conversation.sessionId).toBeNull();
     expect(isBusy()).toBe(false);
   });

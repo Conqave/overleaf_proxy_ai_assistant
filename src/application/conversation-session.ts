@@ -54,8 +54,13 @@ export class ListSessions {
 export class StartNewConversation {
   constructor(private readonly deps: SessionDeps) {}
 
-  execute(): Promise<void> {
-    return this.deps.lock.supersede(new RequestSupersededError(), () => {
+  async execute(): Promise<void> {
+    const { lock, conversation } = this.deps;
+    const cancelled = await lock.cancel(new RequestSupersededError());
+    await lock.run(() => {
+      if (cancelled && conversation.sessionId !== null) {
+        conversation.recordNotice({ kind: 'cancelled' });
+      }
       leaveCurrentSession(this.deps);
       return Promise.resolve();
     });

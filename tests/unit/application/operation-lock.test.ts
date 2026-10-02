@@ -44,27 +44,6 @@ describe('OperationLock', () => {
     });
   });
 
-  it('cancels the running operation and runs the new one once it has ended', async () => {
-    const { lock, changes } = observedLock();
-    const reason = new RequestInProgressError();
-    const order: string[] = [];
-    const running = lock.run(async (signal) => {
-      try {
-        await rejectOnAbort(signal);
-      } finally {
-        order.push('cancelled ended');
-      }
-    });
-    const superseding = lock.supersede(reason, () => {
-      order.push('new started');
-      return Promise.resolve('new');
-    });
-    await expect(running).rejects.toBe(reason);
-    await expect(superseding).resolves.toBe('new');
-    expect(order).toEqual(['cancelled ended', 'new started']);
-    expect(changes).toEqual([true, false, true, false]);
-  });
-
   it('waits for a cancelled operation that ignores its signal', async () => {
     const lock = new OperationLock(() => new AbortController());
     const finished = Promise.withResolvers<undefined>();
@@ -73,19 +52,17 @@ describe('OperationLock', () => {
       signals.push(signal);
       await finished.promise;
     });
-    let isSuperseded = false;
-    const superseding = lock
-      .supersede(new RequestInProgressError(), () => Promise.resolve())
-      .then(() => {
-        isSuperseded = true;
-      });
+    let isCancelled = false;
+    const cancelling = lock.cancel(new RequestInProgressError()).then(() => {
+      isCancelled = true;
+    });
     await Promise.resolve();
     expect(signals.map(({ aborted }) => aborted)).toEqual([true]);
-    expect(isSuperseded).toBe(false);
+    expect(isCancelled).toBe(false);
     finished.resolve(undefined);
     await running;
-    await superseding;
-    expect(isSuperseded).toBe(true);
+    await cancelling;
+    expect(isCancelled).toBe(true);
   });
 
   it('cancels the running operation, waits for its end and reports that it cancelled', async () => {
@@ -102,12 +79,5 @@ describe('OperationLock', () => {
     const { lock, changes } = observedLock();
     await expect(lock.cancel(new RequestInProgressError())).resolves.toBe(false);
     expect(changes).toEqual([]);
-  });
-
-  it('runs a superseding operation at once while nothing runs', async () => {
-    const lock = new OperationLock(() => new AbortController());
-    await expect(
-      lock.supersede(new RequestInProgressError(), () => Promise.resolve('only')),
-    ).resolves.toBe('only');
   });
 });

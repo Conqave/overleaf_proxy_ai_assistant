@@ -37,14 +37,6 @@ export class OperationLock {
     }
   }
 
-  async supersede<T>(
-    reason: Error,
-    operation: (signal: CancellationSignal) => Promise<T>,
-  ): Promise<T> {
-    await this.cancel(reason);
-    return await this.run(operation);
-  }
-
   async cancel(reason: Error): Promise<boolean> {
     let cancelled = false;
     while (this.current !== null) {

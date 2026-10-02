@@ -790,17 +790,24 @@ describe('AssistantController change sets', () => {
 });
 
 describe('AssistantController new chat', () => {
-  it('shows nothing for a request the user cancelled with a new chat', async () => {
-    const { controller, project, texts } = await openAssistant();
+  it('starts empty and leaves a cancelled note in the session it interrupted', async () => {
+    const { controller, project, conversation, texts } = await openAssistant();
     project.holdsReads = true;
     const sending = controller.send('add the knuth84 entry');
     await vi.waitFor(() => {
       expect(project.reads).toEqual(['refs.bib']);
     });
+    const interrupted = conversation.sessionId;
+    if (interrupted === null) throw new TestFixtureError('the request started no session');
     await controller.newConversation();
     await sending;
     expect(texts('.ola-error')).toEqual([]);
     expect(texts('.ola-msg')).toEqual([expect.stringContaining('Ready to help')]);
+    await controller.openSession(interrupted);
+    expect(texts('.ola-msg')).toEqual([
+      'add the knuth84 entry',
+      'Cancelled: you stopped Hans before it finished.',
+    ]);
   });
 });
 
