@@ -16,7 +16,7 @@ import {
   RestoreLatestSession,
   StartNewConversation,
 } from '../../../src/application/conversation-session';
-import { HandleAssistantRequest } from '../../../src/application/handle-assistant-request';
+import { composeRequestHandling } from '../../support/request-handling';
 import { OperationLock } from '../../../src/application/operation-lock';
 import { PendingChanges } from '../../../src/application/pending-change';
 import { PreviewChangeSetFile } from '../../../src/application/preview-change-set-file';
@@ -115,7 +115,7 @@ async function openAssistantWith(
   });
   const webSearch = new FakeWebSearch();
   const webSearchApproval = new WebSearchApproval({ conversation, newId });
-  const handleRequest = new HandleAssistantRequest({
+  const { handleRequest, conversationAgent } = composeRequestHandling({
     agent,
     project,
     editor,
@@ -123,11 +123,10 @@ async function openAssistantWith(
     pendingChanges,
     lock,
     newId,
-    createController: () => new AbortController(),
     compactor,
     webSearch: new WebSearchTool({ search: webSearch, approval: webSearchApproval }),
   });
-  const review = new ReviewAppliedChange({ project, handleRequest });
+  const review = new ReviewAppliedChange({ project, conversationAgent });
   const sessionDeps = { sessions, conversation, pendingChanges, editor, lock };
   const changeSetDeps = { project, editor, pendingChanges, review };
   const exchangeDeps = {

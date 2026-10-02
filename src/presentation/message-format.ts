@@ -1,5 +1,5 @@
 import type { AgentProgress, ApplyReport, FileConflict } from '../application/agent-progress';
-import type { ContextUsage } from '../application/handle-assistant-request';
+import type { ContextUsage } from '../domain/context-usage';
 import { AutoApprovalScope } from '../application/web-search-approval';
 import { EditStatus, type EditRequest, type ProposedEdit } from '../domain/change-set';
 import type {

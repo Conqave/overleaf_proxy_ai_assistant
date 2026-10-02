@@ -6,7 +6,7 @@ import type {
   ToolMessage,
   UserMessage,
 } from '../domain/conversation';
-import type { ContextUsage } from '../ports/agent-port';
+import type { ContextUsage } from '../domain/context-usage';
 import type { PendingWebSearch } from './web-search-approval';
 
 export interface FileConflict {

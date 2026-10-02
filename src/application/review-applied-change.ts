@@ -2,7 +2,7 @@ import { DiagnosticLevel } from '../domain/agent-transcript';
 import type { CancellationSignal } from '../ports/cancellation';
 import type { ProjectPort } from '../ports/project-port';
 import type { AgentProgress } from './agent-progress';
-import type { AgentResult, HandleAssistantRequest } from './handle-assistant-request';
+import type { AgentResult, ConversationAgent } from './conversation-agent';
 import { ensureNotCancelled } from './operation-lock';
 
 export type ReviewOutcome =
@@ -12,7 +12,7 @@ export class ReviewAppliedChange {
   constructor(
     private readonly deps: {
       project: ProjectPort;
-      handleRequest: HandleAssistantRequest;
+      conversationAgent: ConversationAgent;
     },
   ) {}
 
@@ -26,7 +26,11 @@ export class ReviewAppliedChange {
     if (!diagnostics.some((diagnostic) => diagnostic.level === DiagnosticLevel.Error)) {
       return { kind: 'compiled' };
     }
-    const result = await this.deps.handleRequest.fixCompileErrors(diagnostics, onProgress, signal);
+    const result = await this.deps.conversationAgent.fixCompileErrors(
+      diagnostics,
+      onProgress,
+      signal,
+    );
     return { kind: 'fix', result };
   }
 }

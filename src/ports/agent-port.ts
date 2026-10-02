@@ -2,6 +2,7 @@ import type { AgentDecision } from '../domain/agent-action';
 import type { AgentPolicy } from '../domain/agent-policy';
 import type { AgentTurn, CompileDiagnostic, OpenFileView } from '../domain/agent-transcript';
 import type { ExchangeMessage, SystemRequestMessage, UserMessage } from '../domain/conversation';
+import type { ContextUsage } from '../domain/context-usage';
 import type { ConversationView } from '../domain/conversation-view';
 import type { ProjectFile } from '../domain/project-file';
 import type { CancellationSignal } from './cancellation';
@@ -41,19 +42,6 @@ export interface AgentStepRequest {
   readonly workspace: AgentWorkspace;
   readonly transcript: readonly AgentTurn[];
   readonly signal: CancellationSignal;
-}
-
-export const ContextPressure = {
-  Low: 'low',
-  Elevated: 'elevated',
-  High: 'high',
-} as const;
-export type ContextPressure = (typeof ContextPressure)[keyof typeof ContextPressure];
-
-export interface ContextUsage {
-  readonly contextTokens: number;
-  readonly pressure: ContextPressure;
-  readonly promptTokens: number;
 }
 
 export interface AgentStep {

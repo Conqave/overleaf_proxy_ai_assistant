@@ -11,8 +11,8 @@ import type {
   AgentStep,
   AgentStepRequest,
   AgentWorkspace,
-  ContextUsage,
 } from '../ports/agent-port';
+import type { ContextUsage } from '../domain/context-usage';
 import type { CancellationSignal } from '../ports/cancellation';
 import { AssistantContextOverflowError, AssistantProtocolError } from '../ports/errors';
 import {

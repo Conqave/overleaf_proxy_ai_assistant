@@ -1,5 +1,5 @@
 import { NamedError } from '../../domain/errors';
-import { ContextPressure, type ContextUsage } from '../../ports/agent-port';
+import { ContextPressure, type ContextUsage } from '../../domain/context-usage';
 import { AssistantRequestTooLargeError } from '../../ports/errors';
 import { HARMONY_FRAMING_CHARS } from './harmony-format';
 

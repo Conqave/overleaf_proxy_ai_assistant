@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { IDBFactory } from 'fake-indexeddb';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { COMPILE_FIX_REQUEST } from '../../src/application/handle-assistant-request';
+import { COMPILE_FIX_REQUEST } from '../../src/application/conversation-agent';
 import { MAIN_AGENT_POLICY } from '../support/policies';
 import type { ConversationMessage } from '../../src/domain/conversation';
 import { IndexedDbSessionRepository } from '../../src/infrastructure/persistence/indexed-db-session-repository';

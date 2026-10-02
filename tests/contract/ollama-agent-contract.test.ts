@@ -3,10 +3,7 @@ import { beforeAll, describe, expect, it } from 'vitest';
 import type { AgentProgress } from '../../src/application/agent-progress';
 import { ConversationCompactor } from '../../src/application/conversation-compactor';
 import { ConversationLog } from '../../src/application/conversation-log';
-import {
-  HandleAssistantRequest,
-  type AgentResult,
-} from '../../src/application/handle-assistant-request';
+import type { AgentResult } from '../../src/application/conversation-agent';
 import { OperationLock } from '../../src/application/operation-lock';
 import { WebSearchApproval, WebSearchDecision } from '../../src/application/web-search-approval';
 import { WebSearchTool } from '../../src/application/web-search-tool';
@@ -23,7 +20,8 @@ import { OllamaClient } from '../../src/infrastructure/ollama/ollama-client';
 import { OllamaSummarizer } from '../../src/infrastructure/ollama/ollama-summarizer';
 import { parseExaSearchResults } from '../../src/infrastructure/mcp/exa-search-results';
 import type { ConversationMessage } from '../../src/domain/conversation';
-import type { AgentPort, ContextUsage } from '../../src/ports/agent-port';
+import type { ContextUsage } from '../../src/domain/context-usage';
+import type { AgentPort } from '../../src/ports/agent-port';
 import {
   EMPTY_CONVERSATION,
   FakeEditor,
@@ -37,6 +35,7 @@ import {
 import { itemAt, textMatching } from '../support/guards';
 import { readExaSearchFixture } from '../support/fake-mcp-server';
 import { TestFixtureError } from '../support/test-errors';
+import { composeRequestHandling } from '../support/request-handling';
 
 const CASE_TIMEOUT_MS = 600_000;
 const STEP_TIMEOUT_MS = 300_000;
@@ -610,7 +609,7 @@ async function runApplication(
   const newId = sequentialIds();
   const webSearch = new FakeWebSearch().will(WEB_RESULTS, WEB_RESULTS, WEB_RESULTS);
   const approval = new WebSearchApproval({ conversation, newId });
-  const handleRequest = new HandleAssistantRequest({
+  const { handleRequest } = composeRequestHandling({
     agent: recordingAgent,
     project,
     editor,
@@ -618,7 +617,6 @@ async function runApplication(
     pendingChanges: new PendingChanges(conversation),
     lock: new OperationLock(() => new AbortController()),
     newId,
-    createController: () => new AbortController(),
     webSearch: new WebSearchTool({ search: webSearch, approval }),
     compactor: new ConversationCompactor({
       agent: recordingAgent,

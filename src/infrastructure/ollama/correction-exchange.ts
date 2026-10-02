@@ -1,4 +1,4 @@
-import type { ContextUsage } from '../../ports/agent-port';
+import type { ContextUsage } from '../../domain/context-usage';
 import { AssistantProtocolError } from '../../ports/errors';
 import { InvalidAssistantResponse } from './reply-parser';
 import { describeUsage } from './context-budget';

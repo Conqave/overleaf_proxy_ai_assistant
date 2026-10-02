@@ -9,11 +9,9 @@ import type {
   RestoreLatestSession,
   StartNewConversation,
 } from '../application/conversation-session';
-import type {
-  AgentResult,
-  ContextUsage,
-  HandleAssistantRequest,
-} from '../application/handle-assistant-request';
+import type { AgentResult } from '../application/conversation-agent';
+import type { HandleAssistantRequest } from '../application/handle-assistant-request';
+import type { ContextUsage } from '../domain/context-usage';
 import type { AgentProgress } from '../application/agent-progress';
 import { RequestSupersededError } from '../application/errors';
 import type { OperationLock } from '../application/operation-lock';

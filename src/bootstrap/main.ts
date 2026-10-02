@@ -1,5 +1,7 @@
+import { AgentLoop } from '../application/agent-loop';
 import { ApplyChangeSet } from '../application/apply-change-set';
 import { CompactConversation } from '../application/compact-conversation';
+import { ConversationAgent } from '../application/conversation-agent';
 import { ConversationCompactor } from '../application/conversation-compactor';
 import { ConversationLog } from '../application/conversation-log';
 import {
@@ -14,11 +16,13 @@ import { HandleAssistantRequest } from '../application/handle-assistant-request'
 import { OperationLock } from '../application/operation-lock';
 import { PendingChanges } from '../application/pending-change';
 import { PreviewChangeSetFile } from '../application/preview-change-set-file';
+import { ProjectTools } from '../application/project-tools';
 import { RejectChangeSet } from '../application/reject-change-set';
 import { UndoChangeSet } from '../application/undo-change-set';
 import { ReviewAppliedChange } from '../application/review-applied-change';
 import { WebSearchApproval } from '../application/web-search-approval';
 import { WebSearchTool } from '../application/web-search-tool';
+import { createAgentPolicies } from '../domain/agent-policy';
 import { createUuid } from '../infrastructure/browser/uuid';
 import { ExaWebSearch } from '../infrastructure/mcp/exa-web-search';
 import { McpClient } from '../infrastructure/mcp/mcp-client';
@@ -103,22 +107,26 @@ function compose(
   });
 
   const webSearchApproval = new WebSearchApproval({ conversation, newId });
-  const handleRequest = new HandleAssistantRequest({
+  const webSearch =
+    config.webSearch === null ? null : createWebSearch(window, config.webSearch, webSearchApproval);
+  const loop = new AgentLoop({
     agent,
+    compactor,
+    tools: new ProjectTools(project, createController),
+    webSearch,
+    policies: createAgentPolicies({ webSearch: webSearch !== null }),
+  });
+  const conversationAgent = new ConversationAgent({
+    loop,
     project,
     editor,
     conversation,
     pendingChanges,
     lock,
     newId,
-    createController,
-    compactor,
-    webSearch:
-      config.webSearch === null
-        ? null
-        : createWebSearch(window, config.webSearch, webSearchApproval),
   });
-  const review = new ReviewAppliedChange({ project, handleRequest });
+  const handleRequest = new HandleAssistantRequest({ agent, conversationAgent, lock });
+  const review = new ReviewAppliedChange({ project, conversationAgent });
   const sessionDeps = { sessions, conversation, pendingChanges, editor, lock };
   const changeSetDeps = { project, editor, pendingChanges, review };
   const exchangeDeps = {

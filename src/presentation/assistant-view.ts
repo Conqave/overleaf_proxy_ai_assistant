@@ -27,7 +27,7 @@ import {
 } from '../application/web-search-approval';
 import { DelegationOutcome } from '../domain/delegation';
 import { DocumentOperation } from '../domain/document-command';
-import type { ContextPressure } from '../application/handle-assistant-request';
+import type { ContextPressure } from '../domain/context-usage';
 import type { SessionSummary } from '../domain/session';
 import css from './assistant.css?raw';
 import { InvariantViolation } from '../domain/errors';

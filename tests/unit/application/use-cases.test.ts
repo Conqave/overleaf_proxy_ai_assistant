@@ -25,9 +25,10 @@ import {
 } from '../../../src/application/errors';
 import {
   COMPILE_FIX_REQUEST,
-  HandleAssistantRequest,
   type AgentResult,
-} from '../../../src/application/handle-assistant-request';
+  type ConversationAgent,
+} from '../../../src/application/conversation-agent';
+import type { HandleAssistantRequest } from '../../../src/application/handle-assistant-request';
 import { OperationLock } from '../../../src/application/operation-lock';
 import { PARALLEL_SEARCH_READS } from '../../../src/application/project-tools';
 import { PendingChanges } from '../../../src/application/pending-change';
@@ -85,6 +86,7 @@ import {
   ticking,
   webResult,
 } from '../../support/fakes';
+import { composeRequestHandling } from '../../support/request-handling';
 import { anInstanceOf, itemAt, objectContaining, textContaining } from '../../support/guards';
 import { TestFixtureError } from '../../support/test-errors';
 
@@ -98,6 +100,7 @@ let repository: InMemorySessionRepository;
 let conversation: ConversationLog;
 let pendingChanges: PendingChanges;
 let handle: HandleAssistantRequest;
+let conversationAgent: ConversationAgent;
 let apply: ApplyChangeSet;
 let reject: RejectChangeSet;
 let preview: PreviewChangeSetFile;
@@ -171,8 +174,8 @@ async function proposeEdit(...decisions: AgentDecision[]): Promise<string> {
   return changeIdOf(await send('add more'));
 }
 
-function createHandle(webSearch: WebSearchTool | null = null): HandleAssistantRequest {
-  return new HandleAssistantRequest({
+function wireRequests(webSearch: WebSearchTool | null = null): void {
+  ({ handleRequest: handle, conversationAgent } = composeRequestHandling({
     agent,
     project,
     editor,
@@ -180,7 +183,6 @@ function createHandle(webSearch: WebSearchTool | null = null): HandleAssistantRe
     pendingChanges,
     lock,
     newId,
-    createController: () => new AbortController(),
     webSearch,
     compactor: new ConversationCompactor({
       agent,
@@ -189,7 +191,7 @@ function createHandle(webSearch: WebSearchTool | null = null): HandleAssistantRe
       newId,
       now: () => NOW,
     }),
-  });
+  }));
 }
 
 beforeEach(() => {
@@ -215,8 +217,8 @@ beforeEach(() => {
   });
   newId = sequentialIds();
   summarizer = new FakeSummarizer();
-  handle = createHandle();
-  review = new ReviewAppliedChange({ project, handleRequest: handle });
+  wireRequests();
+  review = new ReviewAppliedChange({ project, conversationAgent });
   const changeSetDeps = { project, editor, pendingChanges, review };
   apply = new ApplyChangeSet({ ...changeSetDeps, conversation, lock });
   reject = new RejectChangeSet({ ...changeSetDeps, lock });
@@ -343,7 +345,7 @@ describe('HandleAssistantRequest', () => {
   it('edits a long file only in the lines a ranged read showed', async () => {
     const long = Array.from({ length: 3_000 }, (_, index) => `Line ${String(index + 1)}.`);
     project = new FakeProject(editor, { 'main.tex': MAIN, 'long.tex': long }, 'main.tex');
-    handle = createHandle();
+    wireRequests();
     agent.will(
       tool({ tool: 'read_file', path: 'long.tex' }),
       editOf('long.tex', long, 2_500),
@@ -485,7 +487,7 @@ describe('HandleAssistantRequest', () => {
       ]),
     );
     project = new FakeProject(editor, documents, 'part0.tex');
-    handle = createHandle();
+    wireRequests();
     project.holdsReads = true;
     agent.will(tool({ tool: 'search', query: 'text' }));
     const sending = send('find text');
@@ -789,7 +791,7 @@ describe('web search', () => {
   beforeEach(() => {
     webSearch = new FakeWebSearch();
     approval = new WebSearchApproval({ conversation, newId: sequentialIds('approval') });
-    handle = createHandle(new WebSearchTool({ search: webSearch, approval }));
+    wireRequests(new WebSearchTool({ search: webSearch, approval }));
   });
 
   const approvals = (): PendingWebSearch[] =>
@@ -1092,7 +1094,7 @@ describe('web search', () => {
   });
 
   it('refuses web_search when the deployment has no web search', async () => {
-    handle = createHandle();
+    wireRequests();
     agent.will(searchWeb(), answer('No web search here.'));
     await send('find the DOI');
     expect(requestAt(1).transcript[0]).toMatchObject({
@@ -2170,9 +2172,9 @@ describe('ReviewAppliedChange', () => {
   });
 
   it('fixes compile errors only inside a running operation', async () => {
-    await expect(handle.fixCompileErrors([], record, new AbortController().signal)).rejects.toThrow(
-      InvariantViolation,
-    );
+    await expect(
+      conversationAgent.fixCompileErrors([], record, new AbortController().signal),
+    ).rejects.toThrow(InvariantViolation);
   });
 
   it('reports a clean compilation without asking the agent', async () => {
