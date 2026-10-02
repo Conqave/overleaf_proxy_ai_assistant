@@ -336,6 +336,18 @@ describe('HandleAssistantRequest', () => {
     });
   });
 
+  it('asks for a read of the lines when an edit relies only on search hits', async () => {
+    agent.will(tool({ tool: 'search', query: 'smith' }), bibEdit(), readBib(), bibEdit());
+    const result = await send('fix the smith entry');
+    expect(requestAt(2).transcript[1]).toMatchObject({
+      kind: 'mistake',
+      problem: textContaining(
+        'refs.bib was not read: the search results show only its matching lines 1, 2, and search hits are not enough to edit a file; read lines 1 to 8 of refs.bib',
+      ),
+    });
+    expect(result.message).toMatchObject({ kind: 'proposal', path: 'refs.bib' });
+  });
+
   it('sends a read starting past the end of the file back to the agent', async () => {
     agent.will(
       tool({ tool: 'read_file', path: 'refs.bib', range: { startLine: 9 } }),

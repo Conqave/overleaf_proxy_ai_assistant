@@ -34,9 +34,32 @@ const whole = (document: DocumentSnapshot): LineSpan => ({
   last: document.lines.length,
 });
 
+const replace = (lineNumber: number, lineCount: number) =>
+  createDocumentCommand({
+    operation: 'replace',
+    target: { lineNumber, lineText: `line ${String(lineNumber - 1)}` },
+    lineCount,
+    content: 'x',
+  });
+
+const anyEdit = replace(1, 1);
+
+function search(query: string, ...lineNumbers: number[]): ToolTurn {
+  const matches = lineNumbers.map((lineNumber) => ({
+    path: 'refs.bib',
+    lineNumber,
+    lineText: `line ${String(lineNumber - 1)}`,
+  }));
+  return {
+    kind: 'tool',
+    call: { tool: 'search', query },
+    result: { tool: 'search', matches, truncated: false },
+  };
+}
+
 describe('getShownDocument', () => {
   it('gives the open file as shown whole in the workspace', () => {
-    expect(getShownDocument(open, [], 'main.tex')).toEqual({
+    expect(getShownDocument(open, [], 'main.tex', anyEdit)).toEqual({
       document: open.document,
       spans: [{ first: 1, last: 1 }],
     });
@@ -49,6 +72,7 @@ describe('getShownDocument', () => {
       open,
       [read('refs.bib', old, whole(old)), read('refs.bib', fresh, whole(fresh))],
       'refs.bib',
+      anyEdit,
     );
     expect(shown).toEqual({ document: fresh, spans: [{ first: 1, last: 1 }] });
   });
@@ -58,6 +82,7 @@ describe('getShownDocument', () => {
       open,
       [read('refs.bib', bib, { first: 1, last: 3 }), read('refs.bib', bib, { first: 7, last: 9 })],
       'refs.bib',
+      anyEdit,
     );
     expect(shown.spans).toEqual([
       { first: 1, last: 3 },
@@ -71,27 +96,34 @@ describe('getShownDocument', () => {
       decision: { kind: 'tool', call: { tool: 'read_file', path: 'refs.bib' } },
       problem: 'no',
     };
-    expect(() => getShownDocument(open, [rejected], 'refs.bib')).toThrow(UnreadFileEditError);
+    expect(() => getShownDocument(open, [rejected], 'refs.bib', anyEdit)).toThrow(
+      UnreadFileEditError,
+    );
   });
 
   it('rejects an edit of a file the model has not seen', () => {
-    expect(() => getShownDocument(open, [], 'refs.bib')).toThrow(UnreadFileEditError);
+    expect(() => getShownDocument(open, [], 'refs.bib', anyEdit)).toThrow(
+      new UnreadFileEditError('refs.bib must be read with read_file before it can be edited'),
+    );
+  });
+
+  it('asks for a read of the edited lines when the file was only searched', () => {
+    expect(() =>
+      getShownDocument(open, [search('line', 9, 3), search('3', 3)], 'refs.bib', replace(3, 2)),
+    ).toThrow(
+      new UnreadFileEditError(
+        'refs.bib was not read: the search results show only its matching lines 3, 9, and search hits are not enough to edit a file; read lines 1 to 9 of refs.bib with read_file (PATH, START_LINE and END_LINE) first, then send the edit',
+      ),
+    );
   });
 });
 
 describe('assertEditShown', () => {
   const shown = { document: bib, spans: [{ first: 2, last: 4 }] };
-  const replace = (lineNumber: number, lineCount: number) =>
-    createDocumentCommand({
-      operation: 'replace',
-      target: { lineNumber, lineText: `line ${String(lineNumber - 1)}` },
-      lineCount,
-      content: 'x',
-    });
 
   it('accepts an edit of shown lines', () => {
     expect(() => {
-      assertEditShown('refs.bib', shown, replace(2, 3));
+      assertEditShown('refs.bib', shown, replace(2, 3), []);
     }).not.toThrow();
     expect(() => {
       assertEditShown(
@@ -102,16 +134,27 @@ describe('assertEditShown', () => {
           target: { lineNumber: 4, lineText: 'line 3' },
           content: 'x',
         }),
+        [],
       );
     }).not.toThrow();
   });
 
   it('rejects an edit that reaches past the shown lines', () => {
     expect(() => {
-      assertEditShown('refs.bib', shown, replace(3, 3));
+      assertEditShown('refs.bib', shown, replace(3, 3), []);
     }).toThrow(
       new UnshownLinesEditError(
         'line 5 of refs.bib was not shown to you; read lines 3 to 5 with read_file (START_LINE and END_LINE) before editing them',
+      ),
+    );
+  });
+
+  it('says that a search hit does not count as a read line', () => {
+    expect(() => {
+      assertEditShown('refs.bib', shown, replace(5, 1), [search('line 4', 5)]);
+    }).toThrow(
+      new UnshownLinesEditError(
+        'line 5 of refs.bib was not shown to you; read lines 5 to 5 with read_file (START_LINE and END_LINE) before editing them; a search hit shows a line but does not count as reading it',
       ),
     );
   });
@@ -126,6 +169,7 @@ describe('assertEditShown', () => {
           target: { lineNumber: 8, lineText: 'line 7' },
           content: 'x',
         }),
+        [],
       );
     }).toThrow(UnshownLinesEditError);
   });

@@ -149,6 +149,7 @@ export function getShownDocument(
   openFile: OpenFileView,
   transcript: readonly AgentTurn[],
   path: string,
+  command: DocumentCommand,
 ): ShownDocument {
   const reads = getToolTurns(transcript).flatMap(({ result }) =>
     result.tool === AgentTool.ReadFile && result.path === path ? [result] : [],
@@ -164,22 +165,49 @@ export function getShownDocument(
       spans: [{ first: 1, last: openFile.document.lines.length }],
     };
   }
-  throw new UnreadFileEditError(`${path} must be read with read_file before it can be edited`);
+  const hits = findSearchHits(transcript, path);
+  if (hits.length === 0) {
+    throw new UnreadFileEditError(`${path} must be read with read_file before it can be edited`);
+  }
+  const { first, last } = getEditedLines(command);
+  throw new UnreadFileEditError(
+    `${path} was not read: the search results show only its matching ${describeLineNumbers(hits)}, and search hits are not enough to edit a file; read lines ${String(Math.max(1, first - READ_MARGIN_LINES))} to ${String(last + READ_MARGIN_LINES)} of ${path} with read_file (PATH, START_LINE and END_LINE) first, then send the edit`,
+  );
 }
+
+const READ_MARGIN_LINES = 5;
 
 export function assertEditShown(
   path: string,
   shown: ShownDocument,
   command: DocumentCommand,
+  transcript: readonly AgentTurn[],
 ): void {
   const { first, last } = getEditedLines(command);
   for (let line = first; line <= last; line += 1) {
     if (!shown.spans.some((span) => span.first <= line && line <= span.last)) {
+      const hint = findSearchHits(transcript, path).includes(line)
+        ? '; a search hit shows a line but does not count as reading it'
+        : '';
       throw new UnshownLinesEditError(
-        `line ${String(line)} of ${path} was not shown to you; read lines ${String(first)} to ${String(last)} with read_file (START_LINE and END_LINE) before editing them`,
+        `line ${String(line)} of ${path} was not shown to you; read lines ${String(first)} to ${String(last)} with read_file (START_LINE and END_LINE) before editing them${hint}`,
       );
     }
   }
+}
+
+function findSearchHits(transcript: readonly AgentTurn[], path: string): number[] {
+  const hits = getToolTurns(transcript).flatMap(({ result }) =>
+    result.tool === AgentTool.Search
+      ? result.matches.filter((match) => match.path === path).map((match) => match.lineNumber)
+      : [],
+  );
+  return [...new Set(hits)].sort((a, b) => a - b);
+}
+
+function describeLineNumbers(lineNumbers: readonly number[]): string {
+  const listed = lineNumbers.map(String).join(', ');
+  return lineNumbers.length === 1 ? `line ${listed}` : `lines ${listed}`;
 }
 
 function getEditedLines(command: DocumentCommand): LineSpan {

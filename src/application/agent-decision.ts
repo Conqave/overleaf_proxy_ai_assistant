@@ -99,9 +99,9 @@ function acceptReply(
       return { kind: reply.kind, text: reply.text };
     case 'edit': {
       const file = findTextFile(workspace.files, reply.path);
-      const shown = getShownDocument(workspace.openFile, transcript, file.path);
+      const shown = getShownDocument(workspace.openFile, transcript, file.path, reply.command);
       const edit = ResolvedEdit.resolve(shown.document, reply.command);
-      assertEditShown(file.path, shown, edit.command);
+      assertEditShown(file.path, shown, edit.command, transcript);
       return { kind: 'edit', change: { file, edit } };
     }
   }
