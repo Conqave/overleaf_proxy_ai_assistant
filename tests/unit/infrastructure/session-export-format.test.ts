@@ -1,8 +1,9 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { ConversationMessage } from '../../../src/domain/conversation';
 import { createDocumentCommand } from '../../../src/domain/document-command';
 import type { SessionExport } from '../../../src/domain/session-export';
 import {
+  MAX_SESSION_EXPORT_CHARS,
   parseSessionExport,
   SESSION_EXPORT_FORMAT,
   serializeSessionExport,
@@ -137,5 +138,17 @@ describe('session export format', () => {
     ],
   ])('refuses %s', (_, text) => {
     expect(() => parseSessionExport(text)).toThrow(UnknownStoredFormatError);
+  });
+
+  it('refuses a file over the size limit without parsing it', () => {
+    const text = serializeSessionExport(exported);
+    const padded = `${text}${' '.repeat(MAX_SESSION_EXPORT_CHARS - text.length + 1)}`;
+    const parse = vi.spyOn(JSON, 'parse');
+    expect(() => parseSessionExport(padded)).toThrow(
+      `larger than ${String(MAX_SESSION_EXPORT_CHARS)} characters`,
+    );
+    expect(parse).not.toHaveBeenCalled();
+    parse.mockRestore();
+    expect(parseSessionExport(padded.slice(0, MAX_SESSION_EXPORT_CHARS))).toEqual(exported);
   });
 });

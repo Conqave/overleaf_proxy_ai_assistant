@@ -8,6 +8,7 @@ import {
 } from './stored-fields';
 
 export const SESSION_EXPORT_FORMAT = 'hans-session-export/1';
+export const MAX_SESSION_EXPORT_CHARS = 8_000_000;
 const INDENT = 2;
 
 export function serializeSessionExport(exported: SessionExport): string {
@@ -22,6 +23,11 @@ export function serializeSessionExport(exported: SessionExport): string {
 }
 
 export function parseSessionExport(text: string): SessionExport {
+  if (text.length > MAX_SESSION_EXPORT_CHARS) {
+    throw new UnknownStoredFormatError(
+      `larger than ${String(MAX_SESSION_EXPORT_CHARS)} characters (${String(text.length)})`,
+    );
+  }
   const fields = getFields(parseJson(text));
   if (fields.get('format') !== SESSION_EXPORT_FORMAT) {
     throw new UnknownStoredFormatError(`format is not ${SESSION_EXPORT_FORMAT}`);
