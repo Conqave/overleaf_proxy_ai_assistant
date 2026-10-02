@@ -193,6 +193,60 @@ async function proposeBibEdit() {
   return { ...assistant, changeId: proposal.id };
 }
 
+describe('AssistantController subagent', () => {
+  const TASK = 'Check every \\cite key against refs.bib';
+  const answer = (text: string): AgentDecision => ({
+    kind: 'reply',
+    reply: { kind: 'answer', text },
+  });
+
+  it('shows the subagent at work, its context use and its findings collapsed', async () => {
+    let statusWhileDelegating: (string | null)[] = [];
+    let contextWhileDelegating: (string | null)[] = [];
+    const { window, controller, agent, texts } = await openAssistantWith([
+      { kind: 'tool', call: { tool: 'delegate', task: TASK, files: ['refs.bib'] } },
+      READ_BIB,
+    ]);
+    agent.onDecide = (request) => {
+      if (request.request.kind !== 'subtask' || request.transcript.length !== 1) return;
+      statusWhileDelegating = texts('.ola-status');
+      contextWhileDelegating = texts('.ola-context');
+    };
+    agent.will(answer('**knuth84** is missing from refs.bib.'), answer('knuth84 is missing.'));
+    await controller.send('are my citations defined?');
+    expect(statusWhileDelegating).toEqual(['Hans: subagent reviewing 1 file…']);
+    expect(contextWhileDelegating).toEqual(['Context 2.0k / 98.3k']);
+    const card = window.document.querySelector('details.ola-delegation');
+    expect(card?.hasAttribute('open')).toBe(false);
+    expect(texts('.ola-delegation-title')).toEqual([`Subagent result: ${TASK}`]);
+    expect(texts('.ola-delegation-body strong')).toEqual(['knuth84']);
+    expect(texts('.ola-delegation .ola-result-meta')).toEqual(['1 lookup · files: refs.bib']);
+    expect(texts('.ola-msg').slice(-2)).toEqual([
+      expect.stringContaining('Subagent result'),
+      expect.stringContaining('knuth84 is missing.'),
+    ]);
+    expect(texts('.ola-context')).toEqual(['Context 4.0k / 98.3k']);
+  });
+
+  it('shows a failed delegation as stopped and keeps other lookups out of the chat', async () => {
+    const { controller, texts } = await openAssistantWith([
+      READ_BIB,
+      { kind: 'tool', call: { tool: 'delegate', task: TASK, files: [] } },
+      ...Array.from({ length: 3 }, (): AgentDecision => ({
+        kind: 'tool',
+        call: { tool: 'compile' },
+      })),
+      answer('The check stopped.'),
+    ]);
+    await controller.send('are my citations defined?');
+    expect(texts('.ola-delegation-title')).toEqual([`Subagent stopped: ${TASK}`]);
+    expect(texts('details.ola-delegation.is-failed .ola-delegation-body')).toEqual([
+      expect.stringContaining('the subagent stopped after 3 invalid steps in a row'),
+    ]);
+    expect(texts('.ola-msg')).toHaveLength(3);
+  });
+});
+
 describe('AssistantController compaction', () => {
   it('offers Compact only for earlier turns and shows the summary as a notice', async () => {
     const { window, controller, agent, summarizer, texts } = await proposeBibEdit();

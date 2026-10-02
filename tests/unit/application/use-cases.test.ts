@@ -36,7 +36,7 @@ import { ReviewAppliedChange } from '../../../src/application/review-applied-cha
 import type { AgentDecision, ToolCall } from '../../../src/domain/agent-action';
 import type { EditRequest } from '../../../src/domain/change-set';
 import type { CompileDiagnostic } from '../../../src/domain/agent-transcript';
-import { AGENT_POLICY } from '../../../src/domain/agent-policy';
+import { AGENT_POLICY, MAIN_AGENT_POLICY, SUBAGENT_POLICY } from '../../../src/domain/agent-policy';
 import { createDocumentSnapshot, type DocumentSnapshot } from '../../../src/domain/document';
 import { createDocumentCommand } from '../../../src/domain/document-command';
 import { DocumentConflictError, InvariantViolation } from '../../../src/domain/errors';
@@ -244,7 +244,7 @@ describe('HandleAssistantRequest', () => {
       transcript: [],
       signal: anInstanceOf(AbortSignal),
     });
-    expect(progress.map((p) => p.stage)).toEqual(['received', 'thinking']);
+    expect(progress.map((p) => p.stage)).toEqual(['received', 'thinking', 'measured']);
   });
 
   it('reports the context usage of the decision that ended the request', async () => {
@@ -309,8 +309,14 @@ describe('HandleAssistantRequest', () => {
     expect(progress).toEqual([
       expect.objectContaining({ stage: 'received' }),
       { stage: 'thinking', step: 1 },
+      expect.objectContaining({ stage: 'measured' }),
       { stage: 'reading', path: 'refs.bib' },
+      {
+        stage: 'recorded',
+        message: objectContaining({ role: 'tool', record: objectContaining({ path: 'refs.bib' }) }),
+      },
       { stage: 'thinking', step: 2 },
+      expect.objectContaining({ stage: 'measured' }),
       { stage: 'opening', path: 'refs.bib' },
     ]);
   });
@@ -483,7 +489,7 @@ describe('HandleAssistantRequest', () => {
   });
 
   it('sends a tool call beyond the budget back to the agent', async () => {
-    const queries = Array.from({ length: AGENT_POLICY.maxToolCalls + 1 }, (_, index) =>
+    const queries = Array.from({ length: MAIN_AGENT_POLICY.maxToolCalls + 1 }, (_, index) =>
       tool({ tool: 'search', query: `query ${String(index)}` }),
     );
     agent.will(...queries, answer('Nothing found.'));
@@ -711,6 +717,208 @@ describe('conversation reset during a request', () => {
   });
 });
 
+describe('delegation to a subagent', () => {
+  const TASK = 'Check that every \\cite key of the project is defined in refs.bib';
+  const delegate = (files: readonly string[] = []) => tool({ tool: 'delegate', task: TASK, files });
+  const delegationOf = (index: number) => {
+    const message = itemAt(
+      conversation.messages().filter((m) => m.role === 'tool'),
+      index,
+      'tool message',
+    );
+    if (message.record.tool !== 'delegate') {
+      throw new TestFixtureError(`tool message ${String(index)} is no delegation`);
+    }
+    return message.record;
+  };
+
+  it('runs the subtask in a fresh context and gives the main agent only its findings', async () => {
+    agent.will(
+      delegate(['main.tex']),
+      tool({ tool: 'search', query: '\\cite{' }),
+      readBib(),
+      answer('main.tex:4 \\cite{knuth84}: key missing from refs.bib'),
+      answer('knuth84 is not defined in refs.bib.'),
+    );
+    const result = await send('are all citations defined?');
+    expect(result.message).toMatchObject({ text: 'knuth84 is not defined in refs.bib.' });
+    const subtask = requestAt(1);
+    expect(subtask.request).toEqual({ kind: 'subtask', task: TASK, files: ['main.tex'] });
+    expect(subtask.conversation).toEqual(EMPTY_CONVERSATION);
+    expect(subtask.transcript).toEqual([]);
+    expect(requestAt(3).transcript.map((turn) => turn.kind)).toEqual(['tool', 'tool']);
+    const main = requestAt(4);
+    expect(main.request).toMatchObject({ kind: 'user' });
+    expect(main.transcript).toEqual([
+      {
+        kind: 'tool',
+        call: { tool: 'delegate', task: TASK, files: ['main.tex'] },
+        result: {
+          tool: 'delegate',
+          report: {
+            outcome: 'finished',
+            text: 'main.tex:4 \\cite{knuth84}: key missing from refs.bib',
+            truncated: false,
+            lookups: 2,
+          },
+        },
+      },
+    ]);
+    expect(storedMessages().map((m) => m.role)).toEqual(['user', 'tool', 'assistant']);
+    expect(delegationOf(0)).toMatchObject({ task: TASK, files: ['main.tex'] });
+  });
+
+  it('reports the subagent as reviewing the named files, or else every text file', async () => {
+    agent.will(delegate(['main.tex', 'refs.bib']), answer('Nothing.'), answer('Done.'));
+    await send('check');
+    const reviewing = progress.flatMap((p) => (p.stage === 'delegating' ? [p.fileCount] : []));
+    expect(reviewing).toEqual([2]);
+    const steps = progress.flatMap((p) => (p.stage === 'subagent' ? [p.progress.stage] : []));
+    expect(steps).toEqual(['thinking', 'measured']);
+    progress = [];
+    agent.will(delegate(), answer('All defined.'), answer('Done.'));
+    await send('check all');
+    expect(progress.filter((p) => p.stage === 'delegating')).toEqual([
+      { stage: 'delegating', task: TASK, fileCount: 3 },
+    ]);
+  });
+
+  it('records the delegation like any other lookup and reports it once', async () => {
+    agent.will(delegate(), answer('All defined.'), answer('Done.'));
+    await send('check');
+    const recorded = progress.flatMap((p) => (p.stage === 'recorded' ? [p.message] : []));
+    expect(recorded).toEqual([conversation.messages().find((m) => m.role === 'tool')]);
+    expect(recorded).toHaveLength(1);
+  });
+
+  it('keeps the lookups of the subagent out of the conversation', async () => {
+    agent.will(delegate(), readBib(), answer('All defined.'), answer('Done.'));
+    await send('check');
+    expect(conversation.messages().filter((m) => m.role === 'tool')).toHaveLength(1);
+    expect(project.reads).toEqual(['refs.bib']);
+  });
+
+  it('forbids the subagent to delegate further and lets it correct itself', async () => {
+    agent.will(delegate(), delegate(), answer('All defined.'), answer('Done.'));
+    await send('check');
+    expect(requestAt(2).transcript).toEqual([
+      {
+        kind: 'mistake',
+        decision: delegate(),
+        problem: 'delegate is not available in this task; use only read_file or search',
+      },
+    ]);
+    expect(delegationOf(0).report).toMatchObject({ outcome: 'finished', text: 'All defined.' });
+  });
+
+  it('forbids the subagent to edit or ask', async () => {
+    agent.will(delegate(), bibEdit(), answer('All defined.'), answer('Done.'));
+    await send('check');
+    expect(requestAt(2).transcript).toMatchObject([
+      { kind: 'mistake', problem: 'edit is not available in this task; reply with answer' },
+    ]);
+    expect(editor.preview).toBeNull();
+  });
+
+  it('turns repeated mistakes of the subagent into a failed delegation the main agent sees', async () => {
+    const limit = AGENT_POLICY.maxConsecutiveMistakes;
+    agent.will(delegate(), ...Array.from({ length: limit }, () => tool({ tool: 'compile' })));
+    agent.will(answer('The check failed.'));
+    const result = await send('check');
+    expect(result.message).toMatchObject({ text: 'The check failed.' });
+    expect(project.compileCalls).toBe(0);
+    expect(delegationOf(0).report).toEqual({
+      outcome: 'failed',
+      problem: `the subagent stopped after ${String(limit)} invalid steps in a row (last: compile is not available in this task; use only read_file or search)`,
+      lookups: 0,
+    });
+  });
+
+  it('stops the subagent at its own step limit', async () => {
+    const lookups = SUBAGENT_POLICY.maxToolCalls;
+    const limit = AGENT_POLICY.maxConsecutiveMistakes;
+    agent.will(
+      delegate(),
+      ...Array.from({ length: lookups + limit }, (_, index) =>
+        tool({ tool: 'search', query: `key${String(index)}` }),
+      ),
+      answer('Too much to check.'),
+    );
+    await send('check');
+    const subtaskSteps = agent.requests.filter((r) => r.request.kind === 'subtask');
+    expect(subtaskSteps).toHaveLength(lookups + limit);
+    expect(delegationOf(0).report).toEqual({
+      outcome: 'failed',
+      problem: `the subagent stopped after ${String(limit)} invalid steps in a row (last: all ${String(lookups)} lookups are used; reply now with answer)`,
+      lookups,
+    });
+  });
+
+  it('turns a subagent reply in a broken format into a failed delegation', async () => {
+    agent.will(delegate(), new AssistantProtocolError('format'), answer('No result.'));
+    await send('check');
+    expect(delegationOf(0).report).toMatchObject({
+      outcome: 'failed',
+      problem: 'the subagent stopped: format',
+    });
+  });
+
+  it('lets other failures of the subagent end the whole request', async () => {
+    agent.will(delegate(), new AssistantUnreachableError('offline'));
+    await expect(send('check')).rejects.toThrow(AssistantUnreachableError);
+    expect(conversation.messages().map((m) => m.role)).toEqual(['user']);
+  });
+
+  it('cuts the findings of the subagent at the policy limit', async () => {
+    const long = 'x'.repeat(AGENT_POLICY.maxDelegationResultChars + 10);
+    agent.will(delegate(), answer(long), answer('Done.'));
+    await send('check');
+    expect(delegationOf(0).report).toEqual({
+      outcome: 'finished',
+      text: long.slice(0, AGENT_POLICY.maxDelegationResultChars),
+      truncated: true,
+      lookups: 0,
+    });
+  });
+
+  it('cancels the subagent with the request', async () => {
+    agent.will(delegate(), new PendingStep(rejectOnAbort));
+    const running = send('check');
+    await vi.waitFor(() => {
+      expect(agent.requests).toHaveLength(2);
+    });
+    startNew();
+    await expect(running).rejects.toThrow(RequestSupersededError);
+    expect(isBusy()).toBe(false);
+    expect(itemAt(agent.requests, 1, 'subtask').signal.aborted).toBe(true);
+  });
+
+  it('rejects a delegation that names a file the project does not have', async () => {
+    agent.will(delegate(['appendix.tex']), answer('There is no appendix.tex.'));
+    await send('check');
+    expect(requestAt(1).transcript).toEqual([
+      {
+        kind: 'mistake',
+        decision: delegate(['appendix.tex']),
+        problem: 'The project has no file appendix.tex.',
+      },
+    ]);
+    expect(requestAt(1).request.kind).toBe('user');
+  });
+
+  it('limits the delegations of one request', async () => {
+    const other = (index: number) =>
+      tool({ tool: 'delegate', task: `Find the tables of chapter ${String(index)}`, files: [] });
+    agent.will(other(1), answer('One.'), other(2), answer('Two.'), other(3), answer('Done.'));
+    await send('check');
+    expect(itemAt(agent.requests, 5, 'main step').transcript.at(-1)).toEqual({
+      kind: 'mistake',
+      decision: other(3),
+      problem: `all ${String(AGENT_POLICY.maxDelegations)} delegations of this request are used; do the remaining lookups yourself or reply`,
+    });
+  });
+});
+
 describe('automatic compaction', () => {
   async function talk(...questions: string[]): Promise<void> {
     for (const question of questions) {
@@ -754,6 +962,7 @@ describe('automatic compaction', () => {
       'compacting',
       'compacted',
       'thinking',
+      'measured',
     ]);
   });
 
@@ -821,6 +1030,7 @@ describe('context overflow', () => {
       'compacting',
       'compacted',
       'thinking',
+      'measured',
     ]);
   });
 

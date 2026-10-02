@@ -2,7 +2,31 @@ import { describe, expect, it } from 'vitest';
 import { createToolCall, isSameToolCall } from '../../../src/domain/agent-action';
 import { InvalidToolCallError } from '../../../src/domain/errors';
 
+const TASK = 'List every table without a caption';
+
 describe('createToolCall', () => {
+  it('accepts a delegated task with optional file hints', () => {
+    expect(createToolCall({ tool: 'delegate', task: `  ${TASK} ` })).toEqual({
+      tool: 'delegate',
+      task: TASK,
+      files: [],
+    });
+    expect(createToolCall({ tool: 'delegate', task: TASK, files: ['a.tex', 'ch/b.tex'] })).toEqual({
+      tool: 'delegate',
+      task: TASK,
+      files: ['a.tex', 'ch/b.tex'],
+    });
+  });
+
+  it('identifies a delegation by its task', () => {
+    const first = createToolCall({ tool: 'delegate', task: TASK, files: ['a.tex'] });
+    expect(isSameToolCall(first, createToolCall({ tool: 'delegate', task: TASK }))).toBe(true);
+    expect(
+      isSameToolCall(first, createToolCall({ tool: 'delegate', task: `${TASK} in chapter 2` })),
+    ).toBe(false);
+    expect(isSameToolCall(first, { tool: 'search', query: TASK })).toBe(false);
+  });
+
   it('accepts each tool with its own argument', () => {
     expect(createToolCall({ tool: 'read_file', path: 'chapters/intro.tex' })).toEqual({
       tool: 'read_file',
@@ -37,6 +61,26 @@ describe('createToolCall', () => {
     ['a multi-line query', { tool: 'search', query: 'ab\ncd' }],
     ['search with a path', { tool: 'search', query: 'abc', path: 'a.tex' }],
     ['compile with a path', { tool: 'compile', path: 'main.tex' }],
+    ['delegate without a task', { tool: 'delegate' }],
+    ['a too short task', { tool: 'delegate', task: ' short ' }],
+    ['a too long task', { tool: 'delegate', task: 'x'.repeat(1_001) }],
+    ['a multi-line task', { tool: 'delegate', task: 'Check the tables\nof chapter 2' }],
+    ['delegate with a path', { tool: 'delegate', task: TASK, path: 'a.tex' }],
+    ['delegate with a query', { tool: 'delegate', task: TASK, query: 'x' }],
+    ['delegate with lines', { tool: 'delegate', task: TASK, startLine: 1 }],
+    ['files that are no list', { tool: 'delegate', task: TASK, files: 'a.tex' }],
+    ['a broken file path', { tool: 'delegate', task: TASK, files: ['a.tex', '../b.tex'] }],
+    ['a file named twice', { tool: 'delegate', task: TASK, files: ['a.tex', 'a.tex'] }],
+    [
+      'too many files',
+      {
+        tool: 'delegate',
+        task: TASK,
+        files: Array.from({ length: 21 }, (_, i) => `f${String(i)}.tex`),
+      },
+    ],
+    ['read_file with a task', { tool: 'read_file', path: 'a.tex', task: TASK }],
+    ['search with files', { tool: 'search', query: 'abc', files: [] }],
     [
       'read_file ending before it starts',
       { tool: 'read_file', path: 'a.tex', startLine: 9, endLine: 2 },

@@ -38,7 +38,32 @@ const messages: ConversationMessage[] = [
       truncated: false,
     },
   },
-  { id: '4', role: 'assistant', kind: 'explanation', text: 'Zażółć **gęślą** jaźń.' },
+  {
+    id: '4',
+    role: 'tool',
+    record: {
+      tool: 'delegate',
+      task: 'Check every \\cite key against refs.bib',
+      files: ['main.tex', 'refs.bib'],
+      report: {
+        outcome: 'finished',
+        text: 'main.tex:4 \\cite{a}: missing',
+        truncated: false,
+        lookups: 2,
+      },
+    },
+  },
+  {
+    id: '5',
+    role: 'tool',
+    record: {
+      tool: 'delegate',
+      task: 'List the tables of chapter 2',
+      files: [],
+      report: { outcome: 'failed', problem: 'the subagent stopped', lookups: 0 },
+    },
+  },
+  { id: '6', role: 'assistant', kind: 'explanation', text: 'Zażółć **gęślą** jaźń.' },
 ];
 
 const exported: SessionExport = {
@@ -53,7 +78,7 @@ function documentWith(change: Record<string, unknown>): string {
 }
 
 describe('session export format', () => {
-  it('reads back exactly what it wrote, LaTeX and all', () => {
+  it('reads back exactly what it wrote, LaTeX and subagent results included', () => {
     const text = serializeSessionExport(exported);
     expect(JSON.parse(text)).toMatchObject({ format: SESSION_EXPORT_FORMAT });
     expect(parseSessionExport(text)).toEqual(exported);
@@ -90,6 +115,21 @@ describe('session export format', () => {
               role: 'assistant',
               kind: 'proposal',
               edits: [{ path: '../main.tex', command: {}, status: 'proposed' }],
+            },
+          ],
+        },
+      }),
+    ],
+    [
+      'a subagent result without its report',
+      documentWith({
+        session: {
+          ...exported.session,
+          messages: [
+            {
+              id: 'x',
+              role: 'tool',
+              record: { tool: 'delegate', task: 'Check every key', files: [] },
             },
           ],
         },

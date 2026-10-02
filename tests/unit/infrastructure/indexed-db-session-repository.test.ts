@@ -129,6 +129,31 @@ const messages: ConversationMessage[] = [
     },
   },
   {
+    id: 't5',
+    role: 'tool',
+    record: {
+      tool: 'delegate',
+      task: 'Check every \\cite key against refs.bib',
+      files: ['main.tex', 'refs.bib'],
+      report: {
+        outcome: 'finished',
+        text: 'main.tex:4 \\cite{a}: missing',
+        truncated: false,
+        lookups: 2,
+      },
+    },
+  },
+  {
+    id: 't6',
+    role: 'tool',
+    record: {
+      tool: 'delegate',
+      task: 'List the tables of chapter 2',
+      files: [],
+      report: { outcome: 'failed', problem: 'the subagent stopped', lookups: 0 },
+    },
+  },
+  {
     id: '7',
     role: 'undo',
     proposalId: '3',
@@ -196,8 +221,20 @@ describe('IndexedDbSessionRepository', () => {
     await expect(repository.load('a')).resolves.toEqual(session('a'));
     await expect(repository.list()).resolves.toEqual({
       sessions: [
-        { id: 'a', title: 'Session a', createdAt: 10, updatedAt: 20, messageCount: 15 },
-        { id: 'b', title: 'Session b', createdAt: 10, updatedAt: 30, messageCount: 15 },
+        {
+          id: 'a',
+          title: 'Session a',
+          createdAt: 10,
+          updatedAt: 20,
+          messageCount: messages.length,
+        },
+        {
+          id: 'b',
+          title: 'Session b',
+          createdAt: 10,
+          updatedAt: 30,
+          messageCount: messages.length,
+        },
       ],
       unreadableIds: [],
     });
@@ -215,7 +252,7 @@ describe('IndexedDbSessionRepository', () => {
         title: 'Session a',
         createdAt: 10,
         updatedAt: 20,
-        messageCount: 15,
+        messageCount: messages.length,
         messages,
       },
     ]);
@@ -303,6 +340,55 @@ describe('IndexedDbSessionRepository', () => {
         [
           'of a diagnostic of an unknown level',
           { tool: 'compile', diagnostics: [{ level: 'fatal', message: 'x' }] },
+        ],
+        [
+          'of a delegation without its report',
+          { tool: 'delegate', task: 'Check every key', files: [] },
+        ],
+        [
+          'of a delegation with a broken task',
+          {
+            tool: 'delegate',
+            task: 'short',
+            files: [],
+            report: { outcome: 'failed', problem: 'p', lookups: 0 },
+          },
+        ],
+        [
+          'of a delegation with an untrimmed task',
+          {
+            tool: 'delegate',
+            task: ' Check every key ',
+            files: [],
+            report: { outcome: 'failed', problem: 'p', lookups: 0 },
+          },
+        ],
+        [
+          'of a delegation with a file outside the project',
+          {
+            tool: 'delegate',
+            task: 'Check every key',
+            files: ['../x.tex'],
+            report: { outcome: 'failed', problem: 'p', lookups: 0 },
+          },
+        ],
+        [
+          'of a delegation of an unknown outcome',
+          {
+            tool: 'delegate',
+            task: 'Check every key',
+            files: [],
+            report: { outcome: 'partial', lookups: 0 },
+          },
+        ],
+        [
+          'of a delegation without the truncation flag',
+          {
+            tool: 'delegate',
+            task: 'Check every key',
+            files: [],
+            report: { outcome: 'finished', text: 'x', lookups: 1 },
+          },
         ],
       ] as const
     ).map(([name, record]): [string, Record<string, unknown>] => [

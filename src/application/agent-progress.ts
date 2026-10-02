@@ -3,8 +3,10 @@ import type {
   CompactionSummaryMessage,
   ProposalMessage,
   SystemRequestMessage,
+  ToolMessage,
   UserMessage,
 } from '../domain/conversation';
+import type { ContextUsage } from '../ports/agent-port';
 
 export interface FileConflict {
   readonly path: string;
@@ -19,9 +21,17 @@ export interface ApplyReport {
 export type AgentProgress =
   | { readonly stage: 'received'; readonly message: UserMessage | SystemRequestMessage }
   | { readonly stage: 'thinking'; readonly step: number }
+  | { readonly stage: 'measured'; readonly contextUsage: ContextUsage }
   | { readonly stage: 'reading'; readonly path: string }
   | { readonly stage: 'searching'; readonly query: string }
   | { readonly stage: 'compiling' }
+  | { readonly stage: 'delegating'; readonly task: string; readonly fileCount: number }
+  | {
+      readonly stage: 'subagent';
+      readonly fileCount: number;
+      readonly progress: AgentProgress;
+    }
+  | { readonly stage: 'recorded'; readonly message: ToolMessage }
   | { readonly stage: 'opening'; readonly path: string }
   | { readonly stage: 'decided'; readonly message: ProposalMessage }
   | { readonly stage: 'applied'; readonly report: ApplyReport }

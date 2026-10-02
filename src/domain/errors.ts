@@ -27,6 +27,12 @@ export class ToolBudgetExhaustedError extends NamedError {}
 
 export class RepeatedToolCallError extends NamedError {}
 
+export class ToolNotAllowedError extends NamedError {}
+
+export class ReplyNotAllowedError extends NamedError {}
+
+export class DelegationLimitError extends NamedError {}
+
 export class UnreadFileEditError extends NamedError {}
 
 export class UnshownLinesEditError extends NamedError {}

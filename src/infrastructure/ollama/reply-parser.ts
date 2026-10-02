@@ -30,6 +30,7 @@ import {
   EDIT_FIELDS,
   EditField,
   fieldLine,
+  FILE_SEPARATOR,
   TEXT_MARKER,
 } from './reply-format';
 
@@ -39,6 +40,7 @@ const TOOL_FIELDS: Readonly<Record<ToolCall['tool'], readonly string[]>> = {
   [AgentAction.ReadFile]: [AgentField.Path, AgentField.StartLine, EditField.EndLine],
   [AgentAction.Search]: [AgentField.Query],
   [AgentAction.Compile]: [],
+  [AgentAction.Delegate]: [AgentField.Task, AgentField.Files],
 };
 
 const AGENT_EDIT_FIELDS: readonly string[] = [AgentField.Path, ...EDIT_FIELDS];
@@ -58,6 +60,7 @@ export function parseAgentDecision(raw: string): AgentDecision {
     case AgentAction.ReadFile:
     case AgentAction.Search:
     case AgentAction.Compile:
+    case AgentAction.Delegate:
       return { kind: 'tool', call: parseToolCall(action, rows) };
     case AgentAction.Answer:
       return { kind: 'reply', reply: { kind: 'answer', text: parseAnswerText(rows) } };
@@ -102,11 +105,17 @@ function createCall(tool: ToolCall['tool'], fields: HeaderReply['fields']): Tool
       query: fields.get(AgentField.Query),
       startLine: getOptionalLineNumber(fields, AgentField.StartLine),
       endLine: getOptionalLineNumber(fields, EditField.EndLine),
+      task: fields.get(AgentField.Task),
+      files: splitFileList(getOptionalField(fields, AgentField.Files)),
     });
   } catch (error) {
     if (!(error instanceof InvalidToolCallError)) throw error;
     throw new InvalidAssistantResponse(error.message);
   }
+}
+
+function splitFileList(value: string | undefined): readonly string[] | undefined {
+  return value?.split(FILE_SEPARATOR).map((path) => path.trim());
 }
 
 function parseAnswerText(rows: readonly string[]): string {

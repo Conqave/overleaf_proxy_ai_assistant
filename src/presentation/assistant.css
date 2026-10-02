@@ -131,16 +131,21 @@
 #ola-root .ola-context.is-high {
   color: #ff7b6b;
 }
-#ola-root .ola-compaction-title {
+#ola-root .ola-fold-title {
   display: list-item;
   list-style: disclosure-closed inside;
   cursor: pointer;
 }
-#ola-root .ola-compaction[open] > .ola-compaction-title {
+#ola-root .ola-fold[open] > .ola-fold-title {
   list-style-type: disclosure-open;
 }
-#ola-root .ola-compaction-body {
+#ola-root .ola-fold-body {
   margin-top: 8px;
+}
+#ola-root .ola-delegation-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 #ola-root .ola-compact:disabled {
   opacity: 0.45;

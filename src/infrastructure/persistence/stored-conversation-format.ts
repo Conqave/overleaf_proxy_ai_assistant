@@ -13,20 +13,27 @@ import {
   type UndoRefusal,
 } from '../../domain/conversation';
 import { createCompactionSummaryMessage, createFileActivity } from '../../domain/conversation-view';
-import { AgentTool } from '../../domain/agent-action';
+import { AgentTool, createDelegateCall, type DelegateCall } from '../../domain/agent-action';
 import {
   createReadRecord,
   isDiagnosticLevel,
   type CompileDiagnostic,
+  type DelegateRecord,
   type SearchMatch,
   type ToolRecord,
 } from '../../domain/agent-transcript';
+import {
+  createDelegationReport,
+  DelegationOutcome,
+  type DelegationReport,
+} from '../../domain/delegation';
 import { createDocumentCommand, type DocumentCommand } from '../../domain/document-command';
 import {
   InvalidChangeSetError,
   InvalidCompactionSummaryError,
   InvalidDocumentCommandError,
   InvalidProjectPathError,
+  InvalidToolCallError,
   InvalidToolRecordError,
 } from '../../domain/errors';
 import { createProjectPath } from '../../domain/project-file';
@@ -150,6 +157,8 @@ function parseRecord(value: unknown): ToolRecord {
       };
     case AgentTool.Compile:
       return { tool, diagnostics: getArray(fields, 'diagnostics').map(parseDiagnostic) };
+    case AgentTool.Delegate:
+      return parseDelegateRecord(fields);
     default:
       throw new UnknownStoredFormatError('unknown tool record');
   }
@@ -168,6 +177,52 @@ function parseReadRecord(fields: Map<string, unknown>): ToolRecord {
   } catch (error) {
     if (!(error instanceof InvalidToolRecordError)) throw error;
     throw new UnknownStoredFormatError(`invalid read record: ${error.message}`, { cause: error });
+  }
+}
+
+function parseDelegateRecord(fields: Map<string, unknown>): DelegateRecord {
+  const call = parseDelegateCall(getString(fields, 'task'), getArray(fields, 'files'));
+  return { ...call, report: parseDelegationReport(getFields(fields.get('report'))) };
+}
+
+function parseDelegateCall(task: string, files: readonly unknown[]): DelegateCall {
+  let call: DelegateCall;
+  try {
+    call = createDelegateCall(task, files);
+  } catch (error) {
+    if (!(error instanceof InvalidToolCallError)) throw error;
+    throw new UnknownStoredFormatError(`invalid delegation: ${error.message}`, { cause: error });
+  }
+  if (call.task !== task) throw new UnknownStoredFormatError('the delegated task is not trimmed');
+  return call;
+}
+
+function parseDelegationReport(fields: Map<string, unknown>): DelegationReport {
+  const outcome = fields.get('outcome');
+  const lookups = getNonNegativeInteger(fields, 'lookups');
+  let report: DelegationReport;
+  switch (outcome) {
+    case DelegationOutcome.Finished:
+      report = {
+        outcome,
+        text: getString(fields, 'text'),
+        truncated: getBoolean(fields, 'truncated'),
+        lookups,
+      };
+      break;
+    case DelegationOutcome.Failed:
+      report = { outcome, problem: getString(fields, 'problem'), lookups };
+      break;
+    default:
+      throw new UnknownStoredFormatError('unknown delegation outcome');
+  }
+  try {
+    return createDelegationReport(report);
+  } catch (error) {
+    if (!(error instanceof InvalidToolRecordError)) throw error;
+    throw new UnknownStoredFormatError(`invalid delegation report: ${error.message}`, {
+      cause: error,
+    });
   }
 }
 

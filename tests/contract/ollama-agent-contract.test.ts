@@ -10,7 +10,7 @@ import {
 import { OperationLock } from '../../src/application/operation-lock';
 import { PendingChanges } from '../../src/application/pending-change';
 import { AgentTool, type ToolCall } from '../../src/domain/agent-action';
-import { AGENT_POLICY } from '../../src/domain/agent-policy';
+import { MAIN_AGENT_POLICY } from '../../src/domain/agent-policy';
 import type { AgentTurn, CompileDiagnostic } from '../../src/domain/agent-transcript';
 import { createDocumentSnapshot, type DocumentSnapshot } from '../../src/domain/document';
 import type { DocumentOperation } from '../../src/domain/document-command';
@@ -457,6 +457,7 @@ const TOOL_OF_PROGRESS: Partial<Record<AgentProgress['stage'], ToolCall['tool']>
   reading: AgentTool.ReadFile,
   searching: AgentTool.Search,
   compiling: AgentTool.Compile,
+  delegating: AgentTool.Delegate,
 };
 
 interface ApplicationRun {
@@ -480,7 +481,9 @@ async function runApplication(
   const editor = new FakeEditor([]);
   editor.selection = c.selection;
   const project = createProject(editor, c.texts);
-  project.willCompile(...Array.from({ length: AGENT_POLICY.maxToolCalls }, () => c.diagnostics));
+  project.willCompile(
+    ...Array.from({ length: MAIN_AGENT_POLICY.maxToolCalls }, () => c.diagnostics),
+  );
   const usages: ContextUsage[] = [];
   const recordingAgent: AgentPort = {
     idleUsage: agent.idleUsage,

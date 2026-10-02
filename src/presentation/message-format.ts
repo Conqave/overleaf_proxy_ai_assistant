@@ -7,6 +7,8 @@ import type {
   UndoMessage,
   UndoRefusal,
 } from '../domain/conversation';
+import type { DelegateRecord } from '../domain/agent-transcript';
+import { DelegationOutcome } from '../domain/delegation';
 import { DocumentOperation, type DocumentCommand } from '../domain/document-command';
 import type { SessionSummary } from '../domain/session';
 import { SESSION_EXPORT_FOLDER } from '../domain/session-export';
@@ -247,7 +249,25 @@ export function compactionFiles({ files }: CompactionSummaryMessage): string {
   return `Files read: ${listed(files.read)}. Files edited: ${listed(files.edited)}.`;
 }
 
-export function progressStatus(progress: AgentProgress): string {
+export function delegationTitle({ task, report }: DelegateRecord): string {
+  switch (report.outcome) {
+    case DelegationOutcome.Finished:
+      return `Subagent result: ${task}`;
+    case DelegationOutcome.Failed:
+      return `Subagent stopped: ${task}`;
+  }
+}
+
+export function delegationMeta({ files, report }: DelegateRecord): string {
+  const parts = [countOf(report.lookups, 'lookup')];
+  if (files.length) parts.push(`files: ${files.join(', ')}`);
+  if (report.outcome === DelegationOutcome.Finished && report.truncated) {
+    parts.push('cut at the length limit');
+  }
+  return parts.join(' · ');
+}
+
+export function progressStatus(progress: AgentProgress): string | null {
   switch (progress.stage) {
     case 'received':
     case 'thinking':
@@ -258,6 +278,10 @@ export function progressStatus(progress: AgentProgress): string {
       return `Hans is searching for ${progress.query}`;
     case 'compiling':
       return 'Hans is compiling the project';
+    case 'delegating':
+      return subagentReviewing(progress.fileCount);
+    case 'subagent':
+      return subagentStatus(progress.fileCount, progress.progress);
     case 'opening':
       return `Hans is opening ${progress.path}`;
     case 'compacting':
@@ -266,5 +290,35 @@ export function progressStatus(progress: AgentProgress): string {
     case 'applied':
     case 'compacted':
       return '';
+    case 'measured':
+    case 'recorded':
+      return null;
+  }
+}
+
+function subagentReviewing(fileCount: number): string {
+  return `Hans: subagent reviewing ${countOf(fileCount, 'file')}…`;
+}
+
+function subagentStatus(fileCount: number, progress: AgentProgress): string | null {
+  switch (progress.stage) {
+    case 'thinking':
+      return subagentReviewing(fileCount);
+    case 'reading':
+      return `${subagentReviewing(fileCount)} reading ${progress.path}`;
+    case 'searching':
+      return `${subagentReviewing(fileCount)} searching for ${progress.query}`;
+    case 'received':
+    case 'measured':
+    case 'compiling':
+    case 'delegating':
+    case 'subagent':
+    case 'recorded':
+    case 'opening':
+    case 'decided':
+    case 'applied':
+    case 'compacting':
+    case 'compacted':
+      return null;
   }
 }

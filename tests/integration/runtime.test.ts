@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { IDBFactory } from 'fake-indexeddb';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { COMPILE_FIX_REQUEST } from '../../src/application/handle-assistant-request';
-import { AGENT_POLICY } from '../../src/domain/agent-policy';
+import { AGENT_POLICY, MAIN_AGENT_POLICY } from '../../src/domain/agent-policy';
 import type { ConversationMessage } from '../../src/domain/conversation';
 import { IndexedDbSessionRepository } from '../../src/infrastructure/persistence/indexed-db-session-repository';
 import { type Browser, openBrowser } from '../support/browser';
@@ -1081,6 +1081,63 @@ const LONG_HISTORY = Array.from({ length: 50 }, (_, turn): ConversationMessage[]
 
 const SUMMARY_NOTE = '## Goal\nKeep the tables of the report consistent.';
 
+describe('assistant subagent', () => {
+  const TASK = 'Check that every \\cite key of main.tex is defined in refs.bib, with path:line';
+  const FINDINGS = '- main.tex:108 `\\cite{greenwade93}`: key missing from refs.bib';
+
+  it('shows the subagent at work and its findings collapsed in the chat, also after a reload', async () => {
+    let release = (): void => undefined;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const sessions = new IDBFactory();
+    const { doc, texts, ollama, isIdle } = await start({
+      sessions,
+      replies: [
+        reply('ACTION: delegate', `TASK: ${TASK}`, 'FILES: main.tex, refs.bib'),
+        { response: reply('ACTION: read_file', 'PATH: refs.bib').response, heldUntil: held },
+        reply('ACTION: answer', 'TEXT:', FINDINGS),
+        reply('ACTION: answer', 'TEXT:', 'The key greenwade93 is not defined in refs.bib.'),
+      ],
+    });
+    commandInput(doc).value = 'are all my citations defined?';
+    button(doc, '.ola-send').click();
+    await vi.waitFor(() => {
+      expect(texts('.ola-status')).toEqual(['Hans: subagent reviewing 2 files…']);
+    }, PAGE_WAIT);
+    release();
+    await vi.waitFor(() => {
+      expect(isIdle()).toBe(true);
+    }, PAGE_WAIT);
+    const card = element(doc, 'details.ola-delegation');
+    expect(card.hasAttribute('open')).toBe(false);
+    expect(texts('.ola-delegation-title')).toEqual([`Subagent result: ${TASK}`]);
+    expect(texts('.ola-delegation-body li')).toEqual([
+      'main.tex:108 \\cite{greenwade93}: key missing from refs.bib',
+    ]);
+    expect(element(card, '.ola-result-meta').textContent).toBe(
+      '1 lookup · files: main.tex, refs.bib',
+    );
+    expect(texts('.ola-result-body').at(-1)).toBe(
+      'The key greenwade93 is not defined in refs.bib.',
+    );
+    const delegating = itemAt(ollama.prompts, 0, 'delegating prompt');
+    const subagent = itemAt(ollama.prompts, 1, 'subagent prompt');
+    const answering = itemAt(ollama.prompts, 3, 'answering prompt');
+    expect(delegating.instructions).toContain('- delegate: hands a research task to a helper');
+    expect(subagent.instructions).toContain('You are a research helper of Hans');
+    expect(subagent.userMessage).toContain(`Task from Hans:\n${TASK}`);
+    expect(subagent.userMessage).not.toContain('Numbered lines of');
+    expect(answering.userMessage).toContain(
+      `Result 1 (delegate ${JSON.stringify(TASK)}):\n[findings of the helper after 1 lookup]\n${FINDINGS}`,
+    );
+    expect(answering.userMessage).not.toContain('title = {The TeXbook}');
+    const reloaded = await start({ sessions });
+    expect(reloaded.texts('.ola-delegation-title')).toEqual([`Subagent result: ${TASK}`]);
+    expect(reloaded.texts('.ola-msg.ola-ai')).toHaveLength(1);
+  });
+});
+
 describe('assistant context compaction', () => {
   it('summarises a long conversation before asking the model and shows it as a notice', async () => {
     const sessions = await storedConversation(LONG_HISTORY);
@@ -1231,7 +1288,7 @@ describe('assistant under interference', () => {
     [
       'lookups beyond the budget',
       [
-        ...Array.from({ length: AGENT_POLICY.maxToolCalls }, (_, index) =>
+        ...Array.from({ length: MAIN_AGENT_POLICY.maxToolCalls }, (_, index) =>
           reply('ACTION: search', `QUERY: term${String(index)}`),
         ),
         ...Array.from({ length: AGENT_POLICY.maxConsecutiveMistakes * 2 }, (_, index) =>

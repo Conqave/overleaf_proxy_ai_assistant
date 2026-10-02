@@ -289,17 +289,28 @@ export class AssistantController implements ViewEvents {
         break;
       }
       case 'compacted':
+      case 'recorded':
         view.appendMessage(progress.message);
+        break;
+      case 'measured':
+        this.showContextUsage(view, progress.contextUsage);
+        break;
+      case 'subagent':
+        if (progress.progress.stage === 'measured') {
+          this.showContextUsage(view, progress.progress.contextUsage);
+        }
         break;
       case 'thinking':
       case 'reading':
       case 'searching':
       case 'compiling':
+      case 'delegating':
       case 'opening':
       case 'compacting':
         break;
     }
-    view.setStatus(progressStatus(progress));
+    const status = progressStatus(progress);
+    if (status !== null) view.setStatus(status);
   }
 
   private async guard(action: () => void | Promise<void>): Promise<void> {

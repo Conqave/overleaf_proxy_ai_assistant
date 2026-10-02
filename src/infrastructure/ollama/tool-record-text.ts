@@ -1,5 +1,6 @@
 import { AgentTool } from '../../domain/agent-action';
-import type { CompileDiagnostic, ToolRecord } from '../../domain/agent-transcript';
+import type { CompileDiagnostic, DelegateRecord, ToolRecord } from '../../domain/agent-transcript';
+import { DelegationOutcome } from '../../domain/delegation';
 import { numberLine } from '../../domain/read-window';
 import { SEARCH_OUTPUT_CHARS } from './context-budget';
 import { AgentField, EditField } from './reply-format';
@@ -25,6 +26,8 @@ export function describeRecord(record: ToolRecord): string {
       return `${record.tool} ${JSON.stringify(record.query)}`;
     case AgentTool.Compile:
       return record.tool;
+    case AgentTool.Delegate:
+      return `${record.tool} ${JSON.stringify(record.task)}`;
   }
 }
 
@@ -69,6 +72,28 @@ function recordText(record: ToolRecord): RecordText {
     }
     case AgentTool.Compile:
       return { preface: [], body: diagnosticsText(record.diagnostics), notices: [] };
+    case AgentTool.Delegate:
+      return delegationText(record);
+  }
+}
+
+function delegationText({ report }: DelegateRecord): RecordText {
+  const lookups = `${String(report.lookups)} ${report.lookups === 1 ? 'lookup' : 'lookups'}`;
+  switch (report.outcome) {
+    case DelegationOutcome.Finished:
+      return {
+        preface: [`[findings of the helper after ${lookups}]`],
+        body: report.text,
+        notices: report.truncated
+          ? ['[the findings were cut at the length limit; delegate a narrower task for the rest]']
+          : [],
+      };
+    case DelegationOutcome.Failed:
+      return {
+        preface: [`[the helper stopped without findings after ${lookups}]`],
+        body: report.problem,
+        notices: [],
+      };
   }
 }
 

@@ -2,21 +2,25 @@ import {
   AgentTool,
   type AgentDecision,
   type AgentReply,
+  type DelegateCall,
   type ProjectEdit,
   type ToolCall,
 } from '../domain/agent-action';
 import type { EditRequest } from '../domain/change-set';
-import { checkToolCall } from '../domain/agent-policy';
+import { checkReply, checkToolCall, type AgentPolicy } from '../domain/agent-policy';
 import { assertEditShown, getShownDocument, type AgentTurn } from '../domain/agent-transcript';
 import {
+  DelegationLimitError,
   DocumentRangeError,
   DocumentTargetNotFoundError,
   NotATextFileError,
   OverlappingEditsError,
   ProjectFileNotFoundError,
   ReadRangeError,
+  ReplyNotAllowedError,
   RepeatedToolCallError,
   ToolBudgetExhaustedError,
+  ToolNotAllowedError,
   UnreadFileEditError,
   UnshownLinesEditError,
 } from '../domain/errors';
@@ -45,10 +49,21 @@ export type AcceptedReply =
   | { readonly kind: 'question'; readonly text: string }
   | { readonly kind: 'edit'; readonly changes: readonly ProjectEdit[] };
 
+export interface AcceptedDelegation {
+  readonly kind: 'delegate';
+  readonly call: DelegateCall;
+  readonly files: readonly TextFile[];
+}
+
 export type AcceptedDecision =
-  { readonly kind: 'tool'; readonly call: ToolCall; readonly run: ProjectToolRun } | AcceptedReply;
+  | { readonly kind: 'tool'; readonly call: ToolCall; readonly run: ProjectToolRun }
+  | AcceptedDelegation
+  | AcceptedReply;
 
 export type AgentMistake =
+  | ToolNotAllowedError
+  | ReplyNotAllowedError
+  | DelegationLimitError
   | ToolBudgetExhaustedError
   | RepeatedToolCallError
   | ProjectFileNotFoundError
@@ -63,6 +78,9 @@ export type AgentMistake =
 
 export function isAgentMistake(error: unknown): error is AgentMistake {
   return (
+    error instanceof ToolNotAllowedError ||
+    error instanceof ReplyNotAllowedError ||
+    error instanceof DelegationLimitError ||
     error instanceof ToolBudgetExhaustedError ||
     error instanceof RepeatedToolCallError ||
     error instanceof ProjectFileNotFoundError ||
@@ -79,15 +97,30 @@ export function isAgentMistake(error: unknown): error is AgentMistake {
 
 export function acceptDecision(
   decision: AgentDecision,
+  policy: AgentPolicy,
   workspace: AgentWorkspace,
   transcript: readonly AgentTurn[],
 ): AcceptedDecision {
-  if (decision.kind === 'reply') return acceptReply(decision.reply, workspace, transcript);
-  checkToolCall(transcript, decision.call);
-  return { kind: 'tool', call: decision.call, run: planToolRun(decision.call, workspace) };
+  if (decision.kind === 'reply') {
+    checkReply(policy, decision.reply);
+    return acceptReply(decision.reply, workspace, transcript);
+  }
+  const { call } = decision;
+  checkToolCall(policy, transcript, call);
+  if (call.tool === AgentTool.Delegate) {
+    return {
+      kind: 'delegate',
+      call,
+      files: call.files.map((path) => findTextFile(workspace.files, path)),
+    };
+  }
+  return { kind: 'tool', call, run: planToolRun(call, workspace) };
 }
 
-function planToolRun(call: ToolCall, workspace: AgentWorkspace): ProjectToolRun {
+function planToolRun(
+  call: Exclude<ToolCall, DelegateCall>,
+  workspace: AgentWorkspace,
+): ProjectToolRun {
   switch (call.tool) {
     case AgentTool.ReadFile:
       return { tool: call.tool, file: findTextFile(workspace.files, call.path), range: call.range };

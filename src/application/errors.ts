@@ -44,7 +44,7 @@ export class UndecidedEditsError extends OperationalError {
 }
 
 export class AgentMistakeLimitError extends OperationalError {
-  constructor(lastMistake: Error) {
+  constructor(readonly lastMistake: Error) {
     super(
       `The assistant took ${String(AGENT_POLICY.maxConsecutiveMistakes)} invalid steps in a row and stopped (last: ${lastMistake.message}). Please rephrase the request.`,
       { cause: lastMistake },

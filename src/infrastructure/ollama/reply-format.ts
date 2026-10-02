@@ -6,6 +6,8 @@ export const AgentField = {
   Query: 'QUERY',
   StartLine: 'START_LINE',
   Question: 'QUESTION',
+  Task: 'TASK',
+  Files: 'FILES',
 } as const;
 export type AgentField = (typeof AgentField)[keyof typeof AgentField];
 
@@ -31,6 +33,8 @@ export type EditField = (typeof EditField)[keyof typeof EditField];
 export const EDIT_FIELDS: readonly EditField[] = Object.values(EditField);
 
 const FIELD_MARK = ':';
+
+export const FILE_SEPARATOR = ',';
 
 export const CONTENT = 'CONTENT';
 

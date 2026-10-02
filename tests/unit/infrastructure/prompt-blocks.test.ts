@@ -1,6 +1,6 @@
 import { EMPTY_CONVERSATION } from '../../support/fakes';
 import { describe, expect, it } from 'vitest';
-import { AGENT_POLICY } from '../../../src/domain/agent-policy';
+import { MAIN_AGENT_POLICY } from '../../../src/domain/agent-policy';
 import { createDocumentSnapshot } from '../../../src/domain/document';
 import { createDocumentCommand } from '../../../src/domain/document-command';
 import { ProjectFileKind } from '../../../src/domain/project-file';
@@ -79,7 +79,7 @@ describe('conversation history', () => {
       'Compile result after the applied change:\nerror main.tex:2: Undefined control sequence.',
     );
     expect(prompt).not.toContain('Result 1');
-    expect(prompt).toContain(`Lookups left: ${String(AGENT_POLICY.maxToolCalls)}`);
+    expect(prompt).toContain(`Lookups left: ${String(MAIN_AGENT_POLICY.maxToolCalls)}`);
   });
 
   it('carries the message and the whole conversation', () => {

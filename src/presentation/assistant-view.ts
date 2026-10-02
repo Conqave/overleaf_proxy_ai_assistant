@@ -14,8 +14,12 @@ import {
   type CompactionSummaryMessage,
   type ConversationMessage,
   type ProposalMessage,
+  type ToolMessage,
   type UndoMessage,
 } from '../domain/conversation';
+import { AgentTool } from '../domain/agent-action';
+import type { DelegateRecord } from '../domain/agent-transcript';
+import { DelegationOutcome } from '../domain/delegation';
 import { DocumentOperation } from '../domain/document-command';
 import type { ContextPressure } from '../application/handle-assistant-request';
 import type { SessionSummary } from '../domain/session';
@@ -28,6 +32,8 @@ import {
   changeSetStatusText,
   compactionFiles,
   compactionNotice,
+  delegationMeta,
+  delegationTitle,
   editLinesMeta,
   editStatusText,
   exportFileName,
@@ -40,7 +46,15 @@ import {
   VIEW_TEXT,
 } from './message-format';
 
-type ShownMessage = ChatMessage | CompactionSummaryMessage | UndoMessage;
+interface DelegationMessage extends ToolMessage {
+  readonly record: DelegateRecord;
+}
+
+type ShownMessage = ChatMessage | CompactionSummaryMessage | UndoMessage | DelegationMessage;
+
+function isShownMessage(message: ConversationMessage): message is ShownMessage {
+  return message.role !== 'tool' || message.record.tool === AgentTool.Delegate;
+}
 
 export interface ViewEvents {
   send(text: string): Promise<void>;
@@ -180,7 +194,7 @@ export class AssistantView {
     this.chat.replaceChildren(this.typing);
     this.messageNodes.clear();
     this.proposalCards.clear();
-    const chat = messages.filter((message): message is ShownMessage => message.role !== 'tool');
+    const chat = messages.filter(isShownMessage);
     if (!chat.length) {
       this.showWelcome();
       return;
@@ -188,7 +202,8 @@ export class AssistantView {
     for (const message of chat) this.appendMessage(message);
   }
 
-  appendMessage(message: ShownMessage): void {
+  appendMessage(message: ConversationMessage): void {
+    if (!isShownMessage(message)) return;
     this.chat.querySelector('.ola-welcome')?.remove();
     const node = this.renderMessage(message);
     this.messageNodes.set(message.id, node);
@@ -305,6 +320,8 @@ export class AssistantView {
         return this.el('div', 'ola-msg ola-system', message.text);
       case 'assistant':
         return this.renderAssistant(message);
+      case 'tool':
+        return this.renderDelegation(message.record);
     }
   }
 
@@ -345,15 +362,39 @@ export class AssistantView {
   }
 
   private renderSummary(message: CompactionSummaryMessage): HTMLElement {
-    const node = this.el('details', 'ola-msg ola-system ola-compaction');
+    const node = this.fold('ola-compaction');
+    node.append(
+      this.el('summary', 'ola-fold-title ola-compaction-title', compactionNotice(message)),
+      this.renderMarkdown('ola-fold-body ola-compaction-body', message.text),
+      this.el('div', 'ola-result-meta', compactionFiles(message)),
+    );
+    return node;
+  }
+
+  private renderDelegation(record: DelegateRecord): HTMLElement {
+    const node = this.fold('ola-delegation');
+    const title = delegationTitle(record);
+    const summary = this.el('summary', 'ola-fold-title ola-delegation-title', title);
+    summary.title = title;
+    node.append(summary);
+    const { report } = record;
+    switch (report.outcome) {
+      case DelegationOutcome.Finished:
+        node.append(this.renderMarkdown('ola-fold-body ola-delegation-body', report.text));
+        break;
+      case DelegationOutcome.Failed:
+        node.classList.add('is-failed');
+        node.append(this.el('div', 'ola-fold-body ola-delegation-body', report.problem));
+    }
+    node.append(this.el('div', 'ola-result-meta', delegationMeta(record)));
+    return node;
+  }
+
+  private fold(className: string): HTMLDetailsElement {
+    const node = this.el('details', `ola-msg ola-system ola-fold ${className}`);
     node.addEventListener('toggle', () => {
       if (node.open) this.revealBottomOf(node);
     });
-    node.append(
-      this.el('summary', 'ola-compaction-title', compactionNotice(message)),
-      this.renderMarkdown('ola-compaction-body', message.text),
-      this.el('div', 'ola-result-meta', compactionFiles(message)),
-    );
     return node;
   }
 

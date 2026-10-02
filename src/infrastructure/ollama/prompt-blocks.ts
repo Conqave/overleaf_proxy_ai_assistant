@@ -14,6 +14,8 @@ const USER_MESSAGE_LABEL = 'User message:';
 const SYSTEM_REQUEST_LABEL = 'System request (sent by the editor, not typed by the user):';
 const LAST_USER_MESSAGE_LABEL = "The user's last message, whose language your texts use:";
 const LAST_USER_MESSAGE_CHARS = 500;
+const TASK_LABEL = 'Task from Hans:';
+const TASK_FILES_LABEL = 'Files named for the task:';
 export const CONVERSATION_LABEL = 'Conversation so far:';
 export const SELECTION_LABEL =
   'Selected text (in the open file; a request to change, fix or translate it asks for an edit of that file):';
@@ -27,6 +29,11 @@ export function requestBlock(request: AgentRequest, conversation: ConversationVi
         `${SYSTEM_REQUEST_LABEL}${LINE_BREAK}${request.message.text}`,
         ...lastUserMessage(conversation),
       );
+    case 'subtask': {
+      const task = `${TASK_LABEL}${LINE_BREAK}${request.task}`;
+      if (!request.files.length) return task;
+      return lines(task, `${TASK_FILES_LABEL} ${request.files.join(', ')}`);
+    }
   }
 }
 

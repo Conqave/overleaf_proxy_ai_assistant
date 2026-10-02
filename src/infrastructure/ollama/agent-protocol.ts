@@ -1,5 +1,12 @@
 import { AgentTool, type AgentDecision, type ToolCall } from '../../domain/agent-action';
-import { AGENT_POLICY, countToolCallsLeft } from '../../domain/agent-policy';
+import {
+  AGENT_POLICY,
+  AgentRole,
+  countToolCallsLeft,
+  MAIN_AGENT_POLICY,
+  SUBAGENT_POLICY,
+  type AgentPolicy,
+} from '../../domain/agent-policy';
 import { recordToolTurn, type AgentTurn, type ToolRecord } from '../../domain/agent-transcript';
 import type { ConversationView } from '../../domain/conversation-view';
 import type { DocumentSnapshot } from '../../domain/document';
@@ -7,7 +14,7 @@ import { DocumentOperation } from '../../domain/document-command';
 import { ProjectFileKind, type ProjectFile } from '../../domain/project-file';
 import { InvariantViolation } from '../../domain/errors';
 import { numberLine, READ_LIMITS } from '../../domain/read-window';
-import type { AgentRequest, AgentStepRequest } from '../../ports/agent-port';
+import { getRequestPolicy, type AgentRequest, type AgentStepRequest } from '../../ports/agent-port';
 import {
   createMessageTooLargeError,
   CURRENT_RESULT_SHARE,
@@ -20,13 +27,13 @@ import { diagnosticsText, renderShortRecord } from './tool-record-text';
 import { conversationText, getViewRecords } from './conversation-text';
 import { findOutdatedReads, renderUnlessOutdated } from './outdated-reads';
 import {
-  AGENT_ACTIONS,
   AgentAction,
   AgentField,
   CONTENT,
   CONTENT_MARKER,
   EditField,
   fieldLine,
+  FILE_SEPARATOR,
   TEXT_MARKER,
 } from './reply-format';
 import {
@@ -98,21 +105,64 @@ const EDIT_RULES = lines(
 
 const actionLine = (action: AgentAction): string => fieldLine(AgentField.Action, action);
 
-const AGENT_SYSTEM = lines(
-  'You are Hans, an assistant built into the Overleaf LaTeX editor. You help with the whole LaTeX project: all files under "Project files"; one of them is open in the editor and shown to you with numbered lines.',
-  LANGUAGE_RULE,
+const replyFormat = (policy: AgentPolicy): readonly string[] => [
   `Every reply is exactly one action written as plain text lines in the reply itself. The first line is always ${fieldLine(AgentField.Action, '<action>')}. No JSON, no markdown fences, nothing before or after.`,
-  'You have no functions and no tools to call. Never send a message to a recipient or a function: the whole reply goes to the final channel as plain text, including read_file, search and compile, which are only lines of text that the editor reads.',
-  '',
-  'Lookups collect information you do not have yet. A lookup is your final answer for this turn: write its lines as the final answer and stop. The editor then performs it and asks you again with its outcome added as "Result N".',
+  `You have no functions and no tools to call. Never send a message to a recipient or a function: the whole reply goes to the final channel as plain text, including ${policy.tools.join(', ')}, which are only lines of text that the editor reads.`,
+];
+
+const LOOKUP_INTRO =
+  'Lookups collect information you do not have yet. A lookup is your final answer for this turn: write its lines as the final answer and stop. The editor then performs it and asks you again with its outcome added as "Result N".';
+
+const READ_FILE_LOOKUP: readonly string[] = [
   `- ${A.ReadFile}: shows the numbered lines of one text file of the project, at most ${String(READ_LIMITS.maxLines)} lines or ${String(READ_LIMITS.maxChars)} characters at a time. For a long file add ${AgentField.StartLine} and ${EditField.EndLine} (line numbers, both optional) to read another part.`,
   actionLine(A.ReadFile),
   fieldLine(AgentField.Path, 'sample.bib'),
+];
+
+const SEARCH_LOOKUP: readonly string[] = [
   `- ${A.Search}: finds a text in every text file of the project, case-insensitively, and lists each matching line as path:line: text. Use it to find where a \\label, \\cite key, \\ref, command or phrase is.`,
   actionLine(A.Search),
   fieldLine(AgentField.Query, '\\label{fig:frog}'),
+];
+
+const DELEGATE_LOOKUP: readonly string[] = [
+  `- ${A.Delegate}: hands a research task to a helper that starts with an empty context of its own, does its own ${A.ReadFile} and ${A.Search} lookups, cannot edit, and returns only its short findings as the result of this lookup. Use it when the request needs many files read or many places checked across the project (every \\cite key against the .bib files, all tables of several chapters) and only the findings matter, so that the full text of those files stays out of your context; never for a single file or a single ${A.Search}. At most ${String(AGENT_POLICY.maxDelegations)} per request. ${AgentField.Task} is one line that says everything the helper needs: what to check and what to report, with path:line; ${AgentField.Files} (optional) lists the paths to start with, separated by "${FILE_SEPARATOR}".`,
+  actionLine(A.Delegate),
+  fieldLine(
+    AgentField.Task,
+    'List every table in chapters/ch2.tex, chapters/ch3.tex and chapters/ch4.tex that has no \\caption, with path:line of its \\begin{table}.',
+  ),
+  fieldLine(AgentField.Files, 'chapters/ch2.tex, chapters/ch3.tex, chapters/ch4.tex'),
+];
+
+const PARTIAL_READ_RULE = `- A result "Showing only lines A–B of N" shows only part of the file; lines up to N exist. Read the part you need with ${AgentField.StartLine} and ${EditField.EndLine}, or ${A.Search} for it, before you answer or edit.`;
+
+const STEP_RULES: readonly string[] = [
+  '- Reply as soon as you know enough. Never repeat a lookup; use the result you already have.',
+  `- A result marked ${REJECTED} explains why your action at that step was not carried out; send a corrected action instead of repeating it.`,
+];
+
+const LOOKUPS_LEFT_RULE = (policy: AgentPolicy): string =>
+  `- When "Lookups left" is 0, reply now with ${listChoices(policy.replies)}.`;
+
+function listChoices(choices: readonly string[]): string {
+  const last = choices.at(-1);
+  if (last === undefined) throw new InvariantViolation('a policy offers at least one reply');
+  const others = choices.slice(0, -1);
+  return others.length ? `${others.join(', ')} or ${last}` : last;
+}
+
+const AGENT_SYSTEM = lines(
+  'You are Hans, an assistant built into the Overleaf LaTeX editor. You help with the whole LaTeX project: all files under "Project files"; one of them is open in the editor and shown to you with numbered lines.',
+  LANGUAGE_RULE,
+  ...replyFormat(MAIN_AGENT_POLICY),
+  '',
+  LOOKUP_INTRO,
+  ...READ_FILE_LOOKUP,
+  ...SEARCH_LOOKUP,
   `- ${A.Compile}: compiles the project and lists its errors and warnings. Use it only when the request is about compile errors, warnings or a broken build.`,
   actionLine(A.Compile),
+  ...DELEGATE_LOOKUP,
   '',
   'Replies end the request.',
   `- ${A.Answer}: an explanation, summary or answer; the text after ${TEXT_MARKER} may span several lines and may use Markdown (headings, lists, **bold**, \`inline code\`, tables, and fenced code blocks for LaTeX snippets).`,
@@ -132,15 +182,16 @@ const AGENT_SYSTEM = lines(
   '- The open file is already shown with numbered lines: never read it; answer or edit it directly.',
   `- Any other file must be read with ${A.ReadFile} before you edit it or quote it; you can only edit lines that were shown to you. A ${A.Search} result shows single matching lines and does not count as reading them: read the lines around a match before you edit them.`,
   `- ${AgentField.Path} is always a path exactly as listed under Project files; files marked (binary) cannot be read or edited. If a file the user names is not listed, say so in an ${A.Answer}.`,
-  `- A result "Showing only lines A–B of N" shows only part of the file; lines up to N exist. Read the part you need with ${AgentField.StartLine} and ${EditField.EndLine}, or ${A.Search} for it, before you answer or edit.`,
+  PARTIAL_READ_RULE,
   `- Use ${A.Search} to find labels, citations, commands or text when you do not know which file has them.`,
+  `- When a ${A.Search} result says that more matches were omitted and the request needs all of them (every \\cite, every table, every label across the chapters), ${A.Delegate} the check instead of searching again.`,
+  `- A ${A.Delegate} result holds only the helper's findings: answer from it, and read the lines you change with ${A.ReadFile} before an ${A.Edit}.`,
   `- When the user says the project does not compile or reports errors or warnings, your first action is ${A.Compile}, before any ${A.ReadFile}: you cannot compile in your head, and only its result shows the real errors and where they are; then read the file it names and fix the first error it reports; the errors after it are often only its consequences, so the fix is an ${A.Edit} with a single block and changes nothing else.`,
   `- A System request about compile errors comes with "${COMPILE_RESULT_LABEL}": do not ${A.Compile} again; read the file it names and fix only the first error it reports, with a single block.`,
   `- Verbs such as translate, fix, change, add, remove, rewrite (przetłumacz, popraw, zmień, dodaj, usuń, przepisz) applied to text of a file, including the selected text, ask for an ${A.Edit} of that file even when the user does not name the file; the new text never goes into an ${A.Answer}.`,
   `- Verbs such as explain, describe, summarize (wyjaśnij, opisz, streść) ask for an ${A.Answer}; they never change a file.`,
-  '- Reply as soon as you know enough. Never repeat a lookup; use the result you already have.',
-  `- A result marked ${REJECTED} explains why your action at that step was not carried out; send a corrected action instead of repeating it.`,
-  '- When "Lookups left" is 0, reply now with answer, question or edit.',
+  ...STEP_RULES,
+  LOOKUPS_LEFT_RULE(MAIN_AGENT_POLICY),
   '- Base answers on the files; do not invent content they do not have. Quote LaTeX exactly.',
   '',
   EDIT_RULES,
@@ -191,17 +242,73 @@ const AGENT_SYSTEM = lines(
   fieldLine(F.Reason, 'Usuwam podsekcję z wynikami pomocniczymi.'),
 );
 
-const RETRY = `Reply again with exactly one action: the first line ${fieldLine(AgentField.Action, AGENT_ACTIONS.join('|'))}, then only the lines that action takes. No JSON.`;
+const SUBAGENT_SYSTEM = lines(
+  'You are a research helper of Hans, an assistant built into the Overleaf LaTeX editor. Hans hands you one task about the LaTeX project. You start with an empty context: you see only the task, the list of project files and the results of your own lookups. You cannot edit, compile, ask questions or hand the task on.',
+  ...replyFormat(SUBAGENT_POLICY),
+  '',
+  LOOKUP_INTRO,
+  ...READ_FILE_LOOKUP,
+  ...SEARCH_LOOKUP,
+  '',
+  'The reply ends the task.',
+  `- ${A.Answer}: your findings for Hans in at most ${String(AGENT_POLICY.maxDelegationResultChars)} characters: only the facts the task asks for, each with its path:line, without introduction or advice. When nothing matches, say so; when you could not check everything, say what is left unchecked.`,
+  actionLine(A.Answer),
+  TEXT_MARKER,
+  '<the findings>',
+  '',
+  'How to work:',
+  `- Start with the files the task names. Use ${A.Search} to find commands, \\cite keys, labels or text across the files, and ${A.ReadFile} to check them in context.`,
+  `- Every reply is one lookup: one ${A.ReadFile} with one ${AgentField.Path}, or one ${A.Search} with one ${AgentField.Query}. To read several files, read them one after another, one file per reply.`,
+  `- ${A.Search} always covers the whole project and lists at most ${String(AGENT_POLICY.maxSearchMatches)} matching lines; it cannot be limited to one file. When its result says that more matches were omitted, ${A.ReadFile} the files the task names one by one instead of searching again.`,
+  `- ${AgentField.Path} is always a path exactly as listed under Project files; files marked (binary) cannot be read.`,
+  PARTIAL_READ_RULE,
+  ...STEP_RULES,
+  LOOKUPS_LEFT_RULE(SUBAGENT_POLICY),
+  '- Base the findings on the files only; quote LaTeX exactly. Write them in English.',
+  '',
+  'Example of a lookup:',
+  actionLine(A.Search),
+  fieldLine(AgentField.Query, '\\cite{'),
+  'Example of findings:',
+  actionLine(A.Answer),
+  TEXT_MARKER,
+  '- chapters/intro.tex:12 \\cite{smith20}: key defined in refs.bib:3',
+  '- chapters/intro.tex:30 \\cite{doe19}: key missing from every .bib file',
+);
 
-const CORRECTION_RESERVE_CHARS = getCorrectionReserveChars(RETRY);
+interface RoleProtocol {
+  readonly policy: AgentPolicy;
+  readonly system: string;
+  readonly retry: string;
+  readonly correctionReserveChars: number;
+}
+
+function createRoleProtocol(policy: AgentPolicy, system: string): RoleProtocol {
+  const actions = [...policy.tools, ...policy.replies].join('|');
+  const retry = `Reply again with exactly one action: the first line ${fieldLine(AgentField.Action, actions)}, then only the lines that action takes. No JSON.`;
+  return { policy, system, retry, correctionReserveChars: getCorrectionReserveChars(retry) };
+}
+
+const ROLE_PROTOCOLS: Readonly<Record<AgentRole, RoleProtocol>> = {
+  [AgentRole.Main]: createRoleProtocol(MAIN_AGENT_POLICY, AGENT_SYSTEM),
+  [AgentRole.Subagent]: createRoleProtocol(SUBAGENT_POLICY, SUBAGENT_SYSTEM),
+};
+
+function getRoleProtocol(request: AgentStepRequest): RoleProtocol {
+  return ROLE_PROTOCOLS[getRequestPolicy(request.request).role];
+}
 
 export function createAgentExchange(
   request: AgentStepRequest,
   promptChars: number,
 ): ProtocolExchange<AgentDecision> {
+  const protocol = getRoleProtocol(request);
   return {
-    request: { system: AGENT_SYSTEM, prompt: buildPrompt(request, getPromptBudget(promptChars)) },
-    retryInstruction: RETRY,
+    request: {
+      system: protocol.system,
+      prompt: buildPrompt(request, getPromptBudget(protocol, promptChars)),
+    },
+    retryInstruction: protocol.retry,
     parse: parseAgentDecision,
   };
 }
@@ -213,7 +320,7 @@ interface PromptBlock {
 
 interface RenderedBlocks {
   readonly history: readonly string[];
-  readonly open: string;
+  readonly open: readonly string[];
   readonly results: readonly string[];
 }
 
@@ -221,19 +328,25 @@ interface ComposedPrompt {
   readonly requested: string;
   readonly history: readonly PromptBlock[];
   readonly files: PromptBlock;
-  readonly open: PromptBlock;
+  readonly open: PromptBlock | null;
   readonly results: readonly PromptBlock[];
   readonly selection: readonly PromptBlock[];
   readonly toolsLeft: string;
 }
 
 export function measureAgentPromptChars(request: AgentStepRequest): number {
-  const composed = composePrompt(request, getPromptBudget(ESTIMATED_PROMPT_CHARS));
-  const blocks = [...composed.history, composed.files, composed.open, ...composed.results];
+  const protocol = getRoleProtocol(request);
+  const composed = composePrompt(request, getPromptBudget(protocol, ESTIMATED_PROMPT_CHARS));
+  const blocks = [
+    ...composed.history,
+    composed.files,
+    ...optionalBlock(composed.open),
+    ...composed.results,
+  ];
   const separators = (blocks.length + composed.selection.length + 1) * LINE_BREAK.length;
   return (
     HARMONY_FRAMING_CHARS +
-    AGENT_SYSTEM.length +
+    protocol.system.length +
     composed.requested.length +
     sum([...blocks, ...composed.selection].map(fullSize)) +
     `${LINE_BREAK}${composed.toolsLeft}`.length +
@@ -246,12 +359,18 @@ export function measureConversationChars(conversation: ConversationView): number
   return sum(history.map(fullSize));
 }
 
-function getPromptBudget(promptChars: number): number {
-  return promptChars - CORRECTION_RESERVE_CHARS - AGENT_SYSTEM.length;
+function getPromptBudget(protocol: RoleProtocol, promptChars: number): number {
+  return promptChars - protocol.correctionReserveChars - protocol.system.length;
+}
+
+function optionalBlock(promptBlock: PromptBlock | null): readonly PromptBlock[] {
+  return promptBlock === null ? [] : [promptBlock];
 }
 
 function composePrompt(request: AgentStepRequest, budget: number): ComposedPrompt {
   const { workspace, transcript } = request;
+  const policy = getRequestPolicy(request.request);
+  const isMain = policy.role === AgentRole.Main;
   const records = transcript.map((turn) => (turn.kind === 'tool' ? recordToolTurn(turn) : null));
   const outdated = findOutdatedReads([
     ...getViewRecords(request.conversation),
@@ -261,11 +380,16 @@ function composePrompt(request: AgentStepRequest, budget: number): ComposedPromp
   return {
     requested: requestBlock(request.request, request.conversation),
     history: historyBlock(request.conversation, outdated),
-    files: { label: FILES_LABEL, text: fileList(workspace.files, workspace.openFile.path) },
-    open: {
-      label: `Numbered lines of ${workspace.openFile.path} (open in the editor, caret on line ${String(workspace.cursorLine)}):`,
-      text: numberLines(workspace.openFile.document),
+    files: {
+      label: FILES_LABEL,
+      text: fileList(workspace.files, isMain ? workspace.openFile.path : null),
     },
+    open: isMain
+      ? {
+          label: `Numbered lines of ${workspace.openFile.path} (open in the editor, caret on line ${String(workspace.cursorLine)}):`,
+          text: numberLines(workspace.openFile.document),
+        }
+      : null,
     results: [
       ...attachedBlocks(request.request, resultChars),
       ...transcript.map((turn, index) =>
@@ -273,8 +397,10 @@ function composePrompt(request: AgentStepRequest, budget: number): ComposedPromp
       ),
     ],
     selection:
-      workspace.selection === '' ? [] : [{ label: SELECTION_LABEL, text: workspace.selection }],
-    toolsLeft: toolsLeft(transcript),
+      !isMain || workspace.selection === ''
+        ? []
+        : [{ label: SELECTION_LABEL, text: workspace.selection }],
+    toolsLeft: toolsLeft(policy, transcript),
   };
 }
 
@@ -292,10 +418,18 @@ function buildPrompt(request: AgentStepRequest, budget: number): string {
     ...composed.selection.map((selected) => block(selected.label, selected.text, smallBlock)),
     `${LINE_BREAK}${composed.toolsLeft}`,
   ];
-  const separators = (history.length + results.length + 2) * LINE_BREAK.length;
+  const separators =
+    (history.length + optionalBlock(open).length + results.length + 1) * LINE_BREAK.length;
   const available = budget - lines(requested, files, ...after).length - separators;
   const rendered = renderBlocks(available, history, open, results);
-  return lines(requested, ...rendered.history, files, rendered.open, ...rendered.results, ...after);
+  return lines(
+    requested,
+    ...rendered.history,
+    files,
+    ...rendered.open,
+    ...rendered.results,
+    ...after,
+  );
 }
 
 function historyBlock(
@@ -309,10 +443,10 @@ function historyBlock(
 function renderBlocks(
   available: number,
   history: readonly PromptBlock[],
-  open: PromptBlock,
+  open: PromptBlock | null,
   results: readonly PromptBlock[],
 ): RenderedBlocks {
-  const others = fullSize(open) + sum(results.map(fullSize));
+  const others = sum([...optionalBlock(open), ...results].map(fullSize));
   const historyShares = history.map((past) =>
     Math.max(
       floorSize(past),
@@ -330,19 +464,26 @@ function renderBlocks(
 
 function renderCurrentBlocks(
   available: number,
-  open: PromptBlock,
+  open: PromptBlock | null,
   results: readonly PromptBlock[],
 ): Omit<RenderedBlocks, 'history'> {
   const resultFloors = sum(results.map(floorSize));
-  if (available < floorSize(open) + resultFloors) throw createMessageTooLargeError();
-  const preferred = Math.max(
-    Math.floor(available / OPEN_FILE_SHARE),
-    available - sum(results.map(fullSize)),
-  );
-  const openShare = Math.max(
-    floorSize(open),
-    Math.min(fullSize(open), preferred, available - resultFloors),
-  );
+  const openFloor = open === null ? 0 : floorSize(open);
+  if (available < openFloor + resultFloors) throw createMessageTooLargeError();
+  const openShare =
+    open === null
+      ? 0
+      : Math.max(
+          openFloor,
+          Math.min(
+            fullSize(open),
+            Math.max(
+              Math.floor(available / OPEN_FILE_SHARE),
+              available - sum(results.map(fullSize)),
+            ),
+            available - resultFloors,
+          ),
+        );
   const rendered: string[] = [];
   let remaining = available - openShare;
   let olderFloors = resultFloors;
@@ -352,7 +493,10 @@ function renderCurrentBlocks(
     remaining -= share;
     rendered.unshift(block(result.label, result.text, share));
   }
-  return { open: block(open.label, open.text, openShare), results: rendered };
+  return {
+    open: open === null ? [] : [block(open.label, open.text, openShare)],
+    results: rendered,
+  };
 }
 
 function itemAt<T>(values: readonly T[], index: number): T {
@@ -373,20 +517,20 @@ function sum(values: readonly number[]): number {
   return values.reduce((total, value) => total + value, 0);
 }
 
-function fileList(files: readonly ProjectFile[], openPath: string): string {
+function fileList(files: readonly ProjectFile[], openPath: string | null): string {
   return files.map((file) => `${file.path}${fileNote(file, openPath)}`).join(LINE_BREAK);
 }
 
-function fileNote(file: ProjectFile, openPath: string): string {
+function fileNote(file: ProjectFile, openPath: string | null): string {
   if (file.kind === ProjectFileKind.Binary) return ' (binary)';
   if (file.path === openPath) return ' (open in the editor)';
   return '';
 }
 
-function toolsLeft(transcript: readonly AgentTurn[]): string {
-  const left = countToolCallsLeft(transcript);
+function toolsLeft(policy: AgentPolicy, transcript: readonly AgentTurn[]): string {
+  const left = countToolCallsLeft(policy, transcript);
   if (left === 0) {
-    return `Lookups left: 0. Reply now with ${fieldLine(AgentField.Action, `${A.Answer}, ${A.Question} or ${A.Edit}`)}.`;
+    return `Lookups left: 0. Reply now with ${fieldLine(AgentField.Action, listChoices(policy.replies))}.`;
   }
   return `Lookups left: ${String(left)}`;
 }
@@ -406,6 +550,8 @@ function attachedBlocks(request: AgentRequest, resultChars: number): PromptBlock
           text: compact(diagnosticsText(request.diagnostics), resultChars),
         },
       ];
+    case 'subtask':
+      return [];
   }
 }
 
@@ -454,5 +600,7 @@ function describeCall(call: ToolCall): string {
       return `${call.tool} ${JSON.stringify(call.query)}`;
     case AgentTool.Compile:
       return call.tool;
+    case AgentTool.Delegate:
+      return `${call.tool} ${JSON.stringify(call.task)}`;
   }
 }

@@ -11,7 +11,12 @@ import type {
 import { viewConversation, type ConversationView } from '../domain/conversation-view';
 import { InvariantViolation } from '../domain/errors';
 import type { TextFile } from '../domain/project-file';
-import type { AgentPort, AgentRequest, AgentWorkspace, ContextUsage } from '../ports/agent-port';
+import type {
+  AgentPort,
+  AgentWorkspace,
+  ContextUsage,
+  ConversationRequest,
+} from '../ports/agent-port';
 import type { CancellationController, CancellationSignal } from '../ports/cancellation';
 import type { EditorPort } from '../ports/editor-port';
 import type { ProjectPort } from '../ports/project-port';
@@ -118,7 +123,7 @@ export class HandleAssistantRequest {
     return epoch;
   }
 
-  private async runAgent(request: AgentRequest, run: RequestRun): Promise<AgentResult> {
+  private async runAgent(request: ConversationRequest, run: RequestRun): Promise<AgentResult> {
     const { conversation } = this.deps;
     const { epoch, signal, onProgress } = run;
     const workspace = await this.readWorkspace(signal);
@@ -140,6 +145,7 @@ export class HandleAssistantRequest {
           };
           turnIds.add(record.id);
           conversation.append(record);
+          onProgress({ stage: 'recorded', message: record });
         },
       },
       signal,

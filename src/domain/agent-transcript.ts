@@ -1,4 +1,5 @@
 import { AgentTool, type AgentDecision, type ToolCall } from './agent-action';
+import type { DelegationReport } from './delegation';
 import { isSameDocument, type DocumentSnapshot } from './document';
 import { getCommandLines, type DocumentCommand } from './document-command';
 import {
@@ -47,7 +48,8 @@ export type ToolResult =
       readonly matches: readonly SearchMatch[];
       readonly truncated: boolean;
     }
-  | { readonly tool: typeof AgentTool.Compile; readonly diagnostics: readonly CompileDiagnostic[] };
+  | { readonly tool: typeof AgentTool.Compile; readonly diagnostics: readonly CompileDiagnostic[] }
+  | { readonly tool: typeof AgentTool.Delegate; readonly report: DelegationReport };
 
 export interface ReadRecord {
   readonly tool: typeof AgentTool.ReadFile;
@@ -69,7 +71,14 @@ export interface CompileRecord {
   readonly diagnostics: readonly CompileDiagnostic[];
 }
 
-export type ToolRecord = ReadRecord | SearchRecord | CompileRecord;
+export interface DelegateRecord {
+  readonly tool: typeof AgentTool.Delegate;
+  readonly task: string;
+  readonly files: readonly string[];
+  readonly report: DelegationReport;
+}
+
+export type ToolRecord = ReadRecord | SearchRecord | CompileRecord | DelegateRecord;
 
 export function createReadRecord(
   path: string,
@@ -114,6 +123,11 @@ export function recordToolTurn({ call, result }: ToolTurn): ToolRecord {
       return { ...result, query: call.query };
     case AgentTool.Compile:
       return result;
+    case AgentTool.Delegate:
+      if (call.tool !== AgentTool.Delegate) {
+        throw new InvariantViolation(`a delegation result came from a ${call.tool} call`);
+      }
+      return { ...result, task: call.task, files: call.files };
   }
 }
 

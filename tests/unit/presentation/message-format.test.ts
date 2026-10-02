@@ -12,6 +12,8 @@ import {
   editStatusText,
   messageMeta,
   messageTitle,
+  delegationMeta,
+  delegationTitle,
   progressStatus,
   sessionDetails,
 } from '../../../src/presentation/message-format';
@@ -132,8 +134,64 @@ describe('progressStatus', () => {
     [{ stage: 'searching', query: '\\label{fig}' } as const, 'Hans is searching for \\label{fig}'],
     [{ stage: 'compiling' } as const, 'Hans is compiling the project'],
     [{ stage: 'opening', path: 'refs.bib' } as const, 'Hans is opening refs.bib'],
+    [
+      { stage: 'delegating', task: 'Check keys', fileCount: 12 } as const,
+      'Hans: subagent reviewing 12 files…',
+    ],
+    [
+      { stage: 'subagent', fileCount: 1, progress: { stage: 'thinking', step: 1 } } as const,
+      'Hans: subagent reviewing 1 file…',
+    ],
+    [
+      { stage: 'subagent', fileCount: 3, progress: { stage: 'reading', path: 'a.tex' } } as const,
+      'Hans: subagent reviewing 3 files… reading a.tex',
+    ],
+    [
+      {
+        stage: 'subagent',
+        fileCount: 3,
+        progress: { stage: 'searching', query: '\\cite{' },
+      } as const,
+      'Hans: subagent reviewing 3 files… searching for \\cite{',
+    ],
   ])('describes %o', (progress, text) => {
     expect(progressStatus(progress)).toBe(text);
+  });
+
+  it('keeps the status while only the context use or the records change', () => {
+    const contextUsage = { contextTokens: 98_304, promptTokens: 10, pressure: 'low' } as const;
+    expect(progressStatus({ stage: 'measured', contextUsage })).toBeNull();
+    expect(
+      progressStatus({
+        stage: 'subagent',
+        fileCount: 2,
+        progress: { stage: 'measured', contextUsage },
+      }),
+    ).toBeNull();
+  });
+});
+
+describe('delegation card text', () => {
+  const record = {
+    tool: 'delegate',
+    task: 'Check keys',
+    files: ['a.tex', 'b.bib'],
+    report: { outcome: 'finished', text: 'ok', truncated: true, lookups: 1 },
+  } as const;
+
+  it('names the task, the lookups, the files and a cut result', () => {
+    expect(delegationTitle(record)).toBe('Subagent result: Check keys');
+    expect(delegationMeta(record)).toBe('1 lookup · files: a.tex, b.bib · cut at the length limit');
+  });
+
+  it('says when the subagent stopped', () => {
+    const failed = {
+      ...record,
+      files: [],
+      report: { outcome: 'failed', problem: 'p', lookups: 4 },
+    } as const;
+    expect(delegationTitle(failed)).toBe('Subagent stopped: Check keys');
+    expect(delegationMeta(failed)).toBe('4 lookups');
   });
 });
 

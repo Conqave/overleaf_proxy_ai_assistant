@@ -2,6 +2,8 @@ import { EMPTY_CONVERSATION } from '../../support/fakes';
 import { describe, expect, it } from 'vitest';
 import { AgentTool } from '../../../src/domain/agent-action';
 import type { AgentTurn } from '../../../src/domain/agent-transcript';
+import { SUBAGENT_POLICY } from '../../../src/domain/agent-policy';
+import { failDelegation, finishDelegation } from '../../../src/domain/delegation';
 import { createDocumentSnapshot } from '../../../src/domain/document';
 import { createDocumentCommand } from '../../../src/domain/document-command';
 import { ProjectFileKind } from '../../../src/domain/project-file';
@@ -289,11 +291,103 @@ describe('agent exchange', () => {
     expect(correction.prompt).toContain('Your previous reply was:\nbad');
     expect(correction.prompt).toContain('It was rejected because: unknown action.');
     expect(correction.prompt).toContain(
-      'Reply again with exactly one action: the first line ACTION: read_file|search|compile|answer|question|edit',
+      'Reply again with exactly one action: the first line ACTION: read_file|search|compile|delegate|answer|question|edit',
     );
     const long = createCorrectionRequest(exchange, 'z'.repeat(100_000), 'x'.repeat(100_000));
     expect(long.prompt.length - exchange.request.prompt.length).toBeLessThanOrEqual(
       getCorrectionReserveChars(exchange.retryInstruction),
+    );
+  });
+});
+
+describe('subagent exchange', () => {
+  const TASK = 'Check that every \\cite key is defined in refs.bib, with path:line';
+  const subtask = (overrides: Partial<AgentStepRequest> = {}): AgentStepRequest =>
+    request({ request: { kind: 'subtask', task: TASK, files: ['main.tex'] }, ...overrides });
+
+  it('teaches the main agent to delegate many-file research', () => {
+    const { system } = createAgentExchange(request(), budget).request;
+    expect(system).toContain('- delegate: hands a research task to a helper');
+    expect(system).toContain('At most 2 per request.');
+    expect(system).toContain('ACTION: delegate\nTASK: ');
+    expect(system).toContain('FILES: chapters/ch2.tex, chapters/ch3.tex, chapters/ch4.tex');
+  });
+
+  it('gives the subagent its own instructions with only read_file, search and answer', () => {
+    const { system } = createAgentExchange(subtask(), budget).request;
+    expect(system).toContain('You are a research helper of Hans');
+    expect(system).toContain('ACTION: read_file\nPATH: sample.bib');
+    expect(system).toContain('ACTION: search\nQUERY: ');
+    expect(system).toContain('in at most 1500 characters');
+    expect(system).not.toContain('ACTION: delegate');
+    expect(system).not.toContain('ACTION: edit');
+    expect(system).not.toContain('ACTION: compile');
+    expect(system).not.toContain('ACTION: question');
+  });
+
+  it('shows the subagent the task and the files but neither the open file nor the selection', () => {
+    const selected = subtask({ workspace: { ...request().workspace, selection: 'Bo' } });
+    const { prompt } = createAgentExchange(selected, budget).request;
+    expect(prompt).toContain(`Task from Hans:\n${TASK}\nFiles named for the task: main.tex`);
+    expect(prompt).toContain('Project files:\nmain.tex\nrefs.bib\nfrog.jpg (binary)');
+    expect(prompt).not.toContain('Numbered lines of');
+    expect(prompt).not.toContain('Selected text');
+    expect(prompt).not.toContain('User message');
+    expect(prompt.endsWith(`Lookups left: ${String(SUBAGENT_POLICY.maxToolCalls)}`)).toBe(true);
+  });
+
+  it('tells the subagent to answer once its lookups are used up', () => {
+    const used = Array.from({ length: SUBAGENT_POLICY.maxToolCalls }, (_, index): AgentTurn => ({
+      kind: 'tool',
+      call: { tool: AgentTool.Search, query: `key${String(index)}` },
+      result: { tool: AgentTool.Search, matches: [], truncated: false },
+    }));
+    const { prompt } = createAgentExchange(subtask({ transcript: used }), budget).request;
+    expect(prompt.endsWith('Lookups left: 0. Reply now with ACTION: answer.')).toBe(true);
+  });
+
+  it('asks the subagent to correct itself with its own actions', () => {
+    const exchange = createAgentExchange(subtask(), budget);
+    expect(
+      createCorrectionRequest(exchange, 'ACTION: edit', 'edit is not available').prompt,
+    ).toContain(
+      'Reply again with exactly one action: the first line ACTION: read_file|search|answer,',
+    );
+  });
+
+  it('shows the main agent the findings of a delegation as a numbered result', () => {
+    const delegated: AgentTurn = {
+      kind: 'tool',
+      call: { tool: AgentTool.Delegate, task: TASK, files: [] },
+      result: {
+        tool: AgentTool.Delegate,
+        report: finishDelegation('main.tex:2 \\cite{a}: missing', 3),
+      },
+    };
+    const { prompt } = createAgentExchange(request({ transcript: [delegated] }), budget).request;
+    expect(prompt).toContain(
+      `Result 1 (delegate ${JSON.stringify(TASK)}):\n[findings of the helper after 3 lookups]\nmain.tex:2 \\cite{a}: missing`,
+    );
+    expect(prompt.endsWith('Lookups left: 5')).toBe(true);
+  });
+
+  it('says when a delegation was cut or stopped', () => {
+    const cut: AgentTurn = {
+      kind: 'tool',
+      call: { tool: AgentTool.Delegate, task: TASK, files: [] },
+      result: { tool: AgentTool.Delegate, report: finishDelegation('x'.repeat(2_000), 1) },
+    };
+    const stopped: AgentTurn = {
+      kind: 'tool',
+      call: { tool: AgentTool.Delegate, task: `${TASK} again`, files: [] },
+      result: { tool: AgentTool.Delegate, report: failDelegation('the subagent stopped', 0) },
+    };
+    const { prompt } = createAgentExchange(request({ transcript: [cut, stopped] }), budget).request;
+    expect(prompt).toContain(
+      '[the findings were cut at the length limit; delegate a narrower task for the rest]',
+    );
+    expect(prompt).toContain(
+      '[the helper stopped without findings after 0 lookups]\nthe subagent stopped',
     );
   });
 });

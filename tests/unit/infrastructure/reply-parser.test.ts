@@ -29,6 +29,18 @@ describe('parseAgentDecision tool calls', () => {
       'ACTION: read_file\nPATH: refs.bib\nEND_LINE: 80',
       { tool: 'read_file', path: 'refs.bib', range: { startLine: 1, endLine: 80 } },
     ],
+    [
+      'ACTION: delegate\nTASK: List every table without \\caption, with path:line',
+      { tool: 'delegate', task: 'List every table without \\caption, with path:line', files: [] },
+    ],
+    [
+      'ACTION: delegate\nTASK: Check every \\cite key\nFILES: ch/a.tex,  ch/b.tex ',
+      { tool: 'delegate', task: 'Check every \\cite key', files: ['ch/a.tex', 'ch/b.tex'] },
+    ],
+    [
+      'ACTION: delegate\nTASK: Check every \\cite key\nFILES:',
+      { tool: 'delegate', task: 'Check every \\cite key', files: [] },
+    ],
   ])('parses %j', (raw, call) => {
     expect(parseAgentDecision(raw)).toEqual({ kind: 'tool', call });
   });
@@ -56,6 +68,18 @@ describe('parseAgentDecision tool calls', () => {
       'comes before the start line',
     ],
     ['a search with a start line', 'ACTION: search\nQUERY: ab\nSTART_LINE: 2', 'remove START_LINE'],
+    ['a delegation without a task', 'ACTION: delegate\nFILES: a.tex', 'delegate requires a task'],
+    [
+      'a delegation with a path',
+      'ACTION: delegate\nTASK: Check every key\nPATH: a.tex',
+      'ACTION: delegate takes only TASK, FILES; remove PATH',
+    ],
+    [
+      'a file list with an empty entry',
+      'ACTION: delegate\nTASK: Check every key\nFILES: a.tex,,b.tex',
+      'must be relative to the project root',
+    ],
+    ['a read with a task', 'ACTION: read_file\nPATH: a.tex\nTASK: x', 'remove TASK'],
   ])('rejects %s', (_name, raw, expected) => {
     expect(problem(raw)).toContain(expected);
   });

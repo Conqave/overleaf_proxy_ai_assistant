@@ -361,10 +361,11 @@ describe('preloadOllamaModel', () => {
 });
 
 describe('OllamaAgent', () => {
+  const question = 'Which title does the cited work have?';
   const step: AgentStepRequest = {
     request: {
       kind: 'user',
-      message: { id: 'r', role: 'user', text: 'Which title does the cited work have?' },
+      message: { id: 'r', role: 'user', text: question },
     },
     conversation: EMPTY_CONVERSATION,
     signal: new AbortController().signal,
@@ -542,7 +543,7 @@ describe('OllamaAgent', () => {
     const measured = (first / FAKE_OVERFLOW_PROMPT_TOKENS) * PROMPT_TOKENS;
     expect(second.body.prompt.length).toBeLessThan(measured);
     expect(second.body.prompt.length).toBeGreaterThan(measured * 0.85);
-    expect(second.userMessage).toContain(`User message:\n${step.request.message.text}`);
+    expect(second.userMessage).toContain(`User message:\n${question}`);
     expect(second.userMessage).toContain('[AUTOCOMPACTED: omitted');
   });
 
