@@ -21,7 +21,7 @@ export const AgentRole = {
 } as const;
 export type AgentRole = (typeof AgentRole)[keyof typeof AgentRole];
 
-export type AgentReplyKind = AgentReply['kind'];
+type AgentReplyKind = AgentReply['kind'];
 
 export interface AgentPolicy {
   readonly role: AgentRole;
@@ -43,7 +43,7 @@ export const SUBAGENT_POLICY: AgentPolicy = Object.freeze({
   maxConsecutiveMistakes: 3,
 });
 
-export interface AgentCapabilities {
+interface AgentCapabilities {
   readonly webSearch: boolean;
 }
 

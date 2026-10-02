@@ -25,7 +25,7 @@ const HTTP_BAD_REQUEST = 400;
 const HTTP_NOT_FOUND = 404;
 const ENTITY_EXISTS = 'File already exists';
 
-export interface OverleafProjectFilesDependencies {
+interface OverleafProjectFilesDependencies {
   readonly store: OverleafStore;
   readonly fetch: typeof fetch;
   readonly projectId: string;

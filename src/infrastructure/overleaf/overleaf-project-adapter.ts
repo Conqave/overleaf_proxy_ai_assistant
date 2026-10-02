@@ -22,7 +22,7 @@ const ENTITY_SELECTOR = '.entity[data-file-id]';
 const EXPAND_ICON_SELECTOR = '.file-tree-expand-icon';
 const FILE_OPEN_MS = 20_000;
 
-export interface OverleafProjectDependencies {
+interface OverleafProjectDependencies {
   readonly window: Window & typeof globalThis;
   readonly store: OverleafStore;
   readonly bridge: OverleafEditorBridge;

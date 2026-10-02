@@ -1,6 +1,6 @@
 import { NamedError } from '../../domain/errors';
 
-export interface OverleafPageIdentity {
+interface OverleafPageIdentity {
   readonly userId: string;
   readonly projectId: string;
 }

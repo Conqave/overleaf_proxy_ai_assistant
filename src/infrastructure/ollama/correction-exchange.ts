@@ -15,7 +15,7 @@ export interface ProtocolExchange<T> {
   readonly parse: (raw: string) => T;
 }
 
-export interface ExchangeOutcome<T> {
+interface ExchangeOutcome<T> {
   readonly value: T;
   readonly contextUsage: ContextUsage;
   readonly promptChars: number;

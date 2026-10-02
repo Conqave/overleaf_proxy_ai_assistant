@@ -35,7 +35,7 @@ export class HarmonyFormatError extends NamedError {
   }
 }
 
-export type HarmonyCompletion =
+type HarmonyCompletion =
   | { readonly kind: 'final'; readonly text: string; readonly analysis: string | null }
   | { readonly kind: 'unfinished'; readonly analysis: string };
 

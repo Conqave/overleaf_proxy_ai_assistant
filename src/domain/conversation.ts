@@ -20,7 +20,7 @@ export interface SystemRequestMessage {
   readonly text: string;
 }
 
-export type ReplyKind = Exclude<AssistantMessageKind, typeof AssistantMessageKind.Proposal>;
+type ReplyKind = Exclude<AssistantMessageKind, typeof AssistantMessageKind.Proposal>;
 
 const REPLY_KINDS: readonly string[] = Object.values(AssistantMessageKind).filter(
   (kind) => kind !== AssistantMessageKind.Proposal,
@@ -90,7 +90,7 @@ export interface CompactionSummaryMessage extends ConversationSummary {
   readonly createdAt: string;
 }
 
-export type RequestMessage = UserMessage | SystemRequestMessage;
+type RequestMessage = UserMessage | SystemRequestMessage;
 
 export type ChatMessage = RequestMessage | AssistantMessage;
 

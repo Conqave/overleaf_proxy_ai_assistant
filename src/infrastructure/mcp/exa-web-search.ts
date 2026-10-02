@@ -19,7 +19,7 @@ import {
   type McpToolResult,
 } from './mcp-client';
 
-export const EXA_SEARCH_TOOL = 'web_search_exa';
+const EXA_SEARCH_TOOL = 'web_search_exa';
 export const EXA_SEARCH_TIMEOUT_MS = 30_000;
 const MAX_REFUSAL_CHARS = 300;
 const SHORTENED_MARK = '…';

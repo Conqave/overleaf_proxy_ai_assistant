@@ -8,7 +8,7 @@ export interface SearchedFile {
   readonly document: DocumentSnapshot;
 }
 
-export interface SearchOutcome {
+interface SearchOutcome {
   readonly matches: readonly SearchMatch[];
   readonly truncated: boolean;
 }

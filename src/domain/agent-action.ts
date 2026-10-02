@@ -32,7 +32,7 @@ export interface WebSearchCall {
   readonly query: string;
 }
 
-export interface ToolCallInput {
+interface ToolCallInput {
   readonly tool: unknown;
   readonly path?: unknown;
   readonly query?: unknown;
@@ -42,11 +42,11 @@ export interface ToolCallInput {
   readonly files?: unknown;
 }
 
-export const SEARCH_QUERY_CHARS = { min: 2, max: 200 } as const;
+const SEARCH_QUERY_CHARS = { min: 2, max: 200 } as const;
 
-export const DELEGATION_TASK_CHARS = { min: 10, max: 1_000 } as const;
+const DELEGATION_TASK_CHARS = { min: 10, max: 1_000 } as const;
 
-export const MAX_DELEGATION_FILES = 20;
+const MAX_DELEGATION_FILES = 20;
 
 const TOOLS: readonly string[] = Object.values(AgentTool);
 

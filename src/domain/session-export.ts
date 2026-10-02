@@ -10,7 +10,7 @@ import {
 } from './session';
 
 export const SESSION_EXPORT_FOLDER = 'hans-sessions';
-export const IMPORTED_TITLE_PREFIX = 'Imported: ';
+const IMPORTED_TITLE_PREFIX = 'Imported: ';
 const EXPORT_EXTENSION = '.json';
 const MAX_SLUG_LENGTH = 40;
 const UNTITLED_SLUG = 'session';
@@ -86,7 +86,7 @@ export function listSessionExports(files: readonly ProjectFile[]): readonly Proj
     .sort((a, b) => b.path.localeCompare(a.path));
 }
 
-export interface ImportTarget {
+interface ImportTarget {
   readonly path: string;
   readonly scope: SessionScope;
   readonly id: string;

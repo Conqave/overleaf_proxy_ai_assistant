@@ -21,7 +21,7 @@ import {
   PROMPT_TOKENS,
 } from './context-budget';
 
-export interface OllamaClientConfig {
+interface OllamaClientConfig {
   readonly endpoint: string;
   readonly model: string;
   readonly stepTimeoutMs: number;

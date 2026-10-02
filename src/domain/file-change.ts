@@ -37,7 +37,7 @@ export interface EditChange {
   readonly applied: readonly AppliedEdit[];
 }
 
-export interface PathEdit {
+interface PathEdit {
   readonly path: string;
   readonly edit: ResolvedEdit;
 }

@@ -62,7 +62,7 @@ export interface ReadRecord {
   readonly lines: readonly string[];
 }
 
-export interface SearchRecord {
+interface SearchRecord {
   readonly tool: typeof AgentTool.Search;
   readonly query: string;
   readonly path?: string;
@@ -70,7 +70,7 @@ export interface SearchRecord {
   readonly truncated: boolean;
 }
 
-export interface CompileRecord {
+interface CompileRecord {
   readonly tool: typeof AgentTool.Compile;
   readonly diagnostics: readonly CompileDiagnostic[];
 }
@@ -155,7 +155,7 @@ export interface ToolTurn {
   readonly result: ToolResult;
 }
 
-export interface MistakeTurn {
+interface MistakeTurn {
   readonly kind: 'mistake';
   readonly decision: AgentDecision;
   readonly problem: string;
@@ -193,7 +193,7 @@ export interface OpenFileView {
   readonly document: DocumentSnapshot;
 }
 
-export interface ShownDocument {
+interface ShownDocument {
   readonly document: DocumentSnapshot;
   readonly spans: readonly LineSpan[];
 }

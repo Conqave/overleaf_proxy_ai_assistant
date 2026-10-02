@@ -11,7 +11,7 @@ export const StoreKey = {
 } as const;
 export type StoreKey = (typeof StoreKey)[keyof typeof StoreKey];
 
-export interface SharedDocument {
+interface SharedDocument {
   flush(): void;
   hasBufferedOps(): boolean;
 }

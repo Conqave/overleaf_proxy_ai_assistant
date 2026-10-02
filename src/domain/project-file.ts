@@ -20,7 +20,7 @@ export interface TextFile extends ProjectEntry {
   readonly kind: typeof ProjectFileKind.Text;
 }
 
-export interface BinaryFile extends ProjectEntry {
+interface BinaryFile extends ProjectEntry {
   readonly kind: typeof ProjectFileKind.Binary;
 }
 

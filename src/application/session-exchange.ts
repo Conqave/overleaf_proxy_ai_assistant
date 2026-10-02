@@ -12,7 +12,7 @@ import type { SessionArchive } from '../ports/session-archive';
 import { leaveCurrentSession, type SessionDeps } from './conversation-session';
 import { ensureNotCancelled } from './operation-lock';
 
-export interface SessionExchangeDeps extends SessionDeps {
+interface SessionExchangeDeps extends SessionDeps {
   readonly archive: SessionArchive;
   readonly project: Pick<ProjectPort, 'listFiles'>;
   readonly scope: SessionScope;

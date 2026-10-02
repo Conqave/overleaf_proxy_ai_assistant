@@ -39,7 +39,7 @@ import {
   progressStatus,
 } from './message-format';
 
-export interface UseCases {
+interface UseCases {
   handleRequest: HandleAssistantRequest;
   readContextUsage: ReadContextUsage;
   applyChange: ApplyChangeSet;

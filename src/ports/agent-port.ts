@@ -14,18 +14,18 @@ export interface AgentWorkspace {
   readonly selection: string;
 }
 
-export interface UserRequest {
+interface UserRequest {
   readonly kind: 'user';
   readonly message: UserMessage;
 }
 
-export interface CompileFixRequest {
+interface CompileFixRequest {
   readonly kind: 'compile-fix';
   readonly message: SystemRequestMessage;
   readonly diagnostics: readonly CompileDiagnostic[];
 }
 
-export interface SubtaskRequest {
+interface SubtaskRequest {
   readonly kind: 'subtask';
   readonly task: string;
   readonly files: readonly string[];

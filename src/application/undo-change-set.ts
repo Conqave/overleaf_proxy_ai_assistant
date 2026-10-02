@@ -18,7 +18,7 @@ import { FailureRecordingError, NothingToUndoError, UndecidedEditsError } from '
 import { ensureNotCancelled, type OperationLock } from './operation-lock';
 import { showProjectFile } from './show-project-file';
 
-export interface UndoOutcome {
+interface UndoOutcome {
   readonly message: ProposalMessage;
   readonly notice: UndoMessage;
 }

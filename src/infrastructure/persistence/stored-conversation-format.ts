@@ -348,7 +348,7 @@ function parseCommand(value: unknown): DocumentCommand {
   }
 }
 
-export interface StoredSession {
+interface StoredSession {
   readonly userId: string;
   readonly projectId: string;
   readonly id: string;

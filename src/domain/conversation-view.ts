@@ -87,7 +87,7 @@ export function createConversationSummary(
   });
 }
 
-export interface CompactionSummaryInput extends ConversationSummary {
+interface CompactionSummaryInput extends ConversationSummary {
   readonly id: string;
   readonly tokensBefore: number;
   readonly tokensAfter: number;

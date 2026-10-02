@@ -24,7 +24,7 @@ export const WebSearchDecision = {
 } as const;
 export type WebSearchDecision = (typeof WebSearchDecision)[keyof typeof WebSearchDecision];
 
-export interface WebSearchContext {
+interface WebSearchContext {
   readonly query: string;
   readonly requestId: string;
 }

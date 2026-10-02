@@ -38,7 +38,7 @@ export class McpRequestError extends NamedError {
 
 class McpSessionExpiredError extends NamedError {}
 
-export interface McpClientInfo {
+interface McpClientInfo {
   readonly name: string;
   readonly version: string;
 }

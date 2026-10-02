@@ -29,12 +29,12 @@ import { AgentMistakeLimitError } from './errors';
 import type { ProjectTools } from './project-tools';
 import type { WebSearchTool } from './web-search-tool';
 
-export interface AgentRunHost {
+interface AgentRunHost {
   viewHistory(): ConversationView;
   recordLookup(turn: ToolTurn): void;
 }
 
-export interface AgentRun {
+interface AgentRun {
   readonly request: AgentRequest;
   readonly workspace: AgentWorkspace;
   readonly host: AgentRunHost;
@@ -42,7 +42,7 @@ export interface AgentRun {
   readonly onProgress: (progress: AgentProgress) => void;
 }
 
-export interface AgentOutcome {
+interface AgentOutcome {
   readonly reply: AcceptedReply;
   readonly contextUsage: ContextUsage;
 }
