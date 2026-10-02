@@ -9,6 +9,8 @@ import type {
 } from '../domain/conversation';
 import { DocumentOperation, type DocumentCommand } from '../domain/document-command';
 import type { SessionSummary } from '../domain/session';
+import { SESSION_EXPORT_FOLDER } from '../domain/session-export';
+import { PATH_SEPARATOR } from '../domain/project-file';
 
 const KIND_TITLE: Record<Exclude<AssistantMessage['kind'], 'proposal'>, string> = {
   explanation: 'Explanation',
@@ -40,6 +42,16 @@ export const VIEW_TEXT = {
   confirmDeleteSession: 'Delete this session?',
   cancelDeleteSession: 'Cancel',
   unreadableSession: 'Unreadable session',
+  exportSession: 'Export',
+  exportSessionHint: `Save this session as a file in ${SESSION_EXPORT_FOLDER}/ of the project so collaborators can import it`,
+  showImports: 'Import',
+  showImportsHint: 'Import a session that someone exported into this project',
+  importsTitle: `Exported sessions in ${SESSION_EXPORT_FOLDER}/`,
+  noImports: `No sessions have been exported to ${SESSION_EXPORT_FOLDER}/ yet.`,
+  importsReloadHint: 'Sessions exported after this page loaded appear after reloading Overleaf.',
+  importSession: 'Import',
+  importSessionHint:
+    'Add this session to your sessions and open it; the project file stays as it is',
   compact: 'Compact',
   compactHint: 'Compact context now: summarise the earlier conversation',
   inputLabel: 'Command',
@@ -156,6 +168,18 @@ const SESSION_DATE_FORMAT = new Intl.DateTimeFormat(undefined, {
 export function sessionDetails({ updatedAt, messageCount }: SessionSummary): string {
   const count = messageCount === 1 ? '1 message' : `${String(messageCount)} messages`;
   return `${SESSION_DATE_FORMAT.format(updatedAt)} · ${count}`;
+}
+
+export function exportedNotice(path: string): string {
+  return `Exported to ${path}. Collaborators can import it after reloading the project.`;
+}
+
+export function importedNotice(path: string): string {
+  return `Imported ${path} as a new session of yours; edits it left open were discarded.`;
+}
+
+export function exportFileName(path: string): string {
+  return path.slice(path.lastIndexOf(PATH_SEPARATOR) + 1);
 }
 
 export function errorNotice(message: string): string {

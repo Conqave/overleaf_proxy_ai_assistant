@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { JSDOM, VirtualConsole } from 'jsdom';
 import { inject } from 'vitest';
 import type { FakeOllama } from './fake-ollama';
-import type { FakeOverleafIde } from './fake-overleaf';
+import type { FakeFolder, FakeOverleafIde } from './fake-overleaf';
 
 const FIXTURE_HTML = readFileSync(
   new URL('../fixtures/overleaf-editor.html', import.meta.url),
@@ -17,7 +17,7 @@ export interface Browser {
   pageErrors: Error[];
   expectsConsoleErrors: boolean;
   inject(source: string): void;
-  loadOverleaf(): FakeOverleafIde;
+  loadOverleaf(rootFolder?: FakeFolder, fileTexts?: ReadonlyMap<string, string>): FakeOverleafIde;
   close(): void;
 }
 
@@ -57,9 +57,9 @@ export function openBrowser(ollama: FakeOllama, indexedDB: Pick<IDBFactory, 'ope
     inject(source) {
       window.eval(source);
     },
-    loadOverleaf() {
+    loadOverleaf(rootFolder, fileTexts) {
       window.eval(inject('fakeOverleafScript'));
-      ide = window.fakeOverleaf.load();
+      ide = window.fakeOverleaf.load(rootFolder, fileTexts);
       return ide;
     },
     close() {

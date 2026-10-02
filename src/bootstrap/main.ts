@@ -9,6 +9,7 @@ import {
   RestoreLatestSession,
   StartNewConversation,
 } from '../application/conversation-session';
+import { ExportSession, ImportSession, ListSessionExports } from '../application/session-exchange';
 import { HandleAssistantRequest } from '../application/handle-assistant-request';
 import { OperationLock } from '../application/operation-lock';
 import { PendingChanges } from '../application/pending-change';
@@ -37,6 +38,7 @@ import {
   StoreKey,
 } from '../infrastructure/overleaf/overleaf-store';
 import { IndexedDbSessionRepository } from '../infrastructure/persistence/indexed-db-session-repository';
+import { ProjectSessionArchive } from '../infrastructure/persistence/project-session-archive';
 import { LocalStoragePanelSize } from '../infrastructure/persistence/local-storage-panel-size';
 import { AssistantController } from '../presentation/assistant-controller';
 import { AssistantView } from '../presentation/assistant-view';
@@ -94,6 +96,14 @@ function compose(
   const review = new ReviewAppliedChange({ project, conversation, handleRequest });
   const sessionDeps = { sessions, conversation, pendingChanges, editor, lock };
   const changeSetDeps = { project, editor, pendingChanges, review };
+  const exchangeDeps = {
+    ...sessionDeps,
+    archive: new ProjectSessionArchive(files),
+    project,
+    scope: identity,
+    newId,
+    now: () => Date.now(),
+  };
 
   const controller = new AssistantController({
     handleRequest,
@@ -114,6 +124,9 @@ function compose(
     listSessions: new ListSessions(sessionDeps),
     openSession: new OpenSession(sessionDeps),
     deleteSession: new DeleteSession(sessionDeps),
+    exportSession: new ExportSession(exchangeDeps),
+    listSessionExports: new ListSessionExports(exchangeDeps),
+    importSession: new ImportSession(exchangeDeps),
     conversation,
   });
 

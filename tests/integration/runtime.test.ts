@@ -17,6 +17,9 @@ import {
   EMPTY_LOG_ENTRIES,
   FIXTURE_DOC_ID,
   FIXTURE_DOCUMENT,
+  FIXTURE_FILE_TEXTS,
+  FIXTURE_ROOT_FOLDER,
+  type FakeFolder,
   type FakeOverleafIde,
 } from '../support/fake-overleaf';
 import { itemAt, pointerEventOf } from '../support/guards';
@@ -162,17 +165,24 @@ interface StartOptions {
   readonly replies?: readonly OllamaReply[];
   readonly sessions?: IDBFactory;
   readonly prepare?: (browser: Browser) => void;
+  readonly project?: ProjectSnapshot;
+}
+
+interface ProjectSnapshot {
+  readonly rootFolder: FakeFolder;
+  readonly fileTexts: ReadonlyMap<string, string>;
 }
 
 async function start({
   replies = [],
   sessions = new IDBFactory(),
   prepare = () => undefined,
+  project = { rootFolder: FIXTURE_ROOT_FOLDER, fileTexts: FIXTURE_FILE_TEXTS },
 }: StartOptions) {
   const browser = open(new FakeOllama().reply(...replies), sessions);
   prepare(browser);
   browser.inject(BUNDLE);
-  const ide = browser.loadOverleaf();
+  const ide = browser.loadOverleaf(project.rootFolder, project.fileTexts);
   await waitForAssistant(browser);
   return session(browser, ide, sessions);
 }
@@ -574,6 +584,125 @@ describe('assistant sessions', () => {
       expect(messages()).toEqual([expect.stringContaining('Ready to help')]);
     });
     expect(texts('.ola-error')).toEqual([]);
+  });
+});
+
+describe('assistant session exchange', () => {
+  const BOLD_REQUEST = 'Make the word experiment bold.';
+  const REQUEST = 'What is this document about?';
+  const ANSWER = 'It describes an experiment.';
+  const answerReply = reply('ACTION: answer', 'TEXT:', ANSWER);
+
+  function reloadedWith(path: string, text: string): ProjectSnapshot {
+    const name = path.slice(path.lastIndexOf('/') + 1);
+    const sessionsFolder = {
+      _id: 'folder-sessions',
+      name: 'hans-sessions',
+      docs: [],
+      fileRefs: [{ _id: 'file-export', name }],
+      folders: [],
+    };
+    return {
+      rootFolder: {
+        ...FIXTURE_ROOT_FOLDER,
+        folders: [...FIXTURE_ROOT_FOLDER.folders, sessionsFolder],
+      },
+      fileTexts: new Map([...FIXTURE_FILE_TEXTS, ['file-export', text]]),
+    };
+  }
+
+  async function exportAnsweredSession(): Promise<{ path: string; text: string }> {
+    const owner = await start({ replies: [boldExperimentEdit, answerReply] });
+    await owner.send(BOLD_REQUEST);
+    await owner.send(REQUEST);
+    await owner.showSessions();
+    await owner.click('.ola-session-export', () => {
+      expect(owner.messages().at(-1)).toMatch(/^Exported to hans-sessions\/.+\.json\./);
+    });
+    expect(owner.messages()).toHaveLength(5);
+    const [path, ...others] = owner.ide.server.paths().filter((p) => p.startsWith('hans-'));
+    if (path === undefined || others.length) throw new TestFixtureError('one export expected');
+    expect(path).toMatch(
+      /^hans-sessions\/\d{4}-\d{2}-\d{2}-\d{4}-make-the-word-experiment-bold\.json$/,
+    );
+    return { path, text: owner.ide.server.textAt(path) };
+  }
+
+  it('exports a session that another user continues in their own browser', async () => {
+    const { path, text } = await exportAnsweredSession();
+    expect(JSON.parse(text)).toMatchObject({
+      format: 'hans-session-export/1',
+      projectId: 'project-1',
+      exportedBy: 'user-1',
+    });
+    const collaboratorSessions = new IDBFactory();
+    const collaborator = await start({
+      replies: [greetingReply],
+      sessions: collaboratorSessions,
+      prepare: signIn('user-2', 'project-1'),
+      project: reloadedWith(path, text),
+    });
+    await collaborator.showSessions();
+    await collaborator.click('.ola-imports-toggle', () => {
+      expect(collaborator.texts('.ola-import-row .ola-session-title')).toEqual([
+        path.slice('hans-sessions/'.length),
+      ]);
+    });
+    await collaborator.click('.ola-import', () => {
+      expect(collaborator.messages().at(-1)).toBe(
+        `Imported ${path} as a new session of yours; edits it left open were discarded.`,
+      );
+    });
+    expect(collaborator.texts('.ola-user')).toEqual([BOLD_REQUEST, REQUEST]);
+    expect(collaborator.texts('.ola-ai.is-discarded .ola-result-status')).toEqual(['Discarded']);
+    expect(collaborator.preview()).toEqual([]);
+    await collaborator.send('Thanks!');
+    expect(collaborator.texts('.ola-user')).toEqual([BOLD_REQUEST, REQUEST, 'Thanks!']);
+    await collaborator.showSessions();
+    expect(collaborator.texts('.ola-session.is-current .ola-session-title')).toEqual([
+      `Imported: ${BOLD_REQUEST}`,
+    ]);
+    expect(await readStoredSessions(collaboratorSessions)).toEqual([
+      expect.objectContaining({ userId: 'user-2', projectId: 'project-1', messageCount: 6 }),
+    ]);
+    expect(collaborator.ide.server.textAt(path)).toBe(text);
+    expect(collaborator.ide.server.requests.filter(({ method }) => method === 'POST')).toEqual([]);
+  });
+
+  it('refuses an export of another project with a clear error', async () => {
+    const { path, text } = await exportAnsweredSession();
+    const foreign = JSON.stringify({ ...JSON.parse(text), projectId: 'project-9' });
+    const collaborator = await start({
+      prepare: signIn('user-2', 'project-1'),
+      project: reloadedWith(path, foreign),
+    });
+    await collaborator.showSessions();
+    await collaborator.click('.ola-imports-toggle', () => {
+      expect(collaborator.texts('.ola-import')).toEqual(['Import']);
+    });
+    await collaborator.click('.ola-import', () => {
+      expect(collaborator.messages().at(-1)).toBe(
+        'Error: This session was exported from another Overleaf project; import it in that project.',
+      );
+    });
+    expect(collaborator.texts('.ola-sessions-empty')).toContain(
+      'No saved sessions in this project yet.',
+    );
+    expect(collaborator.messages()).toEqual([
+      expect.stringContaining('Ready to help'),
+      expect.stringContaining('another Overleaf project'),
+    ]);
+  });
+
+  it('tells the user when no session has been exported to the project yet', async () => {
+    const assistant = await start({});
+    await assistant.showSessions();
+    await assistant.click('.ola-imports-toggle', () => {
+      expect(assistant.texts('.ola-imports .ola-sessions-empty')).toEqual([
+        'No sessions have been exported to hans-sessions/ yet.',
+        'Sessions exported after this page loaded appear after reloading Overleaf.',
+      ]);
+    });
   });
 });
 

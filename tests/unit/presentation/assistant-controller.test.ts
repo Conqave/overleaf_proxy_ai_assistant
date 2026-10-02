@@ -1,3 +1,8 @@
+import {
+  ExportSession,
+  ImportSession,
+  ListSessionExports,
+} from '../../../src/application/session-exchange';
 import { JSDOM } from 'jsdom';
 import { describe, expect, it, vi } from 'vitest';
 import { ApplyChangeSet } from '../../../src/application/apply-change-set';
@@ -33,6 +38,7 @@ import {
   FakeEditor,
   FakeProject,
   FakeSummarizer,
+  InMemorySessionArchive,
   InMemorySessionRepository,
   PendingStep,
   sequentialIds,
@@ -114,6 +120,14 @@ async function openAssistantWith(
   const review = new ReviewAppliedChange({ project, conversation, handleRequest });
   const sessionDeps = { sessions, conversation, pendingChanges, editor, lock };
   const changeSetDeps = { project, editor, pendingChanges, review };
+  const exchangeDeps = {
+    ...sessionDeps,
+    archive: new InMemorySessionArchive(),
+    project,
+    scope: { userId: 'user-1', projectId: 'project-1' },
+    newId,
+    now: () => 1,
+  };
   const controller = new AssistantController({
     handleRequest,
     lock,
@@ -133,6 +147,9 @@ async function openAssistantWith(
     listSessions: new ListSessions(sessionDeps),
     openSession: new OpenSession(sessionDeps),
     deleteSession: new DeleteSession(sessionDeps),
+    exportSession: new ExportSession(exchangeDeps),
+    listSessionExports: new ListSessionExports(exchangeDeps),
+    importSession: new ImportSession(exchangeDeps),
     conversation,
   });
   await controller.attach(

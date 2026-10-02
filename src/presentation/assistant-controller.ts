@@ -18,6 +18,11 @@ import type { AgentProgress } from '../application/agent-progress';
 import { RequestSupersededError } from '../application/errors';
 import type { OperationLock } from '../application/operation-lock';
 import type { PreviewChangeSetFile } from '../application/preview-change-set-file';
+import type {
+  ExportSession,
+  ImportSession,
+  ListSessionExports,
+} from '../application/session-exchange';
 import type { RejectChangeSet } from '../application/reject-change-set';
 import type { UndoChangeSet } from '../application/undo-change-set';
 import { InvariantViolation, OperationalError } from '../domain/errors';
@@ -28,6 +33,8 @@ import {
   conflictNotice,
   contextUsageText,
   errorNotice,
+  exportedNotice,
+  importedNotice,
   INTERNAL_ERROR,
   progressStatus,
 } from './message-format';
@@ -45,6 +52,9 @@ export interface UseCases {
   listSessions: ListSessions;
   openSession: OpenSession;
   deleteSession: DeleteSession;
+  exportSession: ExportSession;
+  listSessionExports: ListSessionExports;
+  importSession: ImportSession;
   conversation: Pick<ConversationLog, 'epoch' | 'messages' | 'takePersistenceFailure'>;
 }
 
@@ -193,6 +203,30 @@ export class AssistantController implements ViewEvents {
     return this.guard(async () => {
       await this.replacingConversation(view, () => this.useCases.deleteSession.execute(id));
       view.showSessionList(await this.useCases.listSessions.execute());
+    });
+  }
+
+  exportSession(id: string): Promise<void> {
+    const view = this.requireView();
+    return this.guard(async () => {
+      const path = await this.useCases.exportSession.execute(id);
+      view.showNotice(exportedNotice(path), 'info');
+    });
+  }
+
+  showImports(): Promise<void> {
+    const view = this.requireView();
+    return this.guard(() => {
+      view.showImportList(this.useCases.listSessionExports.execute());
+    });
+  }
+
+  importSession(path: string): Promise<void> {
+    const view = this.requireView();
+    return this.guard(async () => {
+      await this.replacingConversation(view, () => this.useCases.importSession.execute(path));
+      view.closeSessionList();
+      view.showNotice(importedNotice(path), 'info');
     });
   }
 

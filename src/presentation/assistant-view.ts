@@ -30,6 +30,7 @@ import {
   compactionNotice,
   editLinesMeta,
   editStatusText,
+  exportFileName,
   getSharedStatus,
   messageMeta,
   messageTitle,
@@ -51,6 +52,9 @@ export interface ViewEvents {
   showSessions(): Promise<void>;
   openSession(id: string): Promise<void>;
   deleteSession(id: string): Promise<void>;
+  exportSession(id: string): Promise<void>;
+  showImports(): Promise<void>;
+  importSession(path: string): Promise<void>;
   compact(): Promise<void>;
 }
 
@@ -203,7 +207,14 @@ export class AssistantView {
 
   showSessionList({ sessions, unreadableIds, currentId }: SessionList): void {
     this.sessionList.textContent = '';
-    this.sessionList.append(this.el('div', 'ola-sessions-title', VIEW_TEXT.sessionsTitle));
+    const head = this.el('div', 'ola-sessions-head');
+    const importButton = this.sessionButton('ola-imports-toggle', VIEW_TEXT.showImports);
+    importButton.title = VIEW_TEXT.showImportsHint;
+    importButton.addEventListener('click', () => {
+      void this.events.showImports();
+    });
+    head.append(this.el('div', 'ola-sessions-title', VIEW_TEXT.sessionsTitle), importButton);
+    this.sessionList.append(head);
     if (sessions.length || unreadableIds.length) {
       const rows = this.el('ul', 'ola-session-list');
       for (const session of sessions) rows.append(this.renderSession(session, currentId));
@@ -213,6 +224,22 @@ export class AssistantView {
       this.sessionList.append(this.el('div', 'ola-sessions-empty', VIEW_TEXT.noSessions));
     }
     this.sessionList.classList.add('is-open');
+    this.setSessionButtonsBusy();
+  }
+
+  showImportList(paths: readonly string[]): void {
+    this.sessionList.querySelector('.ola-imports')?.remove();
+    const section = this.el('div', 'ola-imports');
+    section.append(this.el('div', 'ola-sessions-title', VIEW_TEXT.importsTitle));
+    if (paths.length) {
+      const rows = this.el('ul', 'ola-session-list');
+      for (const path of paths) rows.append(this.renderImport(path));
+      section.append(rows);
+    } else {
+      section.append(this.el('div', 'ola-sessions-empty', VIEW_TEXT.noImports));
+    }
+    section.append(this.el('div', 'ola-sessions-empty', VIEW_TEXT.importsReloadHint));
+    this.sessionList.querySelector('.ola-sessions-head')?.after(section);
     this.setSessionButtonsBusy();
   }
 
@@ -471,7 +498,23 @@ export class AssistantView {
       row.classList.add('is-current');
       summary.append(this.el('span', 'ola-session-badge', VIEW_TEXT.currentSession));
     }
-    row.append(summary, this.renderDeleteActions(session.id));
+    row.append(summary, this.renderSessionActions(session.id, true));
+    return row;
+  }
+
+  private renderImport(path: string): HTMLElement {
+    const row = this.el('li', 'ola-session ola-import-row');
+    const summary = this.el('div', 'ola-session-open');
+    summary.append(this.el('span', 'ola-session-title', exportFileName(path)));
+    summary.title = path;
+    const actions = this.el('div', 'ola-session-actions');
+    const importButton = this.sessionButton('ola-import', VIEW_TEXT.importSession);
+    importButton.title = VIEW_TEXT.importSessionHint;
+    importButton.addEventListener('click', () => {
+      void this.events.importSession(path);
+    });
+    actions.append(importButton);
+    row.append(summary, actions);
     return row;
   }
 
@@ -488,33 +531,42 @@ export class AssistantView {
     const row = this.el('li', 'ola-session is-unreadable');
     const summary = this.el('div', 'ola-session-open');
     summary.append(this.el('span', 'ola-session-title', VIEW_TEXT.unreadableSession));
-    row.append(summary, this.renderDeleteActions(id));
+    row.append(summary, this.renderSessionActions(id, false));
     return row;
   }
 
-  private renderDeleteActions(id: string): HTMLElement {
+  private renderSessionActions(id: string, exportable: boolean): HTMLElement {
     const actions = this.el('div', 'ola-session-actions');
-    this.showDeleteButton(actions, id);
+    this.showSessionActions(actions, id, exportable);
     return actions;
   }
 
-  private showDeleteButton(actions: HTMLElement, id: string): void {
+  private showSessionActions(actions: HTMLElement, id: string, exportable: boolean): void {
     const remove = this.sessionButton('ola-session-delete', VIEW_TEXT.deleteSession);
     remove.title = VIEW_TEXT.deleteSessionHint;
     remove.addEventListener('click', () => {
-      this.showDeleteConfirmation(actions, id);
+      this.showDeleteConfirmation(actions, id, exportable);
     });
-    actions.replaceChildren(remove);
+    if (!exportable) {
+      actions.replaceChildren(remove);
+      return;
+    }
+    const exportButton = this.sessionButton('ola-session-export', VIEW_TEXT.exportSession);
+    exportButton.title = VIEW_TEXT.exportSessionHint;
+    exportButton.addEventListener('click', () => {
+      void this.events.exportSession(id);
+    });
+    actions.replaceChildren(exportButton, remove);
   }
 
-  private showDeleteConfirmation(actions: HTMLElement, id: string): void {
+  private showDeleteConfirmation(actions: HTMLElement, id: string, exportable: boolean): void {
     const confirm = this.sessionButton('ola-session-confirm-delete', VIEW_TEXT.deleteSession);
     confirm.addEventListener('click', () => {
       void this.events.deleteSession(id);
     });
     const cancel = this.sessionButton('ola-session-cancel-delete', VIEW_TEXT.cancelDeleteSession);
     cancel.addEventListener('click', () => {
-      this.showDeleteButton(actions, id);
+      this.showSessionActions(actions, id, exportable);
     });
     actions.replaceChildren(
       this.el('span', 'ola-session-question', VIEW_TEXT.confirmDeleteSession),
