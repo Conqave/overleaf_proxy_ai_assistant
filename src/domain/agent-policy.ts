@@ -1,5 +1,5 @@
 import { AgentTool, isSameToolCall, type AgentReply, type ToolCall } from './agent-action';
-import { getToolTurns, type AgentTurn } from './agent-transcript';
+import { getToolTurns, type AgentTurn, type ToolTurn } from './agent-transcript';
 import {
   DelegationLimitError,
   ReplyNotAllowedError,
@@ -70,17 +70,25 @@ export function checkToolCall(
     );
   }
   const turns = getToolTurns(transcript);
-  if (turns.some((turn) => isSameToolCall(turn.call, call))) {
-    throw new RepeatedToolCallError(
-      `${call.tool} was already called with the same argument; use its earlier result`,
-    );
-  }
+  const earlier = turns.find((turn) => isSameToolCall(turn.call, call));
+  if (earlier !== undefined) throw new RepeatedToolCallError(repeatedCallProblem(policy, earlier));
   const delegations = turns.filter((turn) => turn.call.tool === AgentTool.Delegate).length;
   if (call.tool === AgentTool.Delegate && delegations >= AGENT_POLICY.maxDelegations) {
     throw new DelegationLimitError(
       `all ${String(AGENT_POLICY.maxDelegations)} delegations of this request are used; do the remaining lookups yourself or reply`,
     );
   }
+}
+
+function repeatedCallProblem(policy: AgentPolicy, { call, result }: ToolTurn): string {
+  const repeated = `${call.tool} was already called with the same argument`;
+  if (result.tool !== AgentTool.Search || !result.truncated) {
+    return `${repeated}; use its earlier result`;
+  }
+  const delegation = policy.tools.includes(AgentTool.Delegate)
+    ? `, or ${AgentTool.Delegate} the whole check`
+    : '';
+  return `${repeated} and its result was cut, so repeating it shows nothing new; search for something narrower or only in one file or folder${delegation}`;
 }
 
 export function checkReply(policy: AgentPolicy, reply: AgentReply): void {

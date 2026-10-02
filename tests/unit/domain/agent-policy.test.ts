@@ -87,6 +87,22 @@ describe('agent tool policy', () => {
     }).toThrow(RepeatedToolCallError);
   });
 
+  it('explains why repeating a cut search is useless and what to do instead', () => {
+    const cut: AgentTurn = {
+      kind: 'tool',
+      call: { tool: 'search', query: '\\cite' },
+      result: { tool: 'search', matches: [], truncated: true },
+    };
+    const problem =
+      'search was already called with the same argument and its result was cut, so repeating it shows nothing new; search for something narrower or only in one file or folder';
+    expect(() => {
+      checkToolCall(MAIN, [cut], { tool: 'search', query: '\\cite' });
+    }).toThrow(new RepeatedToolCallError(`${problem}, or delegate the whole check`));
+    expect(() => {
+      checkToolCall(SUBAGENT_POLICY, [cut], { tool: 'search', query: '\\cite' });
+    }).toThrow(new RepeatedToolCallError(problem));
+  });
+
   it('lets a call that was rejected before be made again', () => {
     expect(() => {
       checkToolCall(MAIN, [mistakeTurn('a.tex')], { tool: 'read_file', path: 'a.tex' });
