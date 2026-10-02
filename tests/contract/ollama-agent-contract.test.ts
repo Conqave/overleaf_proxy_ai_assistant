@@ -741,6 +741,26 @@ const POLISH_WORDS = /[ąćęłńóśźż]|\b(się|jest|nie|mogę|dodaję|zmieni
 const POLISH_REASON = /[ąćęłńóśźż]|\b(usuwam|usunięcie|akapit|akapitu)\b/i;
 const ENGLISH_WORDS = /\b(the|you|is|are|and|help|hello|hi|this|to)\b/i;
 
+const LAMPORT_REQUEST = "Find the DOI of Lamport's LaTeX book on the web.";
+const DENIED_SEARCH_HISTORY: readonly ConversationMessage[] = [
+  { id: 'w-0', role: 'user', text: LAMPORT_REQUEST },
+  {
+    id: 'w-1',
+    role: 'tool',
+    record: {
+      tool: AgentTool.WebSearch,
+      query: 'Leslie Lamport LaTeX A Document Preparation System DOI',
+      outcome: { status: 'denied' },
+    },
+  },
+  {
+    id: 'w-2',
+    role: 'assistant',
+    kind: 'explanation',
+    text: 'You denied the web search, so I could not look up the DOI of the book.',
+  },
+];
+
 describe('Ollama agent contract', () => {
   let model: ContractModel;
 
@@ -1051,6 +1071,23 @@ describe('Ollama agent contract', () => {
       for (const { command } of run.result.message.edits) {
         if (command.reason !== undefined) expect(command.reason).toMatch(POLISH_REASON);
       }
+    },
+    CASE_TIMEOUT_MS,
+  );
+
+  it(
+    'asks to search the web again once the user allows what was denied',
+    async () => {
+      const run = await runApplication(
+        model,
+        {
+          ...UNTOUCHED_PROJECT,
+          name: 'search allowed after denial',
+          request: `OK, now you may search the web. ${LAMPORT_REQUEST}`,
+        },
+        DENIED_SEARCH_HISTORY,
+      );
+      expect(run.tools).toContain(AgentTool.WebSearch);
     },
     CASE_TIMEOUT_MS,
   );

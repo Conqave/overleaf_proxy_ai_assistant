@@ -1264,7 +1264,7 @@ describe('assistant web search', () => {
     expect(mcp.requests).toEqual([]);
     expect(texts('.ola-web-search-title')).toEqual([`Web search denied: ${QUERY}`]);
     expect(itemAt(ollama.prompts, 1, 'prompt after the denial').userMessage).toContain(
-      '[the user denied this web search; do not search for it again',
+      '[the user denied this web search; continue without it',
     );
     expect(texts('.ola-result-body').at(-1)).toBe('I could not look up the DOI.');
   });

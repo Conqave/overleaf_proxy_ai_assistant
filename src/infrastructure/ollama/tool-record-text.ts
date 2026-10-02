@@ -22,7 +22,7 @@ const UNTRUSTED_RESULTS =
 const SHORTENED_WEB_RESULTS = '[the excerpts were shortened to the length limit]';
 const END_OF_WEB_RESULTS = '[end of the web search results]';
 const DENIED_WEB_SEARCH =
-  '[the user denied this web search; do not search for it again, continue without it and say what you could not look up]';
+  '[the user denied this web search; continue without it and say what you could not look up; search again only if a later user message asks for it]';
 
 interface RecordText {
   readonly preface: readonly string[];
