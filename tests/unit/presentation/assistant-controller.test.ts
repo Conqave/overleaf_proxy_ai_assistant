@@ -213,7 +213,7 @@ describe('AssistantController subagent', () => {
     reply: { kind: 'answer', text },
   });
 
-  it('shows the subagent at work, its context use and its findings collapsed', async () => {
+  it('shows the subagent at work, the main context use and its findings collapsed', async () => {
     let statusWhileDelegating: (string | null)[] = [];
     let contextWhileDelegating: (string | null)[] = [];
     const { window, controller, agent, texts } = await openAssistantWith([
@@ -228,7 +228,7 @@ describe('AssistantController subagent', () => {
     agent.will(answer('**knuth84** is missing from refs.bib.'), answer('knuth84 is missing.'));
     await controller.send('are my citations defined?');
     expect(statusWhileDelegating).toEqual(['Hans: subagent reviewing 1 file…']);
-    expect(contextWhileDelegating).toEqual(['Context 2.0k / 98.3k']);
+    expect(contextWhileDelegating).toEqual(['Context 1.0k / 98.3k']);
     const card = window.document.querySelector('details.ola-delegation');
     expect(card?.hasAttribute('open')).toBe(false);
     expect(texts('.ola-delegation-title')).toEqual([`Subagent result: ${TASK}`]);

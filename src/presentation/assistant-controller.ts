@@ -276,11 +276,6 @@ export class AssistantController implements ViewEvents {
       case 'measured':
         this.showContextUsage(view, progress.contextUsage);
         break;
-      case 'subagent':
-        if (progress.progress.stage === 'measured') {
-          this.showContextUsage(view, progress.progress.contextUsage);
-        }
-        break;
       case 'awaiting-approval':
         view.showWebSearchApproval(progress.search);
         break;
@@ -295,6 +290,7 @@ export class AssistantController implements ViewEvents {
       case 'delegating':
       case 'opening':
       case 'compacting':
+      case 'subagent':
         break;
     }
     const status = progressStatus(progress);
