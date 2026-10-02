@@ -44,6 +44,10 @@ export function toolResult(text: string, isError = false): unknown {
   return { content: [{ type: 'text', text }], isError };
 }
 
+export function toolAnswer(text: string, isError = false): McpReply {
+  return (message) => eventStream(messageEvent(resultOf(message, toolResult(text, isError))));
+}
+
 export class FakeMcpServer {
   readonly requests: McpRequestRecord[] = [];
   sessionId: string | null = 'session-1';

@@ -11,8 +11,8 @@ import {
   FakeMcpServer,
   messageEvent,
   resultOf,
+  toolAnswer,
   toolResult,
-  type McpReply,
 } from '../../support/fake-mcp-server';
 import { itemAt } from '../../support/guards';
 import { TestFixtureError } from '../../support/test-errors';
@@ -27,14 +27,9 @@ function clientOf(server: FakeMcpServer): McpClient {
 const callTool = (client: McpClient, signal = new AbortController().signal) =>
   client.callTool('web_search_exa', { query: 'q' }, signal);
 
-const answer =
-  (text: string): McpReply =>
-  (message) =>
-    eventStream(messageEvent(resultOf(message, toolResult(text))));
-
 describe('McpClient', () => {
   it('initializes a session, confirms it and calls the tool with its headers', async () => {
-    const server = new FakeMcpServer().willAnswerTool(answer('found'));
+    const server = new FakeMcpServer().willAnswerTool(toolAnswer('found'));
     expect(await callTool(clientOf(server))).toEqual({ texts: ['found'], isError: false });
     expect(server.requests.map(({ message }) => message.method)).toEqual([
       'initialize',
@@ -69,7 +64,7 @@ describe('McpClient', () => {
   });
 
   it('keeps one session for later calls', async () => {
-    const server = new FakeMcpServer().willAnswerTool(answer('one'), answer('two'));
+    const server = new FakeMcpServer().willAnswerTool(toolAnswer('one'), toolAnswer('two'));
     const client = clientOf(server);
     await callTool(client);
     expect(await callTool(client)).toMatchObject({ texts: ['two'] });
@@ -79,18 +74,18 @@ describe('McpClient', () => {
   });
 
   it('works without a session id when the server assigns none', async () => {
-    const server = new FakeMcpServer().willAnswerTool(answer('found'));
+    const server = new FakeMcpServer().willAnswerTool(toolAnswer('found'));
     server.sessionId = null;
     await callTool(clientOf(server));
     expect(server.toolCalls[0]?.headers.has('Mcp-Session-Id')).toBe(false);
   });
 
   it('starts a new session once when the server forgot the old one', async () => {
-    const server = new FakeMcpServer().willAnswerTool(answer('one'));
+    const server = new FakeMcpServer().willAnswerTool(toolAnswer('one'));
     const client = clientOf(server);
     await callTool(client);
     server.sessionId = 'session-2';
-    server.willAnswerTool(() => new Response('gone', { status: 404 }), answer('two'));
+    server.willAnswerTool(() => new Response('gone', { status: 404 }), toolAnswer('two'));
     expect(await callTool(client)).toMatchObject({ texts: ['two'] });
     expect(itemAt(server.toolCalls, -1, 'tool call').headers.get('Mcp-Session-Id')).toBe(
       'session-2',
