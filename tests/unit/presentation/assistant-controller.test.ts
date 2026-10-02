@@ -102,7 +102,7 @@ async function openAssistantWith(
     newId: sequentialIds('session'),
     now: ticking(),
   });
-  const pendingChanges = new PendingChanges(conversation);
+  const pendingChanges = new PendingChanges({ conversation, editor });
   const lock = new OperationLock(() => new AbortController());
   const newId = sequentialIds();
   const summarizer = new FakeSummarizer();
@@ -127,7 +127,7 @@ async function openAssistantWith(
     webSearch: new WebSearchTool({ search: webSearch, approval: webSearchApproval }),
   });
   const review = new ReviewAppliedChange({ project, conversationAgent });
-  const sessionDeps = { sessions, conversation, pendingChanges, editor, lock };
+  const sessionDeps = { sessions, conversation, pendingChanges, lock };
   const changeSetDeps = { project, editor, pendingChanges, review };
   const exchangeDeps = {
     ...sessionDeps,

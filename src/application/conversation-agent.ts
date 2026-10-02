@@ -90,10 +90,9 @@ export class ConversationAgent {
     message: UserMessage | SystemRequestMessage,
     onProgress: (progress: AgentProgress) => void,
   ): void {
-    const { editor, conversation, pendingChanges } = this.deps;
-    const discarded = pendingChanges.discardAll();
-    if (discarded.length) editor.clearPreview();
-    for (const proposal of discarded) onProgress({ stage: 'decided', message: proposal });
+    const { conversation, pendingChanges } = this.deps;
+    for (const proposal of pendingChanges.discardAll())
+      onProgress({ stage: 'decided', message: proposal });
     conversation.append(message);
     onProgress({ stage: 'received', message });
   }

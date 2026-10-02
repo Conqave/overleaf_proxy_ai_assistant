@@ -8,6 +8,7 @@ import {
 import type { ProposalMessage } from '../domain/conversation';
 import { InvariantViolation } from '../domain/errors';
 import { rebaseEdit, type EditChange } from '../domain/file-change';
+import type { EditorPort } from '../ports/editor-port';
 import type { ConversationLog } from './conversation-log';
 import { ChangeNoLongerPendingError } from './errors';
 
@@ -19,7 +20,12 @@ export interface PendingEdit {
 export class PendingChanges {
   private readonly changeSets = new Map<string, Map<number, ProjectEdit>>();
 
-  constructor(private readonly conversation: ConversationLog) {}
+  constructor(
+    private readonly deps: {
+      readonly conversation: ConversationLog;
+      readonly editor: Pick<EditorPort, 'clearPreview'>;
+    },
+  ) {}
 
   add(proposalId: string, changes: readonly ProjectEdit[]): void {
     if (this.changeSets.has(proposalId)) {
@@ -48,7 +54,7 @@ export class PendingChanges {
 
   decide(proposalId: string, indexes: readonly number[], decision: EditDecision): ProposalMessage {
     this.forget(proposalId, indexes);
-    return this.conversation.updateProposal(proposalId, (edits) =>
+    return this.deps.conversation.updateProposal(proposalId, (edits) =>
       decideEdits(edits, indexes, decision),
     );
   }
@@ -65,13 +71,17 @@ export class PendingChanges {
     }));
     this.forget(proposalId, indexes);
     this.rebaseFile(proposalId, getSharedPath(edits), planned);
-    return this.conversation.updateProposal(proposalId, (all) => recordAppliedEdits(all, applied));
+    return this.deps.conversation.updateProposal(proposalId, (all) =>
+      recordAppliedEdits(all, applied),
+    );
   }
 
-  discardAll(): ProposalMessage[] {
-    return [...this.changeSets].map(([proposalId, pending]) =>
+  discardAll(): readonly ProposalMessage[] {
+    const discarded = [...this.changeSets].map(([proposalId, pending]) =>
       this.decide(proposalId, [...pending.keys()], EditStatus.Discarded),
     );
+    if (discarded.length) this.deps.editor.clearPreview();
+    return discarded;
   }
 
   private rebaseFile(proposalId: string, path: string, planned: EditChange): void {

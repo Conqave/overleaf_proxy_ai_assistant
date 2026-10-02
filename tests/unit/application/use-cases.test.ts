@@ -123,7 +123,7 @@ const storedMessages = () => repository.only().messages;
 const seed = (session: ConversationSession) => {
   repository.stored.set(session.id, session);
 };
-const sessionDeps = () => ({ sessions: repository, conversation, pendingChanges, editor, lock });
+const sessionDeps = () => ({ sessions: repository, conversation, pendingChanges, lock });
 const restore = () => new RestoreLatestSession(sessionDeps()).execute();
 const startNew = () => new StartNewConversation(sessionDeps()).execute();
 let resets: Promise<void>[];
@@ -209,7 +209,7 @@ beforeEach(() => {
     newId: sequentialIds('session'),
     now: ticking(),
   });
-  pendingChanges = new PendingChanges(conversation);
+  pendingChanges = new PendingChanges({ conversation, editor });
   lock = new OperationLock(() => new AbortController());
   busy = [];
   lock.onChange((isNowBusy) => {
@@ -1811,6 +1811,24 @@ describe('preview / apply / reject', () => {
     await expect(reject.execute(changeId, null, record)).rejects.toThrow(RequestInProgressError);
     compiled.resolve([]);
     await expect(applying).resolves.toMatchObject({ review: { kind: 'compiled' } });
+  });
+
+  it('discards open changes and their preview in one step for a request and for a new session', async () => {
+    const first = await proposeEdit();
+    expect(editor.preview).not.toBeNull();
+    agent.will(answer('Something else.'));
+    progress = [];
+    await send('never mind');
+    expect(editor.preview).toBeNull();
+    expect(progress).toContainEqual({
+      stage: 'decided',
+      message: objectContaining({ id: first, edits: [objectContaining({ status: 'discarded' })] }),
+    });
+    const second = await proposeEdit();
+    expect(editor.preview).not.toBeNull();
+    await startNew();
+    expect(editor.preview).toBeNull();
+    expect(pendingChanges.isPending(second)).toBe(false);
   });
 
   it('forgets closed changes at once', async () => {

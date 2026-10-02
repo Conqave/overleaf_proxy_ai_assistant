@@ -95,7 +95,7 @@ function compose(
   const newId = (): string => createUuid(window.crypto);
   const sessions = new IndexedDbSessionRepository(window, identity);
   const conversation = new ConversationLog({ sessions, newId, now: () => Date.now() });
-  const pendingChanges = new PendingChanges(conversation);
+  const pendingChanges = new PendingChanges({ conversation, editor });
   const createController = (): AbortController => new AbortController();
   const lock = new OperationLock(createController);
   const compactor = new ConversationCompactor({
@@ -127,7 +127,7 @@ function compose(
   });
   const handleRequest = new HandleAssistantRequest({ agent, conversationAgent, lock });
   const review = new ReviewAppliedChange({ project, conversationAgent });
-  const sessionDeps = { sessions, conversation, pendingChanges, editor, lock };
+  const sessionDeps = { sessions, conversation, pendingChanges, lock };
   const changeSetDeps = { project, editor, pendingChanges, review };
   const exchangeDeps = {
     ...sessionDeps,

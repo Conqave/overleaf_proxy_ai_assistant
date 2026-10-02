@@ -1,5 +1,4 @@
 import { sortNewestFirst, type SessionSummary } from '../domain/session';
-import type { EditorPort } from '../ports/editor-port';
 import type { SessionRepository } from '../ports/session-repository';
 import type { ConversationLog } from './conversation-log';
 import { RequestSupersededError } from './errors';
@@ -16,12 +15,11 @@ export interface SessionDeps {
   readonly sessions: SessionRepository;
   readonly conversation: ConversationLog;
   readonly pendingChanges: PendingChanges;
-  readonly editor: EditorPort;
   readonly lock: OperationLock;
 }
 
-export function leaveCurrentSession({ conversation, pendingChanges, editor }: SessionDeps): void {
-  if (pendingChanges.discardAll().length) editor.clearPreview();
+export function leaveCurrentSession({ conversation, pendingChanges }: SessionDeps): void {
+  pendingChanges.discardAll();
   conversation.startNew();
 }
 

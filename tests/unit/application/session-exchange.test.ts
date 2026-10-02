@@ -70,8 +70,7 @@ function openWorkspace(scope: SessionScope, exportPaths: readonly string[] = [])
   const deps = {
     sessions: repository,
     conversation,
-    pendingChanges: new PendingChanges(conversation),
-    editor,
+    pendingChanges: new PendingChanges({ conversation, editor }),
     lock,
     archive,
     project,

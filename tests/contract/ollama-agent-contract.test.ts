@@ -614,7 +614,7 @@ async function runApplication(
     project,
     editor,
     conversation,
-    pendingChanges: new PendingChanges(conversation),
+    pendingChanges: new PendingChanges({ conversation, editor }),
     lock: new OperationLock(() => new AbortController()),
     newId,
     webSearch: new WebSearchTool({ search: webSearch, approval }),
