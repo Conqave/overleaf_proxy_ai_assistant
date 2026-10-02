@@ -153,7 +153,7 @@ export class FakeAgent implements AgentPort {
 
 export const FAKE_MESSAGE_TOKENS = 1_000;
 
-export const EMPTY_CONVERSATION: ConversationView = { summary: null, messages: [] };
+export const EMPTY_CONVERSATION: ConversationView = { summary: null, messages: [], imported: null };
 
 export function coverAllButLastTurn(trigger: CompactionTrigger): CompactionPlan | null {
   const { messages } = trigger.kind === 'manual' ? trigger.conversation : trigger.step.conversation;

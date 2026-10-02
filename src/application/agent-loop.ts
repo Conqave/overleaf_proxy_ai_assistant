@@ -54,7 +54,11 @@ export interface AgentOutcome {
   readonly contextUsage: ContextUsage;
 }
 
-const NO_HISTORY: ConversationView = Object.freeze({ summary: null, messages: Object.freeze([]) });
+const NO_HISTORY: ConversationView = Object.freeze({
+  summary: null,
+  messages: Object.freeze([]),
+  imported: null,
+});
 
 export class AgentLoop {
   constructor(

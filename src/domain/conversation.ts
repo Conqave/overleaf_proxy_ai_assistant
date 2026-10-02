@@ -65,6 +65,11 @@ export interface ToolMessage {
   readonly record: ToolRecord;
 }
 
+export interface ImportedHistory {
+  readonly path: string;
+  readonly lastMessageId: string;
+}
+
 export interface FileActivity {
   readonly read: readonly string[];
   readonly edited: readonly string[];

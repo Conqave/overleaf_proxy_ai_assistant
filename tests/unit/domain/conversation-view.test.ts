@@ -4,6 +4,7 @@ import {
   countCoveredMessages,
   createCompactionSummaryMessage,
   createConversationSummary,
+  getImportedPart,
   summarizeView,
   viewConversation,
 } from '../../../src/domain/conversation-view';
@@ -49,28 +50,22 @@ function summary(id: string, coveredUntilId: string, coveredTurns = 1): Compacti
 describe('viewConversation', () => {
   it('shows every message when nothing is summarised', () => {
     const messages = [user('u1'), answer('a1')];
-    expect(viewConversation(messages)).toEqual({ summary: null, messages });
+    expect(viewConversation(messages, null)).toEqual({ summary: null, imported: null, messages });
   });
 
   it('replaces the turns the latest summary covers by that summary', () => {
     const first = summary('s1', 'a1');
     const latest = summary('s2', 'a2', 2);
-    const view = viewConversation([
-      user('u1'),
-      answer('a1'),
-      first,
-      user('u2'),
-      answer('a2'),
-      user('u3'),
-      latest,
-      answer('a3'),
-    ]);
+    const view = viewConversation(
+      [user('u1'), answer('a1'), first, user('u2'), answer('a2'), user('u3'), latest, answer('a3')],
+      null,
+    );
     expect(view.summary).toBe(latest);
     expect(view.messages.map(({ id }) => id)).toEqual(['u3', 'a3']);
   });
 
   it('shows the rest once the covered turns are no longer stored', () => {
-    const view = viewConversation([user('u2'), summary('s1', 'a1'), answer('a2')]);
+    const view = viewConversation([user('u2'), summary('s1', 'a1'), answer('a2')], null);
     expect(view.messages.map(({ id }) => id)).toEqual(['u2', 'a2']);
   });
 
@@ -118,18 +113,58 @@ describe('createConversationSummary', () => {
   });
 });
 
+describe('imported part of a view', () => {
+  const path = 'hans-sessions/2026-10-02-070500-a.json';
+
+  it('counts the shown messages up to the last imported one', () => {
+    const view = viewConversation([user('u1'), answer('a1'), user('u2')], {
+      path,
+      lastMessageId: 'a1',
+    });
+    expect(view.imported).toEqual({ path, messageCount: 2 });
+  });
+
+  it('counts no shown message once a summary covers the imported ones', () => {
+    const view = viewConversation([user('u1'), answer('a1'), summary('s1', 'a1'), user('u2')], {
+      path,
+      lastMessageId: 'a1',
+    });
+    expect(view).toMatchObject({ messages: [user('u2')], imported: { path, messageCount: 0 } });
+  });
+
+  it('follows the messages a new summary covers', () => {
+    const view = viewConversation([user('u1'), answer('a1'), user('u2'), answer('a2')], {
+      path,
+      lastMessageId: 'u2',
+    });
+    const covered = createConversationSummary(null, 'done', [user('u1'), answer('a1')]);
+    expect(summarizeView(view, covered).imported).toEqual({ path, messageCount: 1 });
+    expect(getImportedPart(view, [user('u1')])).toEqual({ path, messageCount: 1 });
+    expect(getImportedPart(view, view.messages)).toEqual({ path, messageCount: 3 });
+    expect(getImportedPart(viewConversation(view.messages, null), [user('u1')])).toBeNull();
+  });
+});
+
 describe('summarizeView', () => {
   it('keeps the messages after the covered ones', () => {
-    const view = { summary: null, messages: [user('u1'), answer('a1'), user('u2')] };
+    const view = {
+      summary: null,
+      imported: null,
+      messages: [user('u1'), answer('a1'), user('u2')],
+    };
     const covered = createConversationSummary(null, 'done', [user('u1'), answer('a1')]);
-    expect(summarizeView(view, covered)).toEqual({ summary: covered, messages: [user('u2')] });
+    expect(summarizeView(view, covered)).toEqual({
+      summary: covered,
+      imported: null,
+      messages: [user('u2')],
+    });
   });
 
   it('refuses a summary of messages the view does not show', () => {
     const covered = createConversationSummary(null, 'done', [user('x')]);
-    expect(() => summarizeView({ summary: null, messages: [user('u1')] }, covered)).toThrow(
-      InvalidCompactionSummaryError,
-    );
+    expect(() =>
+      summarizeView({ summary: null, imported: null, messages: [user('u1')] }, covered),
+    ).toThrow(InvalidCompactionSummaryError);
   });
 });
 

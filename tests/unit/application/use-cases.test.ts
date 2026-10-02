@@ -418,6 +418,7 @@ describe('HandleAssistantRequest', () => {
     });
     expect(requestAt(2).conversation).toEqual({
       summary: null,
+      imported: null,
       messages: conversation.messages().slice(0, 3),
     });
     expect(repository.stored.get('session-1')?.messages).toEqual(conversation.messages());
@@ -703,6 +704,29 @@ describe('HandleAssistantRequest', () => {
     await expect(reject.execute(changeId, null, record)).rejects.toThrow(
       ChangeNoLongerPendingError,
     );
+  });
+});
+
+describe('imported history', () => {
+  const imported = { path: 'hans-sessions/2026-10-02-070500-a.json', lastMessageId: 'a' };
+
+  it('shows the agent which part of the history was imported', async () => {
+    seed({
+      ...storedSession('imported', [
+        { id: 'u', role: 'user', text: 'from a file' },
+        { id: 'a', role: 'assistant', kind: 'explanation', text: 'Imported answer.' },
+      ]),
+      imported,
+    });
+    await restore();
+    agent.will(answer('Own answer.'));
+    await send('my own question');
+    expect(requestAt(0).conversation).toMatchObject({
+      imported: { path: imported.path, messageCount: 2 },
+    });
+    agent.will(answer('Later.'));
+    await send('another one');
+    expect(requestAt(1).conversation.imported).toEqual({ path: imported.path, messageCount: 2 });
   });
 });
 
@@ -1357,12 +1381,14 @@ describe('automatic compaction', () => {
     expect(summarizer.requests).toEqual([
       {
         previous: null,
+        imported: null,
         covered: conversation.messages().slice(0, 2),
         signal: expect.anything() as unknown,
       },
     ]);
     expect(requestAt(-1).conversation).toEqual({
       summary,
+      imported: null,
       messages: conversation.messages().slice(2, 4),
     });
     expect(progress.map((p) => p.stage)).toEqual([
@@ -1495,7 +1521,11 @@ describe('compaction on demand', () => {
     });
     expect(agent.triggers.at(-1)).toEqual({
       kind: 'manual',
-      conversation: { summary: null, messages: conversation.messages().slice(0, 6) },
+      conversation: {
+        summary: null,
+        imported: null,
+        messages: conversation.messages().slice(0, 6),
+      },
     });
     expect(conversation.messages().at(-1)).toBe(summary);
     expect(progress.map((p) => p.stage)).toEqual(['compacting', 'compacted']);

@@ -1,6 +1,11 @@
 import { AgentTool } from './agent-action';
 import { decideEdits, EditStatus, findPendingEdits } from './change-set';
-import { isUndecidedProposal, type ConversationMessage, type UserMessage } from './conversation';
+import {
+  isUndecidedProposal,
+  type ConversationMessage,
+  type ImportedHistory,
+  type UserMessage,
+} from './conversation';
 import { countCoveredMessages } from './conversation-view';
 import { InvariantViolation } from './errors';
 import { carriesWebContent } from './web-search';
@@ -14,11 +19,6 @@ export interface SessionSummary {
   readonly createdAt: number;
   readonly updatedAt: number;
   readonly messageCount: number;
-}
-
-export interface ImportedHistory {
-  readonly path: string;
-  readonly lastMessageId: string;
 }
 
 export interface ConversationSession {

@@ -10,6 +10,7 @@ import {
   isReplyKind,
   type CompactionSummaryMessage,
   type ConversationMessage,
+  type ImportedHistory,
   type UndoRefusal,
 } from '../../domain/conversation';
 import { createCompactionSummaryMessage, createFileActivity } from '../../domain/conversation-view';
@@ -51,7 +52,7 @@ import {
   type WebSearchResult,
 } from '../../domain/web-search';
 import { createProjectPath } from '../../domain/project-file';
-import type { ConversationSession, ImportedHistory } from '../../domain/session';
+import type { ConversationSession } from '../../domain/session';
 import type { ExportedSession } from '../../domain/session-export';
 import type { OverleafPageIdentity } from '../overleaf/overleaf-page';
 import {

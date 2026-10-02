@@ -2,6 +2,7 @@ import type { CompactionSummaryMessage } from '../domain/conversation';
 import {
   createCompactionSummaryMessage,
   createConversationSummary,
+  getImportedPart,
   summarizeView,
   type ConversationView,
 } from '../domain/conversation-view';
@@ -40,6 +41,7 @@ export class ConversationCompactor {
     const text = await summarizer.summarize({
       previous: view.summary,
       covered: plan.covered,
+      imported: getImportedPart(view, plan.covered),
       signal,
     });
     ensureNotCancelled(signal);

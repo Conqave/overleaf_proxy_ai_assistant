@@ -2,6 +2,7 @@ import type { ProposedEdit } from '../domain/change-set';
 import {
   AssistantMessageKind,
   type ConversationMessage,
+  type ImportedHistory,
   type ProposalMessage,
 } from '../domain/conversation';
 import { InvariantViolation } from '../domain/errors';
@@ -37,6 +38,10 @@ export class ConversationLog {
 
   get sessionId(): string | null {
     return this.current === null ? null : this.current.id;
+  }
+
+  get imported(): ImportedHistory | null {
+    return this.current === null ? null : this.current.imported;
   }
 
   holdsUntrustedContent(): boolean {

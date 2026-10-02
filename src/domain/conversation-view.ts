@@ -7,22 +7,45 @@ import {
   type ConversationSummary,
   type ExchangeMessage,
   type FileActivity,
+  type ImportedHistory,
 } from './conversation';
 import { EditStatus } from './change-set';
 import { InvalidCompactionSummaryError, InvalidProjectPathError } from './errors';
 import { createProjectPath } from './project-file';
 
+export interface ImportedPart {
+  readonly path: string;
+  readonly messageCount: number;
+}
+
 export interface ConversationView {
   readonly summary: ConversationSummary | null;
   readonly messages: readonly ExchangeMessage[];
+  readonly imported: ImportedPart | null;
 }
 
-export function viewConversation(messages: readonly ConversationMessage[]): ConversationView {
+export function viewConversation(
+  messages: readonly ConversationMessage[],
+  imported: ImportedHistory | null,
+): ConversationView {
   const summary = findLatestSummary(messages);
   const exchange = messages
     .slice(countCoveredMessages(messages))
     .filter((message): message is ExchangeMessage => message.role !== 'summary');
-  return { summary, messages: exchange };
+  if (imported === null) return { summary, messages: exchange, imported: null };
+  const messageCount = exchange.findIndex(({ id }) => id === imported.lastMessageId) + 1;
+  return { summary, messages: exchange, imported: { path: imported.path, messageCount } };
+}
+
+export function getImportedPart(
+  view: ConversationView,
+  covered: readonly ExchangeMessage[],
+): ImportedPart | null {
+  if (view.imported === null) return null;
+  return {
+    path: view.imported.path,
+    messageCount: Math.min(view.imported.messageCount, covered.length),
+  };
 }
 
 export function countCoveredMessages(messages: readonly ConversationMessage[]): number {
@@ -41,7 +64,10 @@ export function summarizeView(
       `the summary covers ${summary.coveredUntilId}, which the conversation does not show`,
     );
   }
-  return { summary, messages: view.messages.slice(covered + 1) };
+  const messages = view.messages.slice(covered + 1);
+  if (view.imported === null) return { summary, messages, imported: null };
+  const messageCount = Math.max(0, view.imported.messageCount - covered - 1);
+  return { summary, messages, imported: { path: view.imported.path, messageCount } };
 }
 
 export function createConversationSummary(

@@ -154,8 +154,9 @@ export class HandleAssistantRequest {
   }
 
   private viewHistory(turnIds: ReadonlySet<string>): ConversationView {
-    const history = this.deps.conversation.messages().filter(({ id }) => !turnIds.has(id));
-    return viewConversation(history);
+    const { conversation } = this.deps;
+    const history = conversation.messages().filter(({ id }) => !turnIds.has(id));
+    return viewConversation(history, conversation.imported);
   }
 
   private async readWorkspace(signal: CancellationSignal): Promise<AgentWorkspace> {

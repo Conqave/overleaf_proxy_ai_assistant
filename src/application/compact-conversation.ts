@@ -1,5 +1,5 @@
 import type { CompactionSummaryMessage } from '../domain/conversation';
-import { viewConversation } from '../domain/conversation-view';
+import { viewConversation, type ConversationView } from '../domain/conversation-view';
 import type { AgentProgress } from './agent-progress';
 import type { ConversationCompactor } from './conversation-compactor';
 import type { ConversationLog } from './conversation-log';
@@ -16,12 +16,17 @@ export class CompactConversation {
   ) {}
 
   canCompact(): boolean {
-    return this.deps.compactor.canCompact(viewConversation(this.deps.conversation.messages()));
+    return this.deps.compactor.canCompact(this.view());
+  }
+
+  private view(): ConversationView {
+    const { conversation } = this.deps;
+    return viewConversation(conversation.messages(), conversation.imported);
   }
 
   execute(onProgress: (progress: AgentProgress) => void): Promise<CompactionSummaryMessage> {
     return this.deps.lock.run(async (signal) => {
-      const conversation = viewConversation(this.deps.conversation.messages());
+      const conversation = this.view();
       const summary = await this.deps.compactor.compact(
         { kind: 'manual', conversation },
         onProgress,

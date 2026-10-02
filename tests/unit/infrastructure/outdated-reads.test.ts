@@ -39,6 +39,7 @@ describe('outdated reads in the prompt', () => {
     policy: MAIN_AGENT_POLICY,
     conversation: {
       summary: null,
+      imported: null,
       messages: [
         { id: 'u', role: 'user', text: 'Read a.tex' },
         { id: 't', role: 'tool', record: read('a.tex', 1, 3) },
