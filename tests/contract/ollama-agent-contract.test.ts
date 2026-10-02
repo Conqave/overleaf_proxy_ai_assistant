@@ -8,28 +8,34 @@ import {
   type AgentResult,
 } from '../../src/application/handle-assistant-request';
 import { OperationLock } from '../../src/application/operation-lock';
+import { WebSearchApproval, WebSearchDecision } from '../../src/application/web-search-approval';
+import { WebSearchTool } from '../../src/application/web-search-tool';
 import { PendingChanges } from '../../src/application/pending-change';
 import { AgentTool, type ToolCall } from '../../src/domain/agent-action';
-import { MAIN_AGENT_POLICY } from '../support/policies';
+import { MAIN_AGENT_POLICY, WEB_POLICIES } from '../support/policies';
 import type { AgentTurn, CompileDiagnostic } from '../../src/domain/agent-transcript';
 import { createDocumentSnapshot, type DocumentSnapshot } from '../../src/domain/document';
 import type { DocumentOperation } from '../../src/domain/document-command';
 import { searchProject } from '../../src/domain/project-search';
+import type { WebSearchResult } from '../../src/domain/web-search';
 import { OllamaAgent } from '../../src/infrastructure/ollama/ollama-agent';
 import { OllamaClient } from '../../src/infrastructure/ollama/ollama-client';
 import { OllamaSummarizer } from '../../src/infrastructure/ollama/ollama-summarizer';
+import { parseExaSearchResults } from '../../src/infrastructure/mcp/exa-search-results';
 import type { ConversationMessage } from '../../src/domain/conversation';
 import type { AgentPort, ContextUsage } from '../../src/ports/agent-port';
 import {
   EMPTY_CONVERSATION,
   FakeEditor,
   FakeProject,
+  FakeWebSearch,
   InMemorySessionRepository,
   sequentialIds,
   storedSession,
   ticking,
 } from '../support/fakes';
 import { itemAt, textMatching } from '../support/guards';
+import { readExaSearchFixture } from '../support/fake-mcp-server';
 import { TestFixtureError } from '../support/test-errors';
 
 const CASE_TIMEOUT_MS = 600_000;
@@ -131,6 +137,7 @@ interface ExpectedEdit {
 interface Case {
   readonly name: string;
   readonly request: string;
+  readonly webSearch?: WebSearchDecision;
   readonly texts: ReadonlyMap<string, DocumentSnapshot>;
   readonly diagnostics: readonly CompileDiagnostic[];
   readonly selection: string;
@@ -535,7 +542,23 @@ const TOOL_OF_PROGRESS: Partial<Record<AgentProgress['stage'], ToolCall['tool']>
   searching: AgentTool.Search,
   compiling: AgentTool.Compile,
   delegating: AgentTool.Delegate,
+  'awaiting-approval': AgentTool.WebSearch,
 };
+
+function readWebResults(): readonly WebSearchResult[] {
+  const { content } = readExaSearchFixture();
+  if (!Array.isArray(content)) throw new TestFixtureError('the Exa fixture has no content');
+  return parseExaSearchResults(
+    content.map((item: unknown) => {
+      if (typeof item !== 'object' || item === null || !('text' in item)) {
+        throw new TestFixtureError('the Exa fixture holds content without text');
+      }
+      return String(item.text);
+    }),
+  );
+}
+
+const WEB_RESULTS = readWebResults();
 
 interface ApplicationRun {
   readonly result: AgentResult;
@@ -543,6 +566,7 @@ interface ApplicationRun {
   readonly usages: readonly ContextUsage[];
   readonly project: FakeProject;
   readonly conversation: readonly ConversationMessage[];
+  readonly webQueries: readonly string[];
 }
 
 function createProject(editor: FakeEditor, texts: ReadonlyMap<string, DocumentSnapshot>) {
@@ -584,6 +608,8 @@ async function runApplication(
   });
   if (history.length > 0) conversation.show(storedSession('history', history));
   const newId = sequentialIds();
+  const webSearch = new FakeWebSearch().will(WEB_RESULTS, WEB_RESULTS, WEB_RESULTS);
+  const approval = new WebSearchApproval({ conversation, newId });
   const handleRequest = new HandleAssistantRequest({
     agent: recordingAgent,
     project,
@@ -593,7 +619,7 @@ async function runApplication(
     lock: new OperationLock(() => new AbortController()),
     newId,
     createController: () => new AbortController(),
-    webSearch: null,
+    webSearch: new WebSearchTool({ search: webSearch, approval }),
     compactor: new ConversationCompactor({
       agent: recordingAgent,
       summarizer,
@@ -606,8 +632,18 @@ async function runApplication(
   const result = await handleRequest.execute(c.request, (progress) => {
     const tool = TOOL_OF_PROGRESS[progress.stage];
     if (tool !== undefined) tools.push(tool);
+    if (progress.stage === 'awaiting-approval') {
+      approval.decide(progress.search.id, c.webSearch ?? WebSearchDecision.Approve);
+    }
   });
-  return { result, tools, usages, project, conversation: conversation.messages() };
+  return {
+    result,
+    tools,
+    usages,
+    project,
+    conversation: conversation.messages(),
+    webQueries: webSearch.queries,
+  };
 }
 
 function gap(texts: ReadonlyMap<string, DocumentSnapshot>, edit: ExpectedEdit): number {
@@ -781,7 +817,7 @@ describe('Ollama agent contract', () => {
             text: 'jaki tytuł ma praca cytowana w dokumencie jako greenwade93?',
           },
         },
-        policy: MAIN_AGENT_POLICY,
+        policy: WEB_POLICIES.main,
         conversation: EMPTY_CONVERSATION,
         workspace: {
           files: project.files,
@@ -824,6 +860,75 @@ describe('Ollama agent contract', () => {
       for (const usage of run.usages) {
         expect(usage.promptTokens).toBeLessThanOrEqual(usage.contextTokens);
       }
+    },
+    CASE_TIMEOUT_MS,
+  );
+
+  const LAMPORT_ENTRY = {
+    first: lineOf(BIB, '@book{lamport94,'),
+    last: lineOf(BIB, 'publisher = "Addison-Wesley"') + 1,
+  };
+  const FOUND_DOI = /doi\s*=\s*[{"]\s*10\.5555\/63364\s*[}"]/i;
+
+  it(
+    'searches the web for a missing DOI and adds it to the entry in the bibliography',
+    async () => {
+      const run = await runApplication(model, {
+        ...UNTOUCHED_PROJECT,
+        name: 'DOI from the web',
+        request: "find the DOI of Lamport's LaTeX book and add it to sample.bib",
+      });
+      expect(run.tools).toContain(AgentTool.WebSearch);
+      expect(run.tools.filter((tool) => tool === AgentTool.WebSearch)).toHaveLength(
+        run.webQueries.length,
+      );
+      for (const query of run.webQueries) {
+        expect(query).toMatch(/LaTeX|Lamport/i);
+        expect(query.length).toBeLessThanOrEqual(200);
+      }
+      expect(run.result.kind).toBe('proposal');
+      if (run.result.kind !== 'proposal') return;
+      const [edit, ...others] = run.result.message.edits;
+      expect(others).toEqual([]);
+      expect(edit?.path).toBe(BIB);
+      const line = edit?.command.target.lineNumber ?? 0;
+      expect(line).toBeGreaterThanOrEqual(LAMPORT_ENTRY.first);
+      expect(line).toBeLessThanOrEqual(LAMPORT_ENTRY.last);
+      expect(edit?.command).toMatchObject({ content: textMatching(FOUND_DOI) });
+    },
+    CASE_TIMEOUT_MS,
+  );
+
+  it(
+    'answers from the web results with a source that appears in them',
+    async () => {
+      const run = await runApplication(model, {
+        ...UNTOUCHED_PROJECT,
+        name: 'DOI answer from the web',
+        request: 'jaki jest DOI książki Lamporta o LaTeX-u? sprawdź w internecie i podaj źródło',
+      });
+      expect(run.tools[0]).toBe(AgentTool.WebSearch);
+      expect(run.result.message).toMatchObject({
+        kind: 'explanation',
+        text: textMatching(/^(?=[\s\S]*10\.5555\/63364)(?=[\s\S]*dl\.acm\.org)/),
+      });
+    },
+    CASE_TIMEOUT_MS,
+  );
+
+  it(
+    'goes on without the web after the user denies the search and invents no DOI',
+    async () => {
+      const run = await runApplication(model, {
+        ...UNTOUCHED_PROJECT,
+        name: 'denied web search',
+        request: "find the DOI of Lamport's LaTeX book and add it to sample.bib",
+        webSearch: WebSearchDecision.Deny,
+      });
+      expect(run.tools.filter((tool) => tool === AgentTool.WebSearch)).toHaveLength(1);
+      expect(run.webQueries).toEqual([]);
+      expect(run.result.kind).toBe('reply');
+      expect(run.result.message).not.toMatchObject({ text: textMatching(/10\.\d{4,}\//) });
     },
     CASE_TIMEOUT_MS,
   );
