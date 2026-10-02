@@ -346,6 +346,52 @@ describe('nginx proxy', () => {
     expect(ollamaRequests).toHaveLength(count);
   });
 
+  it('accepts a JSON body with a charset and refuses any other body type with 415', async () => {
+    const withCharset = await fetch(
+      `${base}${OLLAMA_PATH}`,
+      signedIn({ 'Content-Type': 'application/json; charset=utf-8' }),
+    );
+    expect(withCharset.status).toBe(200);
+    const count = upstreamCalls();
+    const checks = sessionChecks().length;
+    for (const type of ['text/plain', 'application/x-www-form-urlencoded', 'application/jsonp']) {
+      for (const path of [OLLAMA_PATH, WEB_SEARCH_PATH]) {
+        expect((await fetch(`${base}${path}`, signedIn({ 'Content-Type': type }))).status).toBe(
+          415,
+        );
+      }
+    }
+    const untyped = await fetch(`${base}${OLLAMA_PATH}`, {
+      method: 'POST',
+      headers: { Cookie: SESSION_COOKIE },
+      body: new Uint8Array([123, 125]),
+    });
+    expect(untyped.status).toBe(415);
+    expect(upstreamCalls()).toBe(count);
+    expect(sessionChecks()).toHaveLength(checks);
+  });
+
+  it('refuses requests from another origin before checking the session', async () => {
+    const count = upstreamCalls();
+    const checks = sessionChecks().length;
+    for (const origin of ['http://evil.test', 'null', base.replace('127.0.0.1', 'localhost')]) {
+      for (const path of [OLLAMA_PATH, WEB_SEARCH_PATH]) {
+        expect((await fetch(`${base}${path}`, signedIn({ Origin: origin }))).status).toBe(403);
+      }
+    }
+    expect(upstreamCalls()).toBe(count);
+    expect(sessionChecks()).toHaveLength(checks);
+  });
+
+  it('accepts requests without an Origin, as a same-origin client may send them', async () => {
+    const response = await fetch(`${base}${OLLAMA_PATH}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Cookie: SESSION_COOKIE },
+      body: '{}',
+    });
+    expect(response.status).toBe(200);
+  });
+
   it('refuses requests without a signed-in Overleaf session and never reaches the upstreams', async () => {
     const count = upstreamCalls();
     for (const cookie of [undefined, 'overleaf_session2=expired']) {

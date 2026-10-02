@@ -17,6 +17,18 @@ http {
         '' close;
     }
 
+    map "$http_origin $scheme://$http_host" $assistant_foreign_origin {
+        "~^ " 0;
+        "~^(\S+) \1$" 0;
+        default 1;
+    }
+
+    map "$request_method $content_type" $assistant_not_json {
+        "~*^POST application/json\s*(;.*)?$" 0;
+        "~^POST " 1;
+        default 0;
+    }
+
     map $upstream_http_content_security_policy $overleaf_script_nonce {
         "~'nonce-(?<nonce>[^']+)'" $nonce;
         default "";
@@ -87,6 +99,12 @@ http {
         }
 
         location = ${ASSISTANT_OLLAMA_PATH} {
+            if ($assistant_foreign_origin) {
+                return 403;
+            }
+            if ($assistant_not_json) {
+                return 415;
+            }
             limit_except POST {
                 deny all;
             }
@@ -114,6 +132,12 @@ http {
             set $assistant_web_search "${ASSISTANT_WEB_SEARCH}";
             if ($assistant_web_search != on) {
                 return 404;
+            }
+            if ($assistant_foreign_origin) {
+                return 403;
+            }
+            if ($assistant_not_json) {
+                return 415;
             }
             limit_except POST {
                 deny all;
