@@ -468,7 +468,7 @@ describe('AssistantController reopened sessions', () => {
     await controller.send('and now?');
     const live = { system: texts('.ola-system'), errors: texts('.ola-error') };
     expect(live).toEqual({
-      system: ['Done. Inserted after the selected anchor in refs.bib.', 'Compiled without errors.'],
+      system: ['Done. Inserted after line 2 in refs.bib.', 'Compiled without errors.'],
       errors: ['Error: Ollama is not reachable.'],
     });
     const sessionId = conversation.sessionId;
@@ -567,7 +567,7 @@ describe('AssistantController apply', () => {
     project.willCompile([]);
     await controller.apply(changeId, null);
     expect(texts('.ola-system')).toEqual([
-      'Done. Inserted after the selected anchor in refs.bib.',
+      'Done. Inserted after line 2 in refs.bib.',
       'Compiled without errors.',
     ]);
   });
@@ -577,7 +577,7 @@ describe('AssistantController apply', () => {
     project.willCompile([]);
     await controller.apply(changeId, null);
     expect(texts('.ola-ai.is-applied .ola-result-status')).toEqual(['Applied']);
-    expect(texts('.ola-ai.is-applied .ola-result-meta')).toEqual(['refs.bib, anchor line 2: }']);
+    expect(texts('.ola-ai.is-applied .ola-result-meta')).toEqual(['refs.bib, after line 2: }']);
     expect(texts('.ola-apply')).toEqual([]);
   });
 });
@@ -587,7 +587,7 @@ describe('AssistantController reject', () => {
     const { controller, changeId, texts } = await proposeBibEdit();
     await controller.reject(changeId, null);
     expect(texts('.ola-ai.is-rejected .ola-result-status')).toEqual(['Rejected']);
-    expect(texts('.ola-ai.is-rejected .ola-result-meta')).toEqual(['refs.bib, anchor line 2: }']);
+    expect(texts('.ola-ai.is-rejected .ola-result-meta')).toEqual(['refs.bib, after line 2: }']);
     expect(texts('.ola-ai.is-rejected .ola-result-body')).toEqual(['@book{knuth84}']);
     expect(texts('.ola-apply')).toEqual([]);
     expect(texts('.ola-system')).toEqual([]);
@@ -674,7 +674,7 @@ describe('AssistantController change sets', () => {
     expect(texts('.ola-change-path')).toEqual(['main.tex', 'refs.bib']);
     expect(texts('.ola-edit .ola-result-meta')).toEqual([
       'line 1: \\cite{knuth84}',
-      'anchor line 2: }',
+      'after line 2: }',
     ]);
     expect(texts('.ola-preview-file')).toEqual(['Show in editor', 'Show in editor']);
     expect(texts('.ola-edit-actions button')).toEqual(['Apply', 'Reject', 'Apply', 'Reject']);
@@ -690,7 +690,7 @@ describe('AssistantController change sets', () => {
       expect(texts('.ola-ai > .ola-result-status')).toEqual(['1 applied · 1 open']);
     });
     expect(editor.lines).toEqual([...BIB, '@book{knuth84}']);
-    expect(texts('.ola-system')).toEqual(['Done. Inserted after the selected anchor in refs.bib.']);
+    expect(texts('.ola-system')).toEqual(['Done. Inserted after line 2 in refs.bib.']);
     expect(texts('.ola-edit.is-applied .ola-result-status')).toEqual(['Applied']);
     expect(texts('.ola-preview-file')).toEqual(['Show in editor']);
     click('.ola-reject-edit');

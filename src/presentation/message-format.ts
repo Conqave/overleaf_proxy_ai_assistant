@@ -170,13 +170,21 @@ export function editLinesMeta(command: DocumentCommand): string {
   const first = String(lineNumber);
   switch (command.operation) {
     case DocumentOperation.InsertBefore:
+      return `before ${quotedLine(`line ${first}`, lineText)}`;
     case DocumentOperation.InsertAfter:
-      return `anchor line ${first}: ${lineText}`;
+      return `after ${quotedLine(`line ${first}`, lineText)}`;
     case DocumentOperation.Replace:
     case DocumentOperation.Delete:
-      if (command.lineCount === 1) return `line ${first}: ${lineText}`;
-      return `lines ${first}–${String(lineNumber + command.lineCount - 1)}, starting: ${lineText}`;
+      if (command.lineCount === 1) return quotedLine(`line ${first}`, lineText);
+      return quotedLine(
+        `lines ${first}–${String(lineNumber + command.lineCount - 1)}, starting`,
+        lineText,
+      );
   }
+}
+
+function quotedLine(place: string, lineText: string): string {
+  return lineText.trim() === '' ? `${place} (empty line)` : `${place}: ${lineText}`;
 }
 
 function countOf(count: number, noun: string): string {
@@ -246,9 +254,9 @@ function appliedNotice(applied: readonly EditRequest[]): string {
 function singleEditNotice({ path, command }: EditRequest): string {
   switch (command.operation) {
     case DocumentOperation.InsertBefore:
-      return `Done. Inserted before the selected anchor in ${path}.`;
+      return `Done. Inserted before line ${String(command.target.lineNumber)} in ${path}.`;
     case DocumentOperation.InsertAfter:
-      return `Done. Inserted after the selected anchor in ${path}.`;
+      return `Done. Inserted after line ${String(command.target.lineNumber)} in ${path}.`;
     case DocumentOperation.Replace:
       return command.lineCount === 1
         ? `Done. Line replaced in ${path}.`

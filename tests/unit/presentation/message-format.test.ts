@@ -26,9 +26,22 @@ const proposal = (input: DocumentCommandInput, path = 'chapters/a.tex'): Proposa
 const target = { lineNumber: 3, lineText: '\\section{A}' };
 
 describe('messageMeta', () => {
-  it('names the file and the anchor of an insertion', () => {
+  it('names the file and the line an insertion goes before or after', () => {
     expect(messageMeta(proposal({ operation: 'insert_after', target, content: 'x' }))).toBe(
-      'chapters/a.tex, anchor line 3: \\section{A}',
+      'chapters/a.tex, after line 3: \\section{A}',
+    );
+    expect(messageMeta(proposal({ operation: 'insert_before', target, content: 'x' }))).toBe(
+      'chapters/a.tex, before line 3: \\section{A}',
+    );
+  });
+
+  it('says that the named line is empty instead of quoting nothing', () => {
+    const blank = { lineNumber: 31, lineText: '' };
+    expect(messageMeta(proposal({ operation: 'insert_after', target: blank, content: 'x' }))).toBe(
+      'chapters/a.tex, after line 31 (empty line)',
+    );
+    expect(messageMeta(proposal({ operation: 'delete', target: blank, lineCount: 1 }))).toBe(
+      'chapters/a.tex, line 31 (empty line)',
     );
   });
 
@@ -59,6 +72,16 @@ describe('noticeText', () => {
     });
     expect(noticeText({ kind: 'applied', applied: [deleted] }).text).toBe(
       'Done. 4 lines deleted in main.tex.',
+    );
+  });
+
+  it('names the line an insertion went after', () => {
+    const inserted = {
+      path: 'main.tex',
+      command: createDocumentCommand({ operation: 'insert_after', target, content: 'x' }),
+    };
+    expect(noticeText({ kind: 'applied', applied: [inserted] }).text).toBe(
+      'Done. Inserted after line 3 in main.tex.',
     );
   });
 

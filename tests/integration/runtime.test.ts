@@ -844,7 +844,7 @@ describe('assistant agent', () => {
     expect(ide.store.get('editor.open_doc_id')).toBe(REFS_DOC_ID);
     expect(editorText()).toBe(REFS_TEXT);
     expect(preview()).toEqual([SMITH_ENTRY.replaceAll('\n', '')]);
-    expect(texts('.ola-result-meta').at(-1)).toBe('refs.bib, anchor line 3: }');
+    expect(texts('.ola-result-meta').at(-1)).toBe('refs.bib, after line 3: }');
   });
 
   it('applies the edit of another file and compiles the project', async () => {
@@ -856,7 +856,7 @@ describe('assistant agent', () => {
       expect(messages()).toEqual([
         'Add the smith20 entry to the bibliography.',
         expect.stringContaining('Proposed insertion'),
-        'Done. Inserted after the selected anchor in refs.bib.',
+        'Done. Inserted after line 3 in refs.bib.',
         'Compiled without errors.',
       ]);
     });
@@ -882,7 +882,7 @@ describe('assistant agent', () => {
     const reloaded = await start({ sessions });
     expect(reloaded.texts('.ola-ai.is-rejected .ola-result-status')).toEqual(['Rejected']);
     expect(reloaded.texts('.ola-ai.is-rejected .ola-result-meta')).toEqual([
-      'refs.bib, anchor line 3: }',
+      'refs.bib, after line 3: }',
     ]);
   });
 
@@ -1422,7 +1422,7 @@ describe('assistant under interference', () => {
     }, PAGE_WAIT);
     await click('.ola-apply', () => {
       expect(texts('.ola-system')).toEqual([
-        'Done. Inserted after the selected anchor in refs.bib.',
+        'Done. Inserted after line 3 in refs.bib.',
         'Compiled without errors.',
       ]);
     });
