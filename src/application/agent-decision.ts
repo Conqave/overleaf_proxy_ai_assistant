@@ -20,6 +20,7 @@ import {
   ReplyNotAllowedError,
   RepeatedToolCallError,
   ToolBudgetExhaustedError,
+  ScopedSearchNotAllowedError,
   ToolNotAllowedError,
   UncheckedFilesError,
   UnreadFileEditError,
@@ -63,6 +64,7 @@ export type AcceptedDecision =
 
 export type AgentMistake =
   | ToolNotAllowedError
+  | ScopedSearchNotAllowedError
   | ReplyNotAllowedError
   | DelegationLimitError
   | UncheckedFilesError
@@ -81,6 +83,7 @@ export type AgentMistake =
 export function isAgentMistake(error: unknown): error is AgentMistake {
   return (
     error instanceof ToolNotAllowedError ||
+    error instanceof ScopedSearchNotAllowedError ||
     error instanceof ReplyNotAllowedError ||
     error instanceof DelegationLimitError ||
     error instanceof UncheckedFilesError ||

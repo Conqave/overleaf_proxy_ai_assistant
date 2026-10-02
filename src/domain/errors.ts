@@ -29,6 +29,8 @@ export class RepeatedToolCallError extends NamedError {}
 
 export class ToolNotAllowedError extends NamedError {}
 
+export class ScopedSearchNotAllowedError extends NamedError {}
+
 export class ReplyNotAllowedError extends NamedError {}
 
 export class DelegationLimitError extends NamedError {}

@@ -326,7 +326,7 @@ export function createAgentExchange(
       prompt: buildPrompt(request, getPromptBudget(protocol, promptChars)),
     },
     retryInstruction: protocol.retry,
-    parse: parseAgentDecision,
+    parse: (raw) => parseAgentDecision(raw, protocol.policy),
   };
 }
 

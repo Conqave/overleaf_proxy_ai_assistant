@@ -9,6 +9,7 @@ import {
   DelegationLimitError,
   ReplyNotAllowedError,
   RepeatedToolCallError,
+  ScopedSearchNotAllowedError,
   ToolBudgetExhaustedError,
   ToolNotAllowedError,
   UncheckedFilesError,
@@ -34,6 +35,7 @@ export interface AgentPolicy {
   readonly role: AgentRole;
   readonly tools: readonly AgentTool[];
   readonly replies: readonly AgentReplyKind[];
+  readonly scopedSearch: boolean;
   readonly maxToolCalls: number;
 }
 
@@ -46,6 +48,7 @@ export const MAIN_AGENT_POLICY: AgentPolicy = Object.freeze({
     AgentTool.Delegate,
   ]),
   replies: Object.freeze(['answer', 'question', 'edit'] as const),
+  scopedSearch: false,
   maxToolCalls: 6,
 });
 
@@ -53,6 +56,7 @@ export const SUBAGENT_POLICY: AgentPolicy = Object.freeze({
   role: AgentRole.Subagent,
   tools: Object.freeze([AgentTool.ReadFile, AgentTool.Search]),
   replies: Object.freeze(['answer'] as const),
+  scopedSearch: true,
   maxToolCalls: 10,
 });
 
@@ -68,6 +72,11 @@ export function checkToolCall(
   if (!policy.tools.includes(call.tool)) {
     throw new ToolNotAllowedError(
       `${call.tool} is not available in this task; use only ${policy.tools.join(' or ')}`,
+    );
+  }
+  if (call.tool === AgentTool.Search && call.path !== undefined && !policy.scopedSearch) {
+    throw new ScopedSearchNotAllowedError(
+      `${call.tool} covers the whole project in this task and takes no path; remove the path`,
     );
   }
   if (countToolCallsLeft(policy, transcript) === 0) {
@@ -91,10 +100,11 @@ function repeatedCallProblem(policy: AgentPolicy, { call, result }: ToolTurn): s
   if (result.tool !== AgentTool.Search || !result.truncated) {
     return `${repeated}; use its earlier result`;
   }
+  const scope = policy.scopedSearch ? ' or only in one file or folder' : '';
   const delegation = policy.tools.includes(AgentTool.Delegate)
     ? `, or ${AgentTool.Delegate} the whole check`
     : '';
-  return `${repeated} and its result was cut, so repeating it shows nothing new; search for something narrower or only in one file or folder${delegation}`;
+  return `${repeated} and its result was cut, so repeating it shows nothing new; search for something narrower${scope}${delegation}`;
 }
 
 export function checkReply(policy: AgentPolicy, reply: AgentReply): void {

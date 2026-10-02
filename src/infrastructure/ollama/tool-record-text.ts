@@ -9,7 +9,7 @@ import { compact, LINE_BREAK, lines } from './prompt-blocks';
 const NO_PROBLEMS = '(no problems)';
 const NO_MATCHES = '(no matches)';
 const EMPTY_FILE = '(empty file)';
-const MORE_MATCHES = `(more matches or text omitted; search for something more specific or only in one file or folder with ${AgentField.Path})`;
+const MORE_MATCHES = '(more matches or text omitted; search for something more specific)';
 
 interface RecordText {
   readonly preface: readonly string[];

@@ -5,7 +5,7 @@ import {
   type AgentReply,
   type ToolCall,
 } from '../../domain/agent-action';
-import { AGENT_POLICY } from '../../domain/agent-policy';
+import { AGENT_POLICY, type AgentPolicy } from '../../domain/agent-policy';
 import type { EditRequest } from '../../domain/change-set';
 import {
   createDocumentCommand,
@@ -37,16 +37,22 @@ import {
 
 const ACTION_LINE = createFieldPattern([AgentField.Action]);
 
-const TOOL_FIELDS: Readonly<Record<ToolCall['tool'], readonly string[]>> = {
-  [AgentAction.ReadFile]: [AgentField.Path, AgentField.StartLine, EditField.EndLine],
-  [AgentAction.Search]: [AgentField.Query, AgentField.Path],
-  [AgentAction.Compile]: [],
-  [AgentAction.Delegate]: [AgentField.Task, AgentField.Files],
-};
+function getToolFields(tool: ToolCall['tool'], policy: AgentPolicy): readonly string[] {
+  switch (tool) {
+    case AgentAction.ReadFile:
+      return [AgentField.Path, AgentField.StartLine, EditField.EndLine];
+    case AgentAction.Search:
+      return policy.scopedSearch ? [AgentField.Query, AgentField.Path] : [AgentField.Query];
+    case AgentAction.Compile:
+      return [];
+    case AgentAction.Delegate:
+      return [AgentField.Task, AgentField.Files];
+  }
+}
 
 const AGENT_EDIT_FIELDS: readonly string[] = [AgentField.Path, ...EDIT_FIELDS];
 
-export function parseAgentDecision(raw: string): AgentDecision {
+export function parseAgentDecision(raw: string, policy: AgentPolicy): AgentDecision {
   const text = raw.trim();
   if (text === '') {
     throw new InvalidAssistantResponse(
@@ -62,7 +68,7 @@ export function parseAgentDecision(raw: string): AgentDecision {
     case AgentAction.Search:
     case AgentAction.Compile:
     case AgentAction.Delegate:
-      return { kind: 'tool', call: parseToolCall(action, rows) };
+      return { kind: 'tool', call: parseToolCall(action, rows, policy) };
     case AgentAction.Answer:
       return { kind: 'reply', reply: { kind: 'answer', text: parseAnswerText(rows) } };
     case AgentAction.Question:
@@ -90,8 +96,12 @@ function parseAction(line: string): AgentAction {
   return action;
 }
 
-function parseToolCall(tool: ToolCall['tool'], rows: readonly string[]): ToolCall {
-  const { fields, content } = parseHeaderReply(rows, tool, TOOL_FIELDS[tool]);
+function parseToolCall(
+  tool: ToolCall['tool'],
+  rows: readonly string[],
+  policy: AgentPolicy,
+): ToolCall {
+  const { fields, content } = parseHeaderReply(rows, tool, getToolFields(tool, policy));
   if (content !== undefined) {
     throw new InvalidAssistantResponse(`a ${tool} call has no content; send only its header lines`);
   }

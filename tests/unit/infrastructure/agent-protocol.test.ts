@@ -202,9 +202,7 @@ describe('agent exchange', () => {
     expect(
       shown
         .trimEnd()
-        .endsWith(
-          '(more matches or text omitted; search for something more specific or only in one file or folder with PATH)',
-        ),
+        .endsWith('(more matches or text omitted; search for something more specific)'),
     ).toBe(true);
   });
 

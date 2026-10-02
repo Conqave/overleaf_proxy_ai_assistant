@@ -16,6 +16,7 @@ import {
   DelegationLimitError,
   ReplyNotAllowedError,
   RepeatedToolCallError,
+  ScopedSearchNotAllowedError,
   ToolBudgetExhaustedError,
   ToolNotAllowedError,
   UncheckedFilesError,
@@ -96,13 +97,23 @@ describe('agent tool policy', () => {
       result: { tool: 'search', matches: [], truncated: true },
     };
     const problem =
-      'search was already called with the same argument and its result was cut, so repeating it shows nothing new; search for something narrower or only in one file or folder';
+      'search was already called with the same argument and its result was cut, so repeating it shows nothing new; search for something narrower';
     expect(() => {
       checkToolCall(MAIN, [cut], { tool: 'search', query: '\\cite' });
     }).toThrow(new RepeatedToolCallError(`${problem}, or delegate the whole check`));
     expect(() => {
       checkToolCall(SUBAGENT_POLICY, [cut], { tool: 'search', query: '\\cite' });
-    }).toThrow(new RepeatedToolCallError(problem));
+    }).toThrow(new RepeatedToolCallError(`${problem} or only in one file or folder`));
+  });
+
+  it('lets only the subagent search in one file or folder', () => {
+    const scoped = { tool: 'search', query: '\\cite', path: 'chapters' } as const;
+    expect(() => {
+      checkToolCall(MAIN, [], scoped);
+    }).toThrow(ScopedSearchNotAllowedError);
+    expect(() => {
+      checkToolCall(SUBAGENT_POLICY, [], scoped);
+    }).not.toThrow();
   });
 
   it('lets a call that was rejected before be made again', () => {

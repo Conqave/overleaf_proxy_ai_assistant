@@ -421,33 +421,20 @@ describe('HandleAssistantRequest', () => {
     expect(progress).toContainEqual({ stage: 'searching', query: 'KNUTH' });
   });
 
-  it('searches only the file or folder the agent names', async () => {
+  it('lets the main agent search only the whole project', async () => {
     agent.will(
       tool({ tool: 'search', query: 'knuth', path: 'chapters' }),
-      tool({ tool: 'search', query: 'knuth', path: 'appendix' }),
-      answer('Only the intro mentions knuth.'),
+      answer('The intro mentions knuth.'),
     );
     await send('where is knuth mentioned in the chapters?');
-    expect(project.reads).toEqual(['chapters/intro.tex']);
-    expect(requestAt(2).transcript).toEqual([
-      {
-        kind: 'tool',
-        call: { tool: 'search', query: 'knuth', path: 'chapters' },
-        result: {
-          tool: 'search',
-          matches: [{ path: 'chapters/intro.tex', lineNumber: 1, lineText: 'Intro about knuth.' }],
-          truncated: false,
-        },
-      },
+    expect(project.reads).toEqual([]);
+    expect(requestAt(1).transcript).toEqual([
       {
         kind: 'mistake',
-        decision: tool({ tool: 'search', query: 'knuth', path: 'appendix' }),
-        problem: 'The project has no file or folder appendix.',
+        decision: tool({ tool: 'search', query: 'knuth', path: 'chapters' }),
+        problem: 'search covers the whole project in this task and takes no path; remove the path',
       },
     ]);
-    expect(storedMessages()).toContainEqual(
-      objectContaining({ record: objectContaining({ query: 'knuth', path: 'chapters' }) }),
-    );
   });
 
   it('cancels the other reads of a search when one fails and waits for them', async () => {
@@ -892,6 +879,34 @@ describe('delegation to a subagent', () => {
     await send('check');
     expect(conversation.messages().filter((m) => m.role === 'tool')).toHaveLength(1);
     expect(project.reads).toEqual(['refs.bib']);
+  });
+
+  it('lets the subagent search only the file or folder it names', async () => {
+    agent.will(
+      delegate(),
+      tool({ tool: 'search', query: 'knuth', path: 'chapters' }),
+      tool({ tool: 'search', query: 'knuth', path: 'appendix' }),
+      answer('Only the intro mentions knuth.'),
+      answer('Done.'),
+    );
+    await send('where is knuth mentioned in the chapters?');
+    expect(project.reads).toEqual(['chapters/intro.tex']);
+    expect(requestAt(3).transcript).toEqual([
+      {
+        kind: 'tool',
+        call: { tool: 'search', query: 'knuth', path: 'chapters' },
+        result: {
+          tool: 'search',
+          matches: [{ path: 'chapters/intro.tex', lineNumber: 1, lineText: 'Intro about knuth.' }],
+          truncated: false,
+        },
+      },
+      {
+        kind: 'mistake',
+        decision: tool({ tool: 'search', query: 'knuth', path: 'appendix' }),
+        problem: 'The project has no file or folder appendix.',
+      },
+    ]);
   });
 
   it('forbids the subagent to delegate further and lets it correct itself', async () => {

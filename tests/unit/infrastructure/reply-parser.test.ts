@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { MAIN_AGENT_POLICY, SUBAGENT_POLICY } from '../../../src/domain/agent-policy';
 import type { EditRequest } from '../../../src/domain/change-set';
 import {
   InvalidAssistantResponse,
@@ -8,7 +9,7 @@ import { TestFixtureError } from '../../support/test-errors';
 
 const problem = (raw: string): string => {
   try {
-    parseAgentDecision(raw);
+    parseAgentDecision(raw, MAIN_AGENT_POLICY);
   } catch (error) {
     if (error instanceof InvalidAssistantResponse) return error.problem;
     throw error;
@@ -43,10 +44,6 @@ describe('parseAgentDecision tool calls', () => {
       { tool: 'read_file', path: 'refs.bib', range: { startLine: 1, endLine: 80 } },
     ],
     [
-      'ACTION: search\nQUERY: \\cite{\nPATH: chapters/ch5.tex',
-      { tool: 'search', query: '\\cite{', path: 'chapters/ch5.tex' },
-    ],
-    [
       'ACTION: delegate\nTASK: List every table without \\caption, with path:line',
       { tool: 'delegate', task: 'List every table without \\caption, with path:line', files: [] },
     ],
@@ -59,7 +56,16 @@ describe('parseAgentDecision tool calls', () => {
       { tool: 'delegate', task: 'Check every \\cite key', files: [] },
     ],
   ])('parses %j', (raw, call) => {
-    expect(parseAgentDecision(raw)).toEqual({ kind: 'tool', call });
+    expect(parseAgentDecision(raw, MAIN_AGENT_POLICY)).toEqual({ kind: 'tool', call });
+  });
+
+  it('takes a search in one file or folder only from a role that may scope it', () => {
+    const raw = 'ACTION: search\nQUERY: \\cite{\nPATH: chapters/ch5.tex';
+    expect(parseAgentDecision(raw, SUBAGENT_POLICY)).toEqual({
+      kind: 'tool',
+      call: { tool: 'search', query: '\\cite{', path: 'chapters/ch5.tex' },
+    });
+    expect(problem(raw)).toBe('ACTION: search takes only QUERY; remove PATH');
   });
 
   it.each([
@@ -68,7 +74,7 @@ describe('parseAgentDecision tool calls', () => {
     [
       'a search with a task',
       'ACTION: search\nQUERY: ab\nTASK: Check every key',
-      'ACTION: search takes only QUERY, PATH; remove TASK',
+      'ACTION: search takes only QUERY; remove TASK',
     ],
     ['a one-letter query', 'ACTION: search\nQUERY: a', 'must have 2 to 200 characters'],
     ['a compile with content', 'ACTION: compile\nCONTENT:\nx', 'has no content'],
@@ -129,25 +135,30 @@ describe('parseAgentDecision tool calls', () => {
 
 describe('parseAgentDecision replies', () => {
   it('parses a multi-line answer, with the text starting on the marker line or below it', () => {
-    expect(parseAgentDecision('ACTION: answer\nTEXT:\nLine one.\n\nLine two.\n')).toEqual({
+    expect(
+      parseAgentDecision('ACTION: answer\nTEXT:\nLine one.\n\nLine two.\n', MAIN_AGENT_POLICY),
+    ).toEqual({
       kind: 'reply',
       reply: { kind: 'answer', text: 'Line one.\n\nLine two.' },
     });
-    expect(parseAgentDecision('ACTION: answer\nTEXT: Inline.')).toMatchObject({
+    expect(parseAgentDecision('ACTION: answer\nTEXT: Inline.', MAIN_AGENT_POLICY)).toMatchObject({
       reply: { text: 'Inline.' },
     });
   });
 
   it('parses a question', () => {
-    expect(parseAgentDecision('ACTION: question\nQUESTION: Which one?')).toEqual({
-      kind: 'reply',
-      reply: { kind: 'question', text: 'Which one?' },
-    });
+    expect(parseAgentDecision('ACTION: question\nQUESTION: Which one?', MAIN_AGENT_POLICY)).toEqual(
+      {
+        kind: 'reply',
+        reply: { kind: 'question', text: 'Which one?' },
+      },
+    );
   });
 
   it('parses an edit into the path and the command it names, without resolving it', () => {
     const decision = parseAgentDecision(
       'ACTION: edit\nPATH: refs.bib\nOPERATION: replace\nLINE: 9\nLINE_TEXT: \\title{A}\nREASON: r\nCONTENT:\n\\title{B}',
+      MAIN_AGENT_POLICY,
     );
     expect(decision).toEqual({
       kind: 'reply',
@@ -218,7 +229,7 @@ describe('parseAgentDecision edit header', () => {
   };
 
   const parse = (raw: string): EditRequest => {
-    const decision = parseAgentDecision(raw);
+    const decision = parseAgentDecision(raw, MAIN_AGENT_POLICY);
     if (decision.kind !== 'reply' || decision.reply.kind !== 'edit') {
       throw new TestFixtureError('the reply was no edit');
     }
@@ -343,7 +354,7 @@ describe('parseAgentDecision edit blocks', () => {
     ].join('\n');
 
   const editsOf = (raw: string) => {
-    const decision = parseAgentDecision(raw);
+    const decision = parseAgentDecision(raw, MAIN_AGENT_POLICY);
     if (decision.kind !== 'reply' || decision.reply.kind !== 'edit') {
       throw new TestFixtureError('the reply was no edit');
     }
