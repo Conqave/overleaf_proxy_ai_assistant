@@ -49,6 +49,10 @@ http {
         location = /healthz/overleaf {
             access_log off;
             proxy_pass http://${OVERLEAF_UPSTREAM}/status;
+            proxy_set_header Cookie "";
+            proxy_set_header Authorization "";
+            proxy_set_header X-Csrf-Token "";
+            proxy_hide_header Set-Cookie;
             proxy_connect_timeout 5s;
             proxy_read_timeout 5s;
         }

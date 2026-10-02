@@ -9,7 +9,13 @@ import {
   rmSync,
   writeFileSync,
 } from 'node:fs';
-import { createServer, type IncomingHttpHeaders, type Server } from 'node:http';
+import {
+  createServer,
+  type IncomingHttpHeaders,
+  type IncomingMessage,
+  type Server,
+  type ServerResponse,
+} from 'node:http';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -200,19 +206,20 @@ describe('deployment configuration', () => {
 const OVERLEAF_CSP =
   "script-src 'nonce-Ab+/cd==' 'unsafe-inline' 'strict-dynamic' https: 'report-sample'; object-src 'none'";
 
+const SESSION_COOKIE = 'overleaf_session2=signed-in';
+const OLLAMA_PATH = '/ollama/main/api/generate';
+
+interface UpstreamRequest {
+  readonly method: string | undefined;
+  readonly url: string | undefined;
+  readonly headers: IncomingHttpHeaders;
+  readonly body: string;
+}
+
 describe('nginx proxy', () => {
-  const ollamaRequests: {
-    method: string | undefined;
-    url: string | undefined;
-    host: string | undefined;
-    origin: string | undefined;
-    headers: IncomingHttpHeaders;
-  }[] = [];
-  const exaRequests: {
-    method: string | undefined;
-    url: string | undefined;
-    headers: IncomingHttpHeaders;
-  }[] = [];
+  const overleafRequests: UpstreamRequest[] = [];
+  const ollamaRequests: UpstreamRequest[] = [];
+  const exaRequests: UpstreamRequest[] = [];
   let finishExa: () => void = () => undefined;
   const exaFinish = new Promise<void>((resolve) => {
     finishExa = resolve;
@@ -223,8 +230,19 @@ describe('nginx proxy', () => {
   let base = '';
   let prefix = '';
 
+  const signedIn = (headers: Record<string, string> = {}) => ({
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Cookie: SESSION_COOKIE,
+      Origin: base,
+      ...headers,
+    },
+    body: '{}',
+  });
+
   beforeAll(async () => {
-    overleafServer = await listen((req, res) => {
+    overleafServer = await listenRecording(overleafRequests, (req, res) => {
       if (req.url === '/status') {
         res.end('web is alive');
         return;
@@ -233,20 +251,12 @@ describe('nginx proxy', () => {
       if (req.url !== '/without-csp') res.setHeader('Content-Security-Policy', OVERLEAF_CSP);
       res.end('<html><body><div role="textbox"></div></body></html>');
     });
-    ollamaServer = await listen((req, res) => {
-      ollamaRequests.push({
-        method: req.method,
-        url: req.url,
-        host: req.headers.host,
-        origin: req.headers.origin,
-        headers: req.headers,
-      });
+    ollamaServer = await listenRecording(ollamaRequests, (req, res) => {
       res.setHeader('Content-Type', 'application/json');
       res.end(req.url === '/api/version' ? '{"version":"0"}' : '{"response":"{}"}');
     });
 
-    exaServer = await listen((req, res) => {
-      exaRequests.push({ method: req.method, url: req.url, headers: req.headers });
+    exaServer = await listenRecording(exaRequests, (_req, res) => {
       res.writeHead(200, {
         'Content-Type': 'text/event-stream',
         'Mcp-Session-Id': 'session-1',
@@ -306,63 +316,56 @@ describe('nginx proxy', () => {
   });
 
   it('exposes only POST /api/generate of Ollama', async () => {
-    const ok = await fetch(`${base}/ollama/main/api/generate`, {
-      method: 'POST',
-      headers: { Origin: 'http://evil.test' },
-      body: '{}',
-    });
+    const ok = await fetch(`${base}${OLLAMA_PATH}`, signedIn());
     expect(ok.status).toBe(200);
-    expect(ollamaRequests.at(-1)).toMatchObject({
-      method: 'POST',
-      url: '/api/generate',
-      origin: undefined,
-    });
-    expect(itemAt(ollamaRequests, -1, 'Ollama request').host).toMatch(/^127\.0\.0\.1:\d+$/);
-    expect((await fetch(`${base}/ollama/main/api/generate`)).status).toBe(403);
+    const request = itemAt(ollamaRequests, -1, 'Ollama request');
+    expect(request).toMatchObject({ method: 'POST', url: '/api/generate', body: '{}' });
+    expect(request.headers).not.toHaveProperty('origin');
+    expect(request.headers.host).toMatch(/^127\.0\.0\.1:\d+$/);
     const count = ollamaRequests.length;
-    await fetch(`${base}/ollama/main/api/pull`, { method: 'POST', body: '{}' });
-    expect(ollamaRequests.filter((r) => r.url === '/api/pull')).toHaveLength(0);
+    expect(
+      (await fetch(`${base}${OLLAMA_PATH}`, { headers: { Cookie: SESSION_COOKIE } })).status,
+    ).toBe(403);
+    await fetch(`${base}/ollama/main/api/pull`, signedIn());
     expect(ollamaRequests).toHaveLength(count);
   });
 
-  it("forwards requests to Ollama without the browser's Overleaf credentials", async () => {
+  it("forwards requests to the upstreams without the browser's Overleaf credentials", async () => {
     const credentials = {
-      Cookie: 'overleaf_session2=secret',
+      Cookie: SESSION_COOKIE,
       Authorization: 'Bearer user-token',
       'X-Csrf-Token': 'csrf-1',
     };
-    await fetch(`${base}/ollama/main/api/generate`, {
-      method: 'POST',
-      headers: credentials,
-      body: '{}',
-    });
+    await fetch(`${base}${OLLAMA_PATH}`, signedIn(credentials));
     await fetch(`${base}/healthz/ollama`, { headers: credentials });
-    for (const request of ollamaRequests.slice(-2)) {
+    await fetch(`${base}/healthz/overleaf`, { headers: credentials });
+    const forwarded = [
+      ...ollamaRequests.slice(-2),
+      itemAt(overleafRequests, -1, 'Overleaf health request'),
+    ];
+    for (const request of forwarded) {
       for (const header of ['cookie', 'authorization', 'x-csrf-token']) {
         expect(request.headers).not.toHaveProperty(header);
       }
     }
   });
 
-  it("forwards web search to Exa without the browser's credentials and with the server key", async () => {
-    const response = await fetch(`${base}${WEB_SEARCH_PATH}`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
+  it("forwards signed-in web search to Exa without the browser's credentials and with the server key", async () => {
+    const response = await fetch(
+      `${base}${WEB_SEARCH_PATH}`,
+      signedIn({
         Accept: 'application/json, text/event-stream',
         'Mcp-Session-Id': 'session-1',
-        Cookie: 'overleaf_session2=secret',
         Authorization: 'Bearer user-token',
-        Origin: 'http://overleaf.test',
-        Referer: 'http://overleaf.test/project/1',
+        Referer: `${base}/project/1`,
         'X-Csrf-Token': 'csrf-1',
-      },
-      body: '{"jsonrpc":"2.0","id":1,"method":"initialize"}',
-    });
+      }),
+    );
     expect(response.status).toBe(200);
     expect(response.headers.get('mcp-session-id')).toBe('session-1');
-    expect(response.headers.get('set-cookie')).toBeNull();
-    expect(response.headers.get('strict-transport-security')).toBeNull();
+    for (const header of ['set-cookie', 'strict-transport-security']) {
+      expect(response.headers.get(header)).toBeNull();
+    }
     const request = itemAt(exaRequests, -1, 'Exa request');
     expect(request).toMatchObject({ method: 'POST', url: '/mcp' });
     expect(request.headers).toMatchObject({
@@ -387,7 +390,9 @@ describe('nginx proxy', () => {
 
   it('accepts only POST for web search and keeps the key out of config.json', async () => {
     const count = exaRequests.length;
-    expect((await fetch(`${base}${WEB_SEARCH_PATH}`)).status).toBe(403);
+    expect(
+      (await fetch(`${base}${WEB_SEARCH_PATH}`, { headers: { Cookie: SESSION_COOKIE } })).status,
+    ).toBe(403);
     expect(exaRequests).toHaveLength(count);
     const config = await (await fetch(`${base}/overleaf-ai-assistant/config.json`)).text();
     expect(parseConfig(JSON.parse(config))).toMatchObject({
@@ -460,6 +465,24 @@ async function stopNginx(prefix: string): Promise<void> {
   execFileSync('nginx', ['-p', prefix, '-c', path.join(prefix, 'nginx.conf'), '-s', 'stop']);
   await waitUntilStopped(prefix);
   rmSync(prefix, { recursive: true, force: true });
+}
+
+async function record(request: IncomingMessage): Promise<UpstreamRequest> {
+  let body = '';
+  for await (const chunk of request) body += String(chunk);
+  return { method: request.method, url: request.url, headers: request.headers, body };
+}
+
+function listenRecording(
+  requests: UpstreamRequest[],
+  respond: (request: UpstreamRequest, response: ServerResponse) => void,
+): Promise<Server> {
+  return listen((req, res) => {
+    void record(req).then((request) => {
+      requests.push(request);
+      respond(request, res);
+    });
+  });
 }
 
 function listen(handler: Parameters<typeof createServer>[1]): Promise<Server> {
