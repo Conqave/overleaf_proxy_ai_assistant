@@ -11,6 +11,7 @@ import {
   discardUndecidedProposals,
   hasUndecidedProposals,
   holdsUntrustedContent,
+  holdsUntrustedContentSince,
   replaceInSession,
   startSession,
   type ConversationSession,
@@ -46,6 +47,13 @@ export class ConversationLog {
 
   holdsUntrustedContent(): boolean {
     return this.current !== null && holdsUntrustedContent(this.current);
+  }
+
+  holdsUntrustedContentSince(messageId: string): boolean {
+    if (this.current === null) {
+      throw new InvariantViolation(`message ${messageId} is outside of a session`);
+    }
+    return holdsUntrustedContentSince(this.current, messageId);
   }
 
   messages(): readonly ConversationMessage[] {

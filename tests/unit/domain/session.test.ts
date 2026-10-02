@@ -13,6 +13,7 @@ import {
   discardUndecidedProposals,
   hasUndecidedProposals,
   holdsUntrustedContent,
+  holdsUntrustedContentSince,
   MAX_SESSION_MESSAGES,
   MAX_SESSION_TITLE_LENGTH,
   replaceInSession,
@@ -208,8 +209,18 @@ describe('untrusted content of a session', () => {
     ).toBe(true);
   });
 
+  it('is counted within a request only from the web results after its message', () => {
+    const found = webSearch({ status: 'found', results: [result], truncated: false });
+    const later: UserMessage = { id: 'u2', role: 'user', text: 'and now?' };
+    const session = sessionWith(found, later);
+    expect(holdsUntrustedContentSince(session, 'u1')).toBe(true);
+    expect(holdsUntrustedContentSince(session, 'u2')).toBe(false);
+    expect(() => holdsUntrustedContentSince(session, 'missing')).toThrow(InvariantViolation);
+  });
+
   it('is present in an imported session', () => {
     const imported = { path: 'hans-sessions/a.json', lastMessageId: 'u1' };
     expect(holdsUntrustedContent({ ...sessionWith(), imported })).toBe(true);
+    expect(holdsUntrustedContentSince({ ...sessionWith(), imported }, 'u1')).toBe(true);
   });
 });

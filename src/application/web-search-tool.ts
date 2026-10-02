@@ -22,10 +22,11 @@ export class WebSearchTool {
 
   async run(
     { query }: WebSearchCall,
+    requestId: string,
     onProgress: (progress: AgentProgress) => void,
     signal: CancellationSignal,
   ): Promise<ToolResult> {
-    const approved = await this.deps.approval.request(query, onProgress, signal);
+    const approved = await this.deps.approval.request({ query, requestId }, onProgress, signal);
     return {
       tool: AgentTool.WebSearch,
       outcome: approved ? await this.search(query, onProgress, signal) : WEB_SEARCH_DENIED,

@@ -1,5 +1,6 @@
 import { NamedError, OperationalError } from '../domain/errors';
 import { AGENT_POLICY } from '../domain/agent-policy';
+import type { AutoApprovalScope } from './web-search-approval';
 
 export class EmptyRequestError extends OperationalError {
   constructor() {
@@ -31,10 +32,10 @@ export class WebSearchNoLongerPendingError extends OperationalError {
   }
 }
 
-export class SessionApprovalUnavailableError extends OperationalError {
-  constructor() {
+export class AutoApprovalUnavailableError extends OperationalError {
+  constructor(scope: AutoApprovalScope) {
     super(
-      'Web results or imported messages are already in this session, so each search needs its own approval.',
+      `Web results or imported messages are already in this ${scope}, so each search needs its own approval.`,
     );
   }
 }

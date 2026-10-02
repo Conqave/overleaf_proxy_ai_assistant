@@ -79,6 +79,16 @@ export function holdsUntrustedContent(session: ConversationSession): boolean {
   return session.imported !== null || session.messages.some(carriesWebResults);
 }
 
+export function holdsUntrustedContentSince(
+  session: ConversationSession,
+  messageId: string,
+): boolean {
+  const index = session.messages.findIndex(({ id }) => id === messageId);
+  if (index === -1)
+    throw new InvariantViolation(`session ${session.id} has no message ${messageId}`);
+  return session.imported !== null || session.messages.slice(index + 1).some(carriesWebResults);
+}
+
 function carriesWebResults(message: ConversationMessage): boolean {
   return (
     message.role === 'tool' &&

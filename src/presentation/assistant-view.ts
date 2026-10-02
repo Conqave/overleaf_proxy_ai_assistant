@@ -20,7 +20,11 @@ import {
 import { AgentTool } from '../domain/agent-action';
 import type { DelegateRecord, WebSearchRecord } from '../domain/agent-transcript';
 import { WebSearchStatus } from '../domain/web-search';
-import { WebSearchDecision, type PendingWebSearch } from '../application/web-search-approval';
+import {
+  AutoApprovalScope,
+  WebSearchDecision,
+  type PendingWebSearch,
+} from '../application/web-search-approval';
 import { DelegationOutcome } from '../domain/delegation';
 import { DocumentOperation } from '../domain/document-command';
 import type { ContextPressure } from '../application/handle-assistant-request';
@@ -45,11 +49,23 @@ import {
   sessionDetails,
   undoNotice,
   undoRefusalNotice,
+  AUTO_APPROVAL_TEXT,
   VIEW_TEXT,
   webResultSource,
   webSearchMeta,
   webSearchTitle,
 } from './message-format';
+
+interface AutoApprovalOption {
+  readonly input: HTMLInputElement;
+  readonly label: HTMLElement;
+  readonly decision: WebSearchDecision;
+}
+
+const AUTO_APPROVAL_DECISION: Record<AutoApprovalScope, WebSearchDecision> = {
+  [AutoApprovalScope.Request]: WebSearchDecision.ApproveForRequest,
+  [AutoApprovalScope.Session]: WebSearchDecision.ApproveForSession,
+};
 
 interface ShownToolMessage extends ToolMessage {
   readonly record: DelegateRecord | WebSearchRecord;
@@ -237,13 +253,19 @@ export class AssistantView {
     this.messageNodes.set(message.id, node);
   }
 
-  showWebSearchApproval({ id, query, canApproveForSession }: PendingWebSearch): void {
+  showWebSearchApproval({ id, query, autoApprovalScopes }: PendingWebSearch): void {
     const node = this.el('div', 'ola-msg ola-ai ola-approval');
-    const forSession = this.el('input', 'ola-approval-session');
-    forSession.type = 'checkbox';
-    const sessionLabel = this.el('label', 'ola-approval-option');
-    sessionLabel.append(forSession, this.el('span', undefined, VIEW_TEXT.approveForSession));
-    const sessionOption = canApproveForSession ? [sessionLabel] : [];
+    const options = autoApprovalScopes.map((scope) => this.autoApprovalOption(scope));
+    for (const { input } of options) {
+      input.addEventListener('change', () => {
+        if (!input.checked) return;
+        for (const other of options) if (other.input !== input) other.input.checked = false;
+      });
+    }
+    const chosen = (): WebSearchDecision => {
+      const checked = options.find(({ input }) => input.checked);
+      return checked === undefined ? WebSearchDecision.Approve : checked.decision;
+    };
     const decide = (decision: WebSearchDecision): void => {
       for (const control of node.querySelectorAll('button, input')) {
         control.setAttribute('disabled', '');
@@ -253,7 +275,7 @@ export class AssistantView {
     const approve = this.el('button', 'ola-btn ola-approve-search', VIEW_TEXT.approve);
     approve.type = 'button';
     approve.addEventListener('click', () => {
-      decide(forSession.checked ? WebSearchDecision.ApproveForSession : WebSearchDecision.Approve);
+      decide(chosen());
     });
     const deny = this.el('button', 'ola-btn ola-deny-search', VIEW_TEXT.deny);
     deny.type = 'button';
@@ -266,12 +288,21 @@ export class AssistantView {
       this.el('div', 'ola-result-title', VIEW_TEXT.approvalTitle),
       this.el('div', 'ola-result-body ola-approval-query', query),
       this.el('div', 'ola-result-meta', VIEW_TEXT.approvalNote),
-      ...sessionOption,
+      ...options.map(({ label }) => label),
+      ...(options.length ? [this.el('div', 'ola-result-meta', VIEW_TEXT.autoApprovalNote)] : []),
       actions,
     );
     this.chat.querySelector('.ola-welcome')?.remove();
     this.approvalCards.set(id, node);
     this.append(node);
+  }
+
+  private autoApprovalOption(scope: AutoApprovalScope): AutoApprovalOption {
+    const input = this.el('input', `ola-approval-${scope}`);
+    input.type = 'checkbox';
+    const label = this.el('label', 'ola-approval-option');
+    label.append(input, this.el('span', undefined, AUTO_APPROVAL_TEXT[scope]));
+    return { input, label, decision: AUTO_APPROVAL_DECISION[scope] };
   }
 
   removeWebSearchApproval(id: string): void {

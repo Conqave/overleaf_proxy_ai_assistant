@@ -145,13 +145,16 @@ export class AgentLoop {
 
   private async searchWeb(
     { call }: AcceptedWebSearch,
-    { signal, onProgress }: AgentRun,
+    { request, signal, onProgress }: AgentRun,
   ): Promise<ToolResult> {
     const { webSearch } = this.deps;
     if (webSearch === null) {
       throw new InvariantViolation('the policy allowed a web search without a search service');
     }
-    return await webSearch.run(call, onProgress, signal);
+    if (request.kind === 'subtask') {
+      throw new InvariantViolation('the policy allowed a web search in a subtask');
+    }
+    return await webSearch.run(call, request.message.id, onProgress, signal);
   }
 
   private async delegate(

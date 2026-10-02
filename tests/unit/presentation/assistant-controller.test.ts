@@ -292,9 +292,11 @@ describe('AssistantController web search', () => {
     expect(texts('.ola-approval-query')).toEqual([QUERY]);
     expect(texts('.ola-approval .ola-result-meta')).toEqual([
       'Exa (exa.ai), an external search service, receives this query.',
+      'Auto-approval ends once web results or imported messages are in its scope.',
     ]);
     expect(texts('.ola-approval-option')).toEqual([
-      'Auto-approve further searches until web results are in this session',
+      'Auto-approve for this request',
+      'Auto-approve for this session',
     ]);
     expect(texts('.ola-status')).toEqual(['Hans is waiting for your approval of a web search']);
     expect(buttons('.ola-send').every((button) => button.disabled)).toBe(true);
@@ -357,6 +359,34 @@ describe('AssistantController web search', () => {
       throw new TestFixtureError('the approval card has no session option');
     }
     option.checked = true;
+    click('.ola-approve-search');
+    await running;
+    expect(webSearch.queries).toEqual([QUERY, 'LaTeX book publisher']);
+    expect(window.document.querySelectorAll('.ola-approval')).toHaveLength(0);
+  });
+
+  it('auto-approves the rest of the request with the request option, one option at a time', async () => {
+    const assistant = await openAssistantWith([
+      SEARCH,
+      { kind: 'tool', call: { tool: 'web_search', query: 'LaTeX book publisher' } },
+      answer('Found both.'),
+    ]);
+    const { window, controller, webSearch, click } = assistant;
+    webSearch.will([], []);
+    const running = controller.send('find the DOI and the publisher');
+    await waitForApprovalCard(window);
+    const checkbox = (scope: string): HTMLInputElement => {
+      const option = window.document.querySelector(`.ola-approval-${scope}`);
+      if (!(option instanceof window.HTMLInputElement)) {
+        throw new TestFixtureError(`the approval card has no ${scope} option`);
+      }
+      return option;
+    };
+    checkbox('session').checked = true;
+    checkbox('session').dispatchEvent(new window.Event('change'));
+    checkbox('request').checked = true;
+    checkbox('request').dispatchEvent(new window.Event('change'));
+    expect(checkbox('session').checked).toBe(false);
     click('.ola-approve-search');
     await running;
     expect(webSearch.queries).toEqual([QUERY, 'LaTeX book publisher']);

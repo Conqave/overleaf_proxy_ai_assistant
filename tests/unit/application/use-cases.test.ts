@@ -20,7 +20,7 @@ import {
   UndecidedEditsError,
   RequestInProgressError,
   RequestSupersededError,
-  SessionApprovalUnavailableError,
+  AutoApprovalUnavailableError,
   WebSearchNoLongerPendingError,
 } from '../../../src/application/errors';
 import {
@@ -811,7 +811,11 @@ describe('web search', () => {
     webSearch.will([webResult(1), webResult(2)]);
     const running = send('find the DOI of the LaTeX book');
     const pending = await nextApproval(1);
-    expect(pending).toEqual({ id: 'approval-1', query: QUERY, canApproveForSession: true });
+    expect(pending).toEqual({
+      id: 'approval-1',
+      query: QUERY,
+      autoApprovalScopes: ['request', 'session'],
+    });
     expect(webSearch.queries).toEqual([]);
     expect(isBusy()).toBe(true);
     approval.decide(pending.id, WebSearchDecision.Approve);
@@ -888,17 +892,56 @@ describe('web search', () => {
     const running = send('look up two things');
     approval.decide((await nextApproval(1)).id, WebSearchDecision.ApproveForSession);
     const second = await nextApproval(2);
-    expect(second).toMatchObject({ query: 'second query', canApproveForSession: false });
+    expect(second).toMatchObject({ query: 'second query', autoApprovalScopes: [] });
     expect(() => {
       approval.decide(second.id, WebSearchDecision.ApproveForSession);
-    }).toThrow(SessionApprovalUnavailableError);
+    }).toThrow(AutoApprovalUnavailableError);
     approval.decide(second.id, WebSearchDecision.Approve);
     await running;
     agent.will(searchWeb('third query'), answer('Three.'));
     webSearch.will([webResult(3)]);
     const later = send('and a third one');
-    approval.decide((await nextApproval(3)).id, WebSearchDecision.Approve);
+    const third = await nextApproval(3);
+    expect(third.autoApprovalScopes).toEqual(['request']);
+    approval.decide(third.id, WebSearchDecision.Approve);
     await later;
+    expect(webSearch.queries).toEqual(['first query', 'second query', 'third query']);
+  });
+
+  it('auto-approves the later searches of the request the user allowed them for', async () => {
+    agent.will(searchWeb('first query'), searchWeb('second query'), answer('Both.'));
+    webSearch.will([], []);
+    const running = send('look up two things');
+    approval.decide((await nextApproval(1)).id, WebSearchDecision.ApproveForRequest);
+    await running;
+    expect(approvals()).toHaveLength(1);
+    expect(webSearch.queries).toEqual(['first query', 'second query']);
+    agent.will(searchWeb('third query'), answer('Three.'));
+    webSearch.will([]);
+    const later = send('and a third one');
+    const next = await nextApproval(2);
+    expect(next.autoApprovalScopes).toEqual(['request', 'session']);
+    approval.decide(next.id, WebSearchDecision.Approve);
+    await later;
+  });
+
+  it('asks again within a request once web results entered it', async () => {
+    agent.will(
+      searchWeb('first query'),
+      searchWeb('second query'),
+      searchWeb('third query'),
+      answer('Three.'),
+    );
+    webSearch.will([], [webResult(2)], []);
+    const running = send('look up three things');
+    approval.decide((await nextApproval(1)).id, WebSearchDecision.ApproveForRequest);
+    const third = await nextApproval(2);
+    expect(third).toMatchObject({ query: 'third query', autoApprovalScopes: [] });
+    expect(() => {
+      approval.decide(third.id, WebSearchDecision.ApproveForRequest);
+    }).toThrow(AutoApprovalUnavailableError);
+    approval.decide(third.id, WebSearchDecision.Approve);
+    await running;
     expect(webSearch.queries).toEqual(['first query', 'second query', 'third query']);
   });
 
@@ -922,10 +965,15 @@ describe('web search', () => {
     webSearch.will([]);
     const running = send('find the DOI');
     const pending = await nextApproval(1);
-    expect(pending.canApproveForSession).toBe(false);
-    expect(() => {
-      approval.decide(pending.id, WebSearchDecision.ApproveForSession);
-    }).toThrow(SessionApprovalUnavailableError);
+    expect(pending.autoApprovalScopes).toEqual([]);
+    for (const decision of [
+      WebSearchDecision.ApproveForRequest,
+      WebSearchDecision.ApproveForSession,
+    ]) {
+      expect(() => {
+        approval.decide(pending.id, decision);
+      }).toThrow(AutoApprovalUnavailableError);
+    }
     approval.decide(pending.id, WebSearchDecision.Approve);
     await running;
   });

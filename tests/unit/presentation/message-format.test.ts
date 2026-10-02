@@ -139,7 +139,7 @@ describe('progressStatus', () => {
     [
       {
         stage: 'awaiting-approval',
-        search: { id: 'a', query: 'LaTeX DOI', canApproveForSession: true },
+        search: { id: 'a', query: 'LaTeX DOI', autoApprovalScopes: [] },
       } as const,
       'Hans is waiting for your approval of a web search',
     ],

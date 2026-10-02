@@ -1,5 +1,6 @@
 import type { AgentProgress, ApplyReport, FileConflict } from '../application/agent-progress';
 import type { ContextUsage } from '../application/handle-assistant-request';
+import { AutoApprovalScope } from '../application/web-search-approval';
 import { EditStatus, type EditRequest, type ProposedEdit } from '../domain/change-set';
 import type {
   AssistantMessage,
@@ -28,6 +29,11 @@ const PROPOSAL_TITLE: Record<DocumentOperation, string> = {
 };
 
 const TOKENS_PER_THOUSAND = 1_000;
+
+export const AUTO_APPROVAL_TEXT: Record<AutoApprovalScope, string> = {
+  [AutoApprovalScope.Request]: 'Auto-approve for this request',
+  [AutoApprovalScope.Session]: 'Auto-approve for this session',
+};
 
 export const VIEW_TEXT = {
   badge: 'Hans',
@@ -76,7 +82,7 @@ export const VIEW_TEXT = {
   approvalNote: 'Exa (exa.ai), an external search service, receives this query.',
   approve: 'Approve',
   deny: 'Deny',
-  approveForSession: 'Auto-approve further searches until web results are in this session',
+  autoApprovalNote: 'Auto-approval ends once web results or imported messages are in its scope.',
   welcomeTitle: 'Ready to help with this document',
   welcomeCopy:
     'Ask for an explanation, a cleaner paragraph, or a precise LaTeX edit. I will show a suggestion before changing anything.',

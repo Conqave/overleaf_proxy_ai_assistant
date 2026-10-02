@@ -2,54 +2,66 @@ import { InvariantViolation } from '../domain/errors';
 import type { CancellationSignal } from '../ports/cancellation';
 import type { AgentProgress } from './agent-progress';
 import type { ConversationLog } from './conversation-log';
-import { SessionApprovalUnavailableError, WebSearchNoLongerPendingError } from './errors';
+import { AutoApprovalUnavailableError, WebSearchNoLongerPendingError } from './errors';
+
+export const AutoApprovalScope = {
+  Request: 'request',
+  Session: 'session',
+} as const;
+export type AutoApprovalScope = (typeof AutoApprovalScope)[keyof typeof AutoApprovalScope];
 
 export interface PendingWebSearch {
   readonly id: string;
   readonly query: string;
-  readonly canApproveForSession: boolean;
+  readonly autoApprovalScopes: readonly AutoApprovalScope[];
 }
 
 export const WebSearchDecision = {
   Approve: 'approve',
+  ApproveForRequest: 'approve-for-request',
   ApproveForSession: 'approve-for-session',
   Deny: 'deny',
 } as const;
 export type WebSearchDecision = (typeof WebSearchDecision)[keyof typeof WebSearchDecision];
 
+export interface WebSearchContext {
+  readonly query: string;
+  readonly requestId: string;
+}
+
 interface WaitingSearch {
   readonly search: PendingWebSearch;
+  readonly requestId: string;
   readonly settle: (approved: boolean) => void;
 }
 
 export class WebSearchApproval {
   private waiting: WaitingSearch | null = null;
+  private approvedRequestId: string | null = null;
   private approvedSessionId: string | null = null;
 
   constructor(
     private readonly deps: {
-      conversation: Pick<ConversationLog, 'sessionId' | 'holdsUntrustedContent'>;
+      conversation: Pick<
+        ConversationLog,
+        'sessionId' | 'holdsUntrustedContent' | 'holdsUntrustedContentSince'
+      >;
       newId: () => string;
     },
   ) {}
 
   async request(
-    query: string,
+    { query, requestId }: WebSearchContext,
     onProgress: (progress: AgentProgress) => void,
     signal: CancellationSignal,
   ): Promise<boolean> {
     if (signal.aborted) throw signal.reason;
-    const untrusted = this.deps.conversation.holdsUntrustedContent();
-    if (untrusted) this.approvedSessionId = null;
-    if (this.isApprovedForSession()) return true;
+    const scopes = this.findAutoApprovalScopes(requestId);
+    if (this.isAutoApproved(requestId)) return true;
     if (this.waiting !== null) {
       throw new InvariantViolation('another web search is already waiting for approval');
     }
-    const search: PendingWebSearch = {
-      id: this.deps.newId(),
-      query,
-      canApproveForSession: !untrusted,
-    };
+    const search: PendingWebSearch = { id: this.deps.newId(), query, autoApprovalScopes: scopes };
     const cancelled = Symbol('cancelled');
     const answer = new Promise<boolean | typeof cancelled>((resolve) => {
       const cancel = (): void => {
@@ -59,6 +71,7 @@ export class WebSearchApproval {
       signal.addEventListener('abort', cancel);
       this.waiting = {
         search,
+        requestId,
         settle: (approved) => {
           signal.removeEventListener('abort', cancel);
           this.waiting = null;
@@ -77,8 +90,13 @@ export class WebSearchApproval {
     const { waiting } = this;
     if (waiting?.search.id !== id) throw new WebSearchNoLongerPendingError();
     switch (decision) {
+      case WebSearchDecision.ApproveForRequest:
+        requireScope(waiting.search, AutoApprovalScope.Request);
+        this.approvedRequestId = waiting.requestId;
+        waiting.settle(true);
+        break;
       case WebSearchDecision.ApproveForSession:
-        if (!waiting.search.canApproveForSession) throw new SessionApprovalUnavailableError();
+        requireScope(waiting.search, AutoApprovalScope.Session);
         this.approvedSessionId = this.requireSessionId();
         waiting.settle(true);
         break;
@@ -90,9 +108,20 @@ export class WebSearchApproval {
     }
   }
 
-  private isApprovedForSession(): boolean {
+  private findAutoApprovalScopes(requestId: string): readonly AutoApprovalScope[] {
+    const { conversation } = this.deps;
+    const scopes: AutoApprovalScope[] = [];
+    if (conversation.holdsUntrustedContentSince(requestId)) this.approvedRequestId = null;
+    else scopes.push(AutoApprovalScope.Request);
+    if (conversation.holdsUntrustedContent()) this.approvedSessionId = null;
+    else scopes.push(AutoApprovalScope.Session);
+    return scopes;
+  }
+
+  private isAutoApproved(requestId: string): boolean {
     const { sessionId } = this.deps.conversation;
-    return sessionId !== null && sessionId === this.approvedSessionId;
+    const isSessionApproved = sessionId !== null && sessionId === this.approvedSessionId;
+    return isSessionApproved || requestId === this.approvedRequestId;
   }
 
   private requireSessionId(): string {
@@ -102,4 +131,8 @@ export class WebSearchApproval {
     }
     return sessionId;
   }
+}
+
+function requireScope(search: PendingWebSearch, scope: AutoApprovalScope): void {
+  if (!search.autoApprovalScopes.includes(scope)) throw new AutoApprovalUnavailableError(scope);
 }
