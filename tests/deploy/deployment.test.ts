@@ -209,6 +209,8 @@ const OVERLEAF_CSP =
 const SESSION_COOKIE = 'overleaf_session2=signed-in';
 const SESSION_ROUTE = '/user/personal_info';
 const OLLAMA_PATH = '/ollama/main/api/generate';
+const OLLAMA_BURST = 30;
+const WEB_SEARCH_BURST = 10;
 
 interface UpstreamRequest {
   readonly method: string | undefined;
@@ -519,6 +521,25 @@ describe('nginx proxy', () => {
     await closed;
     expect((await fetch(`${base}/healthz/ollama`)).status).toBe(502);
     expect((await fetch(`${base}/healthz`)).status).toBe(200);
+  });
+
+  it.each([
+    [OLLAMA_PATH, OLLAMA_BURST],
+    [WEB_SEARCH_PATH, WEB_SEARCH_BURST],
+  ])('limits the request rate to %s per client address', async (path, burst) => {
+    const count = upstreamCalls();
+    const statuses: number[] = [];
+    for (let attempt = 0; attempt <= burst + 1; attempt += 1) {
+      const response = await fetch(`${base}${path}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Origin: base },
+        body: '{}',
+      });
+      statuses.push(response.status);
+    }
+    expect(statuses).toContain(429);
+    expect(statuses.every((status) => status === 401 || status === 429)).toBe(true);
+    expect(upstreamCalls()).toBe(count);
   });
 });
 
