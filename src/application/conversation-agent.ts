@@ -10,7 +10,7 @@ import type {
 } from '../domain/conversation';
 import { viewConversation, type ConversationView } from '../domain/conversation-view';
 import { InvariantViolation } from '../domain/errors';
-import type { TextFile } from '../domain/project-file';
+import { ProjectFileKind, type TextFile } from '../domain/project-file';
 import type { ContextUsage } from '../domain/context-usage';
 import type { AgentWorkspace, ConversationRequest } from '../ports/agent-port';
 import type { CancellationSignal } from '../ports/cancellation';
@@ -138,12 +138,19 @@ export class ConversationAgent {
     const { project, editor } = this.deps;
     const files = project.listFiles();
     const shown = project.shownFile();
+    if (shown.kind === ProjectFileKind.Binary) {
+      return { files, openFile: { kind: ProjectFileKind.Binary, path: shown.path } };
+    }
     await project.openFile(shown, signal);
     return {
       files,
-      openFile: { path: shown.path, document: editor.readDocument(shown) },
-      cursorLine: editor.readCursorLine(shown),
-      selection: editor.readSelection(shown),
+      openFile: {
+        kind: ProjectFileKind.Text,
+        path: shown.path,
+        document: editor.readDocument(shown),
+        cursorLine: editor.readCursorLine(shown),
+        selection: editor.readSelection(shown),
+      },
     };
   }
 

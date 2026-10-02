@@ -52,8 +52,6 @@ export class BuildOutputDeleteError extends OperationalError {}
 
 export class EditsNotSavedError extends OperationalError {}
 
-export class NoOpenTextFileError extends OperationalError {}
-
 export class ProjectTreeOutdatedError extends OperationalError {}
 
 export abstract class WebSearchError extends OperationalError {}

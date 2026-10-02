@@ -24,9 +24,13 @@ const request = (overrides: Partial<AgentStepRequest> = {}): AgentStepRequest =>
   signal: new AbortController().signal,
   workspace: {
     files: [{ id: '1', path: 'main.tex', kind: ProjectFileKind.Text }],
-    openFile: { path: 'main.tex', document: createDocumentSnapshot(['\\section{A}', 'Body.']) },
-    cursorLine: 1,
-    selection: '',
+    openFile: {
+      kind: 'text',
+      path: 'main.tex',
+      document: createDocumentSnapshot(['\\section{A}', 'Body.']),
+      cursorLine: 1,
+      selection: '',
+    },
   },
   transcript: [],
   ...overrides,
@@ -36,7 +40,16 @@ const promptOf = (overrides: Partial<AgentStepRequest>): string =>
   createAgentExchange(request(overrides), budget).request.prompt;
 
 const withSelection = (selection: string): Partial<AgentStepRequest> => ({
-  workspace: { ...request().workspace, selection },
+  workspace: {
+    files: request().workspace.files,
+    openFile: {
+      kind: 'text',
+      path: 'main.tex',
+      document: createDocumentSnapshot(['\\section{A}', 'Body.']),
+      cursorLine: 1,
+      selection,
+    },
+  },
 });
 
 describe('conversation history', () => {

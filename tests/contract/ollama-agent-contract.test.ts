@@ -140,6 +140,7 @@ interface Case {
   readonly texts: ReadonlyMap<string, DocumentSnapshot>;
   readonly diagnostics: readonly CompileDiagnostic[];
   readonly selection: string;
+  readonly showsBinaryFile?: boolean;
   readonly tools?: readonly (readonly ToolCall['tool'][])[];
   readonly answer?: RegExp;
   readonly edit?: ExpectedEdit;
@@ -433,6 +434,25 @@ const CASES: readonly Case[] = [
   },
   {
     ...UNTOUCHED_PROJECT,
+    showsBinaryFile: true,
+    name: 'edits a named file while the editor shows an image',
+    request: 'In main.tex, make the caption of the frog figure more descriptive.',
+    edit: {
+      path: MAIN,
+      operation: 'replace',
+      line: lineOf(MAIN, '\\caption{\\label{fig:frog}'),
+      content: /^\\caption\{\\label\{fig:frog\}[^\n]+\}$/,
+    },
+  },
+  {
+    ...UNTOUCHED_PROJECT,
+    showsBinaryFile: true,
+    name: 'answers a question while the editor shows an image',
+    request: 'Which bibliography style does the project use?',
+    answer: /plain|alpha/i,
+  },
+  {
+    ...UNTOUCHED_PROJECT,
     texts: LONG_TEXTS,
     name: 'reads a far part of a long file before editing it',
     request: `w pliku ${MEASUREMENTS} zmień temperaturę w pomiarze 2600 na 35 stopni`,
@@ -581,6 +601,7 @@ async function runApplication(
   const editor = new FakeEditor([]);
   editor.selection = c.selection;
   const project = createProject(editor, c.texts);
+  if (c.showsBinaryFile === true) project.showBinaryFile(itemAt(BINARY_PATHS, 0, 'binary file'));
   project.willCompile(
     ...Array.from({ length: MAIN_AGENT_POLICY.maxToolCalls }, () => c.diagnostics),
   );
@@ -819,9 +840,13 @@ describe('Ollama agent contract', () => {
         conversation: EMPTY_CONVERSATION,
         workspace: {
           files: project.files,
-          openFile: { path: MAIN, document: getText(TEXTS, MAIN) },
-          cursorLine: 1,
-          selection: '',
+          openFile: {
+            kind: 'text',
+            path: MAIN,
+            document: getText(TEXTS, MAIN),
+            cursorLine: 1,
+            selection: '',
+          },
         },
         transcript: CLOSED_TRANSCRIPT,
         signal: new AbortController().signal,

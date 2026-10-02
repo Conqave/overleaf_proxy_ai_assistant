@@ -29,7 +29,7 @@ import type { AgentStepRequest } from '../../../src/ports/agent-port';
 import { AssistantRequestTooLargeError } from '../../../src/ports/errors';
 import { itemAt } from '../../support/guards';
 
-const budget = 20_480;
+const budget = 24_576;
 const main = createDocumentSnapshot(['\\section{A}', 'Body.']);
 const bib = createDocumentSnapshot(['@book{a,', '}']);
 
@@ -78,9 +78,13 @@ const request = (overrides: Partial<AgentStepRequest> = {}): AgentStepRequest =>
       { id: '2', path: 'refs.bib', kind: ProjectFileKind.Text },
       { id: '3', path: 'frog.jpg', kind: ProjectFileKind.Binary },
     ],
-    openFile: { path: 'main.tex', document: main },
-    cursorLine: 2,
-    selection: '',
+    openFile: {
+      kind: 'text',
+      path: 'main.tex',
+      document: main,
+      cursorLine: 2,
+      selection: '',
+    },
   },
   transcript: [],
   ...overrides,
@@ -112,8 +116,31 @@ describe('agent exchange', () => {
     expect(system).toMatch(/- Everything after CONTENT: [^\n]*no Markdown\./);
   });
 
+  it('tells the model that no text file is open while a binary file is shown', () => {
+    const binaryShown = request({
+      workspace: { ...request().workspace, openFile: { kind: 'binary', path: 'frog.jpg' } },
+    });
+    const { prompt } = createAgentExchange(binaryShown, budget).request;
+    expect(prompt).toContain(
+      'Open text file:\nnone; the editor shows the binary file frog.jpg, so read_file every text file you need',
+    );
+    expect(prompt).toContain('frog.jpg (binary, open in the editor)');
+    expect(prompt).not.toContain('Numbered lines of');
+  });
+
   it('shows the selection', () => {
-    const selected = request({ workspace: { ...request().workspace, selection: 'Bo' } });
+    const selected = request({
+      workspace: {
+        ...request().workspace,
+        openFile: {
+          kind: 'text',
+          path: 'main.tex',
+          document: main,
+          cursorLine: 2,
+          selection: 'Bo',
+        },
+      },
+    });
     expect(createAgentExchange(selected, budget).request.prompt).toContain(
       'Selected text (in the open file; a request to change, fix or translate it asks for an edit of that file):\nBo',
     );
@@ -338,7 +365,18 @@ describe('subagent exchange', () => {
   });
 
   it('shows the subagent the task and the files but neither the open file nor the selection', () => {
-    const selected = subtask({ workspace: { ...request().workspace, selection: 'Bo' } });
+    const selected = subtask({
+      workspace: {
+        ...request().workspace,
+        openFile: {
+          kind: 'text',
+          path: 'main.tex',
+          document: main,
+          cursorLine: 2,
+          selection: 'Bo',
+        },
+      },
+    });
     const { prompt } = createAgentExchange(selected, budget).request;
     expect(prompt).toContain(`Task from Hans:\n${TASK}\nFiles to check: main.tex`);
     expect(prompt).toContain('Project files:\nmain.tex\nrefs.bib\nfrog.jpg (binary)');
@@ -503,7 +541,10 @@ describe('agent prompt budget', () => {
 
   it('gives the open file the whole room when there are no tool results', () => {
     const withLong = request({
-      workspace: { ...request().workspace, openFile: { path: 'main.tex', document: long } },
+      workspace: {
+        ...request().workspace,
+        openFile: { kind: 'text', path: 'main.tex', document: long, cursorLine: 2, selection: '' },
+      },
     });
     const exchange = createAgentExchange(withLong, budget);
     const roomier = createAgentExchange(withLong, budget + 1_000);
@@ -514,7 +555,16 @@ describe('agent prompt budget', () => {
   it('shortens every result to a tenth of the prompt and fits the open file around them', () => {
     const exchange = createAgentExchange(
       request({
-        workspace: { ...request().workspace, openFile: { path: 'main.tex', document: long } },
+        workspace: {
+          ...request().workspace,
+          openFile: {
+            kind: 'text',
+            path: 'main.tex',
+            document: long,
+            cursorLine: 2,
+            selection: '',
+          },
+        },
         transcript: [longRead('a.tex'), longRead('b.tex'), ...turns.slice(1)],
       }),
       budget,

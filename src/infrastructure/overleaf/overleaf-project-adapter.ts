@@ -2,11 +2,7 @@ import type { CompileDiagnostic } from '../../domain/agent-transcript';
 import { createDocumentSnapshot, type DocumentSnapshot } from '../../domain/document';
 import { NamedError } from '../../domain/errors';
 import { ProjectFileKind, type ProjectFile, type TextFile } from '../../domain/project-file';
-import {
-  FileOpenTimeoutError,
-  NoOpenTextFileError,
-  ProjectTreeOutdatedError,
-} from '../../ports/errors';
+import { FileOpenTimeoutError, ProjectTreeOutdatedError } from '../../ports/errors';
 import type { CancellationSignal } from '../../ports/cancellation';
 import type { ProjectPort } from '../../ports/project-port';
 import { throwAbortReason, withDeadline } from '../deadline';
@@ -46,18 +42,16 @@ export class OverleafProjectAdapter implements ProjectPort {
     return readProjectTree(this.deps.store.get(StoreKey.Project)).files;
   }
 
-  shownFile(): TextFile {
-    if (this.isBinaryFileShown()) {
-      throw new NoOpenTextFileError('Overleaf shows a binary file; open a text file to continue.');
-    }
-    const id = this.openDocId();
+  shownFile(): ProjectFile {
+    const binaryId = this.shownBinaryFileId();
+    const id = binaryId ?? this.openDocId();
     const file = this.listFiles().find((candidate) => candidate.id === id);
     if (file === undefined) {
       throw new ProjectTreeOutdatedError(
         'The open file was added after the page loaded; reload Overleaf to work on it.',
       );
     }
-    if (file.kind !== ProjectFileKind.Text) {
+    if (binaryId === null && file.kind !== ProjectFileKind.Text) {
       throw new OverleafStoreContractError(
         `${StoreKey.OpenDocId} names the binary file ${file.path}`,
       );
@@ -66,7 +60,7 @@ export class OverleafProjectAdapter implements ProjectPort {
   }
 
   isShown(file: TextFile): boolean {
-    return !this.isBinaryFileShown() && this.openDocId() === file.id;
+    return this.shownBinaryFileId() === null && this.openDocId() === file.id;
   }
 
   async readFile(file: TextFile, cancel: CancellationSignal): Promise<DocumentSnapshot> {
@@ -101,7 +95,7 @@ export class OverleafProjectAdapter implements ProjectPort {
       () =>
         this.openDocId() === file.id &&
         !store.getBoolean(StoreKey.Opening) &&
-        !this.isBinaryFileShown(),
+        this.shownBinaryFileId() === null,
       signal,
     );
     if (!opened) throwAbortReason(signal);
@@ -134,13 +128,18 @@ export class OverleafProjectAdapter implements ProjectPort {
     return editor;
   }
 
-  private isBinaryFileShown(): boolean {
+  private shownBinaryFileId(): string | null {
     const openFile = this.deps.store.get(StoreKey.OpenFile);
-    if (openFile === null) return false;
-    if (typeof openFile !== 'object') {
+    if (openFile === null) return null;
+    if (
+      typeof openFile !== 'object' ||
+      !('_id' in openFile) ||
+      typeof openFile._id !== 'string' ||
+      openFile._id === ''
+    ) {
       throw new OverleafStoreContractError(`${StoreKey.OpenFile} is neither null nor a file`);
     }
-    return true;
+    return openFile._id;
   }
 
   private openDocId(): string {

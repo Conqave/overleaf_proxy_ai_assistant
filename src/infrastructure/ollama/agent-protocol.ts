@@ -16,7 +16,7 @@ import { ProjectFileKind, type ProjectFile } from '../../domain/project-file';
 import { InvariantViolation } from '../../domain/errors';
 import { numberLine, READ_LIMITS } from '../../domain/read-window';
 import { WEB_SEARCH_LIMITS } from '../../domain/web-search';
-import type { AgentRequest, AgentStepRequest } from '../../ports/agent-port';
+import type { AgentRequest, AgentStepRequest, OpenFile } from '../../ports/agent-port';
 import {
   createMessageTooLargeError,
   CURRENT_RESULT_SHARE,
@@ -66,6 +66,9 @@ const REJECTED = 'rejected';
 const CURRENT_RESULT_SHORTENED =
   'look up a smaller part (START_LINE and END_LINE, or a narrower search) to see the rest';
 const COMPILE_RESULT_LABEL = 'Compile result after the applied change';
+const NO_OPEN_FILE_LABEL = 'Open text file:';
+const noOpenTextFile = (binaryPath: string): string =>
+  `none; the editor shows the binary file ${binaryPath}, so ${AgentAction.ReadFile} every text file you need`;
 
 const A = AgentAction;
 const F = EditField;
@@ -186,7 +189,7 @@ function listItems(items: readonly string[], conjunction: 'and' | 'or'): string 
 const mainSystem = (policy: AgentPolicy): string => {
   const webSearch = policy.tools.includes(AgentTool.WebSearch);
   return lines(
-    'You are Hans, an assistant built into the Overleaf LaTeX editor. You help with the whole LaTeX project: all files under "Project files"; one of them is open in the editor and shown to you with numbered lines.',
+    'You are Hans, an assistant built into the Overleaf LaTeX editor. You help with the whole LaTeX project: all files under "Project files"; the text file open in the editor, if any, is shown to you with numbered lines.',
     LANGUAGE_RULE,
     ...replyFormat(policy),
     '',
@@ -426,12 +429,7 @@ function composePrompt(request: AgentStepRequest, budget: number): ComposedPromp
       label: FILES_LABEL,
       text: fileList(workspace.files, isMain ? workspace.openFile.path : null),
     },
-    open: isMain
-      ? {
-          label: `Numbered lines of ${workspace.openFile.path} (open in the editor, caret on line ${String(workspace.cursorLine)}):`,
-          text: numberLines(workspace.openFile.document),
-        }
-      : null,
+    open: isMain ? openFileBlock(workspace.openFile) : null,
     results: [
       ...attachedBlocks(request.request, resultChars),
       ...transcript.map((turn, index) =>
@@ -439,9 +437,11 @@ function composePrompt(request: AgentStepRequest, budget: number): ComposedPromp
       ),
     ],
     selection:
-      !isMain || workspace.selection === ''
+      !isMain ||
+      workspace.openFile.kind !== ProjectFileKind.Text ||
+      workspace.openFile.selection === ''
         ? []
-        : [{ label: SELECTION_LABEL, text: workspace.selection }],
+        : [{ label: SELECTION_LABEL, text: workspace.openFile.selection }],
     toolsLeft: toolsLeft(request.request, request.policy, transcript),
   };
 }
@@ -472,6 +472,16 @@ function buildPrompt(request: AgentStepRequest, budget: number): string {
     ...rendered.results,
     ...after,
   );
+}
+
+function openFileBlock(openFile: OpenFile): PromptBlock {
+  if (openFile.kind === ProjectFileKind.Binary) {
+    return { label: NO_OPEN_FILE_LABEL, text: noOpenTextFile(openFile.path) };
+  }
+  return {
+    label: `Numbered lines of ${openFile.path} (open in the editor, caret on line ${String(openFile.cursorLine)}):`,
+    text: numberLines(openFile.document),
+  };
 }
 
 function historyBlock(
@@ -564,9 +574,10 @@ function fileList(files: readonly ProjectFile[], openPath: string | null): strin
 }
 
 function fileNote(file: ProjectFile, openPath: string | null): string {
-  if (file.kind === ProjectFileKind.Binary) return ' (binary)';
-  if (file.path === openPath) return ' (open in the editor)';
-  return '';
+  const open = file.path === openPath;
+  if (file.kind === ProjectFileKind.Binary)
+    return open ? ' (binary, open in the editor)' : ' (binary)';
+  return open ? ' (open in the editor)' : '';
 }
 
 function toolsLeft(

@@ -194,6 +194,7 @@ export class FakeProject implements ProjectPort {
   private readonly readSignals = new Map<string, CancellationSignal>();
   private readonly savedDocuments: Map<string, readonly string[]>;
   private openPath: string;
+  private shownBinaryPath: string | null = null;
 
   constructor(
     private readonly editor: FakeEditor,
@@ -243,11 +244,17 @@ export class FakeProject implements ProjectPort {
     if (this.failure.listFiles) throw this.failure.listFiles;
     return this.files;
   }
-  shownFile(): TextFile {
-    return findTextFile(this.files, this.openPath);
+  showBinaryFile(path: string): void {
+    this.shownBinaryPath = path;
+  }
+  shownFile(): ProjectFile {
+    const path = this.shownBinaryPath ?? this.openPath;
+    const file = this.files.find((candidate) => candidate.path === path);
+    if (file === undefined) throw new TestFixtureError(`the project has no ${path}`);
+    return file;
   }
   isShown(file: TextFile): boolean {
-    return file.path === this.openPath;
+    return this.shownBinaryPath === null && file.path === this.openPath;
   }
   readFile(file: TextFile, signal: CancellationSignal): Promise<DocumentSnapshot> {
     this.reads.push(file.path);
@@ -266,6 +273,7 @@ export class FakeProject implements ProjectPort {
     if (this.failure.openFile) return Promise.reject(this.failure.openFile);
     if (this.isShown(file)) return Promise.resolve();
     this.opened.push(file.path);
+    this.shownBinaryPath = null;
     this.switchTo(file.path);
     this.onOpen(file.path);
     return Promise.resolve();

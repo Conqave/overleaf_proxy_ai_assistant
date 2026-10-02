@@ -4,14 +4,25 @@ import type { AgentTurn, CompileDiagnostic, OpenFileView } from '../domain/agent
 import type { ExchangeMessage, SystemRequestMessage, UserMessage } from '../domain/conversation';
 import type { ContextUsage } from '../domain/context-usage';
 import type { ConversationView } from '../domain/conversation-view';
-import type { ProjectFile } from '../domain/project-file';
+import type { ProjectFile, ProjectFileKind } from '../domain/project-file';
 import type { CancellationSignal } from './cancellation';
+
+export interface OpenTextFile extends OpenFileView {
+  readonly kind: typeof ProjectFileKind.Text;
+  readonly cursorLine: number;
+  readonly selection: string;
+}
+
+interface OpenBinaryFile {
+  readonly kind: typeof ProjectFileKind.Binary;
+  readonly path: string;
+}
+
+export type OpenFile = OpenTextFile | OpenBinaryFile;
 
 export interface AgentWorkspace {
   readonly files: readonly ProjectFile[];
-  readonly openFile: OpenFileView;
-  readonly cursorLine: number;
-  readonly selection: string;
+  readonly openFile: OpenFile;
 }
 
 interface UserRequest {

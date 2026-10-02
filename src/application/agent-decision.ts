@@ -17,7 +17,12 @@ import {
 import { assertEditShown, getShownDocument, type AgentTurn } from '../domain/agent-transcript';
 import { AgentMistakeError } from '../domain/errors';
 import { checkSeparateEdits } from '../domain/file-change';
-import { findSearchScope, findTextFile, type TextFile } from '../domain/project-file';
+import {
+  findSearchScope,
+  findTextFile,
+  ProjectFileKind,
+  type TextFile,
+} from '../domain/project-file';
 import { ResolvedEdit } from '../domain/resolved-edit';
 import type { ReadRange } from '../domain/read-window';
 import type { AgentRequest, AgentWorkspace } from '../ports/agent-port';
@@ -148,7 +153,13 @@ function acceptEdit(
   transcript: readonly AgentTurn[],
 ): ProjectEdit {
   const file = findTextFile(workspace.files, path);
-  const shown = getShownDocument(workspace.openFile, transcript, file.path, command);
+  const { openFile } = workspace;
+  const shown = getShownDocument(
+    openFile.kind === ProjectFileKind.Text ? openFile : null,
+    transcript,
+    file.path,
+    command,
+  );
   const edit = ResolvedEdit.resolve(shown.document, command);
   assertEditShown(file.path, shown, edit.command, transcript);
   return { file, edit };

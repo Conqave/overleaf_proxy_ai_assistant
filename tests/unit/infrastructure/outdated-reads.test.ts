@@ -50,9 +50,13 @@ describe('outdated reads in the prompt', () => {
         { id: '1', path: 'main.tex', kind: ProjectFileKind.Text },
         { id: '2', path: 'a.tex', kind: ProjectFileKind.Text },
       ],
-      openFile: { path: 'main.tex', document: createDocumentSnapshot(['x']) },
-      cursorLine: 1,
-      selection: '',
+      openFile: {
+        kind: 'text',
+        path: 'main.tex',
+        document: createDocumentSnapshot(['x']),
+        cursorLine: 1,
+        selection: '',
+      },
     },
     transcript: [
       {

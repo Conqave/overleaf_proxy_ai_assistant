@@ -15,7 +15,6 @@ import {
   CompileWithoutResultError,
   EditsNotSavedError,
   FileOpenTimeoutError,
-  NoOpenTextFileError,
   ProjectFileReadError,
   ProjectFileReadTimeoutError,
   ProjectTreeOutdatedError,
@@ -100,9 +99,13 @@ describe('OverleafProjectAdapter files', () => {
     expect(() => adapter.shownFile()).toThrow(ProjectTreeOutdatedError);
   });
 
-  it('names no open file while Overleaf shows a binary file', () => {
+  it('names the binary file Overleaf shows', () => {
     ide.click('file-frog');
-    expect(() => adapter.shownFile()).toThrow(NoOpenTextFileError);
+    expect(adapter.shownFile()).toMatchObject({
+      id: 'file-frog',
+      path: 'frog.jpg',
+      kind: 'binary',
+    });
     expect(adapter.isShown(file('main.tex'))).toBe(false);
   });
 

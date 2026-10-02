@@ -1,4 +1,5 @@
 import { hasAppliedEdits } from '../domain/change-set';
+import { ProjectFileKind } from '../domain/project-file';
 import type { ProposalMessage } from '../domain/conversation';
 import type { CancellationSignal } from '../ports/cancellation';
 import type { EditorPort } from '../ports/editor-port';
@@ -41,6 +42,7 @@ function previewPendingInShownFile(
   proposalId: string,
 ): void {
   const shown = project.shownFile();
+  if (shown.kind !== ProjectFileKind.Text) return;
   const pending = pendingChanges.selectFile(proposalId, shown.path);
   if (pending.length === 0) {
     editor.clearPreview();

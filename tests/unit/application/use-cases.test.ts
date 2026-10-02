@@ -259,14 +259,31 @@ describe('HandleAssistantRequest', () => {
       conversation: EMPTY_CONVERSATION,
       workspace: {
         files: project.files,
-        openFile: { path: 'main.tex', document: createDocumentSnapshot(MAIN) },
-        cursorLine: 2,
-        selection: 'world',
+        openFile: {
+          kind: 'text',
+          path: 'main.tex',
+          document: createDocumentSnapshot(MAIN),
+          cursorLine: 2,
+          selection: 'world',
+        },
       },
       transcript: [],
       signal: anInstanceOf(AbortSignal),
     });
     expect(progress.map((p) => p.stage)).toEqual(['received', 'thinking', 'measured']);
+  });
+
+  it('works without an open file while Overleaf shows a binary file', async () => {
+    project.showBinaryFile('figures/plot.png');
+    agent.will(tool({ tool: 'read_file', path: 'main.tex' }), mainEdit());
+    const result = await send('In main.tex, add a sentence.');
+    expect(requestAt(0).workspace).toEqual({
+      files: project.files,
+      openFile: { kind: 'binary', path: 'figures/plot.png' },
+    });
+    expect(result.kind).toBe('proposal');
+    expect(project.opened).toEqual(['main.tex']);
+    expect(editor.preview).toHaveLength(1);
   });
 
   it('reports the context usage of the decision that ended the request', async () => {

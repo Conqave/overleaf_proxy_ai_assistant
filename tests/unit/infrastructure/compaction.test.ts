@@ -47,9 +47,13 @@ function step(conversation: ConversationView): AgentStepRequest {
     conversation,
     workspace: {
       files: [{ id: '1', path: 'main.tex', kind: ProjectFileKind.Text }],
-      openFile: { path: 'main.tex', document: createDocumentSnapshot(['\\section{A}']) },
-      cursorLine: 1,
-      selection: '',
+      openFile: {
+        kind: 'text',
+        path: 'main.tex',
+        document: createDocumentSnapshot(['\\section{A}']),
+        cursorLine: 1,
+        selection: '',
+      },
     },
     transcript: [],
     signal: new AbortController().signal,

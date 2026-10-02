@@ -203,7 +203,7 @@ interface ShownDocument {
 }
 
 export function getShownDocument(
-  openFile: OpenFileView,
+  openFile: OpenFileView | null,
   transcript: readonly AgentTurn[],
   path: string,
   command: DocumentCommand,
@@ -216,7 +216,7 @@ export function getShownDocument(
     const current = reads.filter((read) => isSameDocument(read.document, latest.document));
     return { document: latest.document, spans: current.map((read) => read.shown) };
   }
-  if (openFile.path === path) {
+  if (openFile?.path === path) {
     return {
       document: openFile.document,
       spans: [{ first: 1, last: openFile.document.lines.length }],

@@ -376,9 +376,13 @@ describe('OllamaAgent', () => {
         { id: '1', path: 'main.tex', kind: ProjectFileKind.Text },
         { id: '2', path: 'refs.bib', kind: ProjectFileKind.Text },
       ],
-      openFile: { path: 'main.tex', document: createDocumentSnapshot(['\\cite{a}']) },
-      cursorLine: 1,
-      selection: '',
+      openFile: {
+        kind: 'text',
+        path: 'main.tex',
+        document: createDocumentSnapshot(['\\cite{a}']),
+        cursorLine: 1,
+        selection: '',
+      },
     },
     transcript: [],
   };
@@ -386,9 +390,12 @@ describe('OllamaAgent', () => {
   const document = createDocumentSnapshot(
     Array.from({ length: 4_000 }, (_, index) => `Zdanie ${String(index)} z żółwiem.`),
   );
-  const large = {
+  const large: AgentStepRequest = {
     ...step,
-    workspace: { ...step.workspace, openFile: { path: 'main.tex', document } },
+    workspace: {
+      ...step.workspace,
+      openFile: { kind: 'text', path: 'main.tex', document, cursorLine: 1, selection: '' },
+    },
   };
 
   it('gives the whole decision, correction included, one deadline', async () => {
@@ -507,11 +514,17 @@ describe('OllamaAgent', () => {
   });
 
   it('gives back the token openings it neutralised in the prompt', async () => {
-    const listing = {
+    const listing: AgentStepRequest = {
       ...step,
       workspace: {
         ...step.workspace,
-        openFile: { path: 'main.tex', document: createDocumentSnapshot(['f <|> g']) },
+        openFile: {
+          kind: 'text',
+          path: 'main.tex',
+          document: createDocumentSnapshot(['f <|> g']),
+          cursorLine: 1,
+          selection: '',
+        },
       },
     };
     const ollama = new FakeOllama().reply({
