@@ -59,4 +59,6 @@ export class InvalidCompactionSummaryError extends NamedError {}
 
 export class ForeignProjectExportError extends OperationalError {}
 
+export class EmptySessionExportError extends OperationalError {}
+
 export class InvalidWebSearchResultError extends NamedError {}

@@ -387,7 +387,7 @@ export function storedSession(
   messages: readonly ConversationMessage[],
   updatedAt = 1,
 ): ConversationSession {
-  return { id, title: `Session ${id}`, createdAt: 0, updatedAt, messages };
+  return { id, title: `Session ${id}`, createdAt: 0, updatedAt, messages, imported: null };
 }
 
 export function sequentialIds(prefix = 'id'): () => string {

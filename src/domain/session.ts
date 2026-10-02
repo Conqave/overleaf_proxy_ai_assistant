@@ -14,12 +14,18 @@ export interface SessionSummary {
   readonly messageCount: number;
 }
 
+export interface ImportedHistory {
+  readonly path: string;
+  readonly lastMessageId: string;
+}
+
 export interface ConversationSession {
   readonly id: string;
   readonly title: string;
   readonly createdAt: number;
   readonly updatedAt: number;
   readonly messages: readonly ConversationMessage[];
+  readonly imported: ImportedHistory | null;
 }
 
 export function createSessionTitle(request: string): string {
@@ -36,6 +42,7 @@ export function startSession(id: string, first: UserMessage, now: number): Conve
     createdAt: now,
     updatedAt: now,
     messages: [first],
+    imported: null,
   };
 }
 

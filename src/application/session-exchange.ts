@@ -55,7 +55,7 @@ export class ImportSession {
     return lock.run(async (signal) => {
       const epoch = conversation.epoch;
       const exported = await archive.load(findExport(project.listFiles(), path), signal);
-      const session = importSessionExport(exported, scope, newId(), now());
+      const session = importSessionExport(exported, { path, scope, id: newId(), now: now() });
       await sessions.save(session);
       conversation.ensureCurrent(epoch);
       leaveCurrentSession(this.deps);

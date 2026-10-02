@@ -220,7 +220,7 @@ const messages: ConversationMessage[] = [
 ];
 
 function session(id: string, updatedAt = 20): ConversationSession {
-  return { id, title: `Session ${id}`, createdAt: 10, updatedAt, messages };
+  return { id, title: `Session ${id}`, createdAt: 10, updatedAt, messages, imported: null };
 }
 
 let factory: IDBFactory;
@@ -294,8 +294,23 @@ describe('IndexedDbSessionRepository', () => {
         updatedAt: 20,
         messageCount: messages.length,
         messages,
+        imported: null,
       },
     ]);
+  });
+
+  it('keeps which messages of a session were imported', async () => {
+    const imported = {
+      ...session('a'),
+      imported: { path: 'hans-sessions/2026-10-02-070500-a.json', lastMessageId: 'u' },
+    };
+    await repository.save(imported);
+    await expect(repository.load('a')).resolves.toEqual(imported);
+  });
+
+  it('reads a session stored before imports were marked as not imported', async () => {
+    await storeRaw(rawRecord({}));
+    await expect(repository.load('raw')).resolves.toMatchObject({ imported: null });
   });
 
   it('replaces a session saved again', async () => {
@@ -342,6 +357,8 @@ describe('IndexedDbSessionRepository', () => {
     ['with a message of an unknown role', { messages: [{ id: 'm', role: 'robot', text: '' }] }],
     ['with a count that does not match its messages', { messageCount: 2 }],
     ['with an empty title', { title: '' }],
+    ['with an imported marker without its last message', { imported: { path: 'a.json' } }],
+    ['with an imported marker of an invalid path', { imported: { path: '', lastMessageId: 'u' } }],
     ['with a negative timestamp', { createdAt: -1 }],
     ['with a fractional timestamp', { updatedAt: 1.5 }],
     ...(
@@ -550,6 +567,7 @@ describe('IndexedDbSessionRepository', () => {
       createdAt: 1,
       updatedAt: 2,
       messages: [{ id: 'u', role: 'user', text: 'hi' }],
+      imported: null,
     });
   });
 

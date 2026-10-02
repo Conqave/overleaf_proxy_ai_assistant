@@ -1,5 +1,5 @@
 import type { ConversationMessage } from './conversation';
-import { ForeignProjectExportError } from './errors';
+import { EmptySessionExportError, ForeignProjectExportError } from './errors';
 import { PATH_SEPARATOR, type ProjectFile } from './project-file';
 import { createSessionTitle, discardUndecidedProposals, type ConversationSession } from './session';
 
@@ -75,23 +75,34 @@ export function listSessionExports(files: readonly ProjectFile[]): readonly Proj
     .sort((a, b) => b.path.localeCompare(a.path));
 }
 
+export interface ImportTarget {
+  readonly path: string;
+  readonly scope: SessionScope;
+  readonly id: string;
+  readonly now: number;
+}
+
 export function importSessionExport(
   exported: SessionExport,
-  scope: SessionScope,
-  id: string,
-  now: number,
+  { path, scope, id, now }: ImportTarget,
 ): ConversationSession {
   if (exported.projectId !== scope.projectId) {
     throw new ForeignProjectExportError(
       'This session was exported from another Overleaf project; import it in that project.',
     );
   }
+  const { messages } = exported.session;
+  const last = messages.at(-1);
+  if (last === undefined) {
+    throw new EmptySessionExportError(`${path} holds no messages; there is nothing to import.`);
+  }
   return discardUndecidedProposals({
     id,
     title: createSessionTitle(`${IMPORTED_TITLE_PREFIX}${exported.session.title}`),
     createdAt: now,
     updatedAt: now,
-    messages: exported.session.messages,
+    messages,
+    imported: { path, lastMessageId: last.id },
   });
 }
 

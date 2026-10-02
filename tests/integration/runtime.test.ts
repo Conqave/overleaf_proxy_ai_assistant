@@ -1073,7 +1073,14 @@ async function storedConversation(messages: ConversationMessage[]): Promise<IDBF
     { indexedDB: sessions },
     { userId: 'user-1', projectId: 'project-1' },
   );
-  await repository.save({ id: 'stored', title: 'Stored', createdAt: 1, updatedAt: 2, messages });
+  await repository.save({
+    id: 'stored',
+    title: 'Stored',
+    createdAt: 1,
+    updatedAt: 2,
+    messages,
+    imported: null,
+  });
   return sessions;
 }
 

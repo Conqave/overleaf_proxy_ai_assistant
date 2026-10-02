@@ -51,7 +51,7 @@ import {
   type WebSearchResult,
 } from '../../domain/web-search';
 import { createProjectPath } from '../../domain/project-file';
-import type { ConversationSession } from '../../domain/session';
+import type { ConversationSession, ImportedHistory } from '../../domain/session';
 import type { ExportedSession } from '../../domain/session-export';
 import type { OverleafPageIdentity } from '../overleaf/overleaf-page';
 import {
@@ -356,6 +356,7 @@ export interface StoredSession {
   readonly updatedAt: number;
   readonly messageCount: number;
   readonly messages: readonly ConversationMessage[];
+  readonly imported: ImportedHistory | null;
 }
 
 export function toStoredSession(
@@ -371,6 +372,7 @@ export function toStoredSession(
     updatedAt: session.updatedAt,
     messageCount: session.messages.length,
     messages: session.messages,
+    imported: session.imported,
   };
 }
 
@@ -401,5 +403,16 @@ export function parseStoredSession(
   if (getNonNegativeInteger(fields, 'messageCount') !== content.messages.length) {
     throw new UnknownStoredFormatError('messageCount does not match the messages');
   }
-  return { id: getString(fields, 'id'), ...content };
+  return { id: getString(fields, 'id'), ...content, imported: parseImported(fields) };
+}
+
+function parseImported(fields: Map<string, unknown>): ImportedHistory | null {
+  if (!fields.has('imported')) return null;
+  const value = fields.get('imported');
+  if (value === null) return null;
+  const imported = getFields(value);
+  return {
+    path: parsePath(imported.get('path')),
+    lastMessageId: getString(imported, 'lastMessageId'),
+  };
 }

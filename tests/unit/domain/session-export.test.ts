@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { EditStatus } from '../../../src/domain/change-set';
 import type { UserMessage } from '../../../src/domain/conversation';
 import { createDocumentCommand } from '../../../src/domain/document-command';
-import { ForeignProjectExportError } from '../../../src/domain/errors';
+import { EmptySessionExportError, ForeignProjectExportError } from '../../../src/domain/errors';
 import { ProjectFileKind, type ProjectFile } from '../../../src/domain/project-file';
 import { MAX_SESSION_TITLE_LENGTH, type ConversationSession } from '../../../src/domain/session';
 import {
@@ -11,6 +11,7 @@ import {
   importSessionExport,
   isSessionExportPath,
   listSessionExports,
+  type SessionScope,
 } from '../../../src/domain/session-export';
 import { editWith, proposalOf } from '../../support/proposals';
 
@@ -24,8 +25,11 @@ const command = createDocumentCommand({
 const EXPORTED_AT = new Date(2026, 9, 2, 7, 5).getTime();
 
 function sessionTitled(title: string): ConversationSession {
-  return { id: 's1', title, createdAt: 10, updatedAt: 20, messages: [first] };
+  return { id: 's1', title, createdAt: 10, updatedAt: 20, messages: [first], imported: null };
 }
+
+const PATH = 'hans-sessions/2026-10-02-0705-add-a-table.json';
+const target = (scope: SessionScope) => ({ path: PATH, scope, id: 'fresh', now: 99 });
 
 const file = (path: string): ProjectFile => ({ id: path, path, kind: ProjectFileKind.Binary });
 
@@ -73,26 +77,27 @@ describe('session export', () => {
 });
 
 describe('session import', () => {
-  it('becomes a new session of the importer with a marked title and no open edits', () => {
+  it('becomes a new session of the importer with a marked title, history and no open edits', () => {
     const proposal = proposalOf('p1', editWith('main.tex', command, EditStatus.Proposed));
     const exported = createSessionExport(
       { ...sessionTitled('Add a table'), messages: [first, proposal] },
       owner,
       EXPORTED_AT,
     );
-    expect(importSessionExport(exported, collaborator, 'fresh', 99)).toEqual({
+    expect(importSessionExport(exported, target(collaborator))).toEqual({
       id: 'fresh',
       title: 'Imported: Add a table',
       createdAt: 99,
       updatedAt: 99,
       messages: [first, proposalOf('p1', editWith('main.tex', command, EditStatus.Discarded))],
+      imported: { path: PATH, lastMessageId: 'p1' },
     });
   });
 
   it('keeps the title within the maximum length', () => {
     const long = 'x'.repeat(MAX_SESSION_TITLE_LENGTH);
     const exported = createSessionExport(sessionTitled(long), owner, EXPORTED_AT);
-    const { title } = importSessionExport(exported, owner, 'fresh', 99);
+    const { title } = importSessionExport(exported, target(owner));
     expect(title).toHaveLength(MAX_SESSION_TITLE_LENGTH);
     expect(title.startsWith('Imported: xxx')).toBe(true);
   });
@@ -100,7 +105,16 @@ describe('session import', () => {
   it('is refused in another project', () => {
     const exported = createSessionExport(sessionTitled('Add a table'), owner, EXPORTED_AT);
     expect(() =>
-      importSessionExport(exported, { ...owner, projectId: 'project-2' }, 'fresh', 99),
+      importSessionExport(exported, target({ ...owner, projectId: 'project-2' })),
     ).toThrow(ForeignProjectExportError);
+  });
+
+  it('is refused when the export holds no messages', () => {
+    const exported = createSessionExport(
+      { ...sessionTitled('Empty'), messages: [] },
+      owner,
+      EXPORTED_AT,
+    );
+    expect(() => importSessionExport(exported, target(owner))).toThrow(EmptySessionExportError);
   });
 });
