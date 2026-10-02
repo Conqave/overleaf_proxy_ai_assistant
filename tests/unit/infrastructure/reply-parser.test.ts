@@ -17,6 +17,14 @@ const problem = (raw: string): string => {
 };
 
 describe('parseAgentDecision tool calls', () => {
+  it('names a repeated field of an edit without the lookup advice', () => {
+    expect(
+      problem(
+        'ACTION: edit\nPATH: a.tex\nOPERATION: delete\nOPERATION: delete\nLINE: 1\nLINE_TEXT: x',
+      ),
+    ).toBe('OPERATION appears twice');
+  });
+
   it.each([
     ['ACTION: read_file\nPATH: refs.bib', { tool: 'read_file', path: 'refs.bib' }],
     ['ACTION: search\nQUERY:  \\label{fig:a} ', { tool: 'search', query: '\\label{fig:a}' }],
@@ -80,6 +88,16 @@ describe('parseAgentDecision tool calls', () => {
       'must be relative to the project root',
     ],
     ['a read with a task', 'ACTION: read_file\nPATH: a.tex\nTASK: x', 'remove TASK'],
+    [
+      'two files in one read',
+      'ACTION: read_file\nPATH: a.tex\nPATH: b.tex',
+      'PATH appears twice, but one reply is one read_file with one PATH; send only the first now and the next one in a later reply, after its result',
+    ],
+    [
+      'two queries in one search',
+      'ACTION: search\nQUERY: ab\nQUERY: cd',
+      'QUERY appears twice, but one reply is one search with one QUERY',
+    ],
   ])('rejects %s', (_name, raw, expected) => {
     expect(problem(raw)).toContain(expected);
   });

@@ -1,4 +1,5 @@
 import {
+  AgentTool,
   createToolCall,
   type AgentDecision,
   type AgentReply,
@@ -285,7 +286,7 @@ function parseFields(headerRows: readonly string[], rules: HeaderRules): Map<str
       if (name === undefined || value === undefined) {
         throw new InvariantViolation('the field pattern always captures a field and its value');
       }
-      if (fields.has(name)) throw new InvalidAssistantResponse(`${name} appears twice`);
+      if (fields.has(name)) throw new InvalidAssistantResponse(repeatedFieldProblem(rules, name));
       fields.set(name, name === EditField.LineText ? value : value.trim());
       continue;
     }
@@ -298,6 +299,13 @@ function parseFields(headerRows: readonly string[], rules: HeaderRules): Map<str
 }
 
 const ANY_FIELD = /^([A-Z][A-Z_]*):(?: |$)/;
+
+const LOOKUP_ACTIONS: readonly AgentAction[] = Object.values(AgentTool);
+
+function repeatedFieldProblem({ action }: HeaderRules, name: string): string {
+  if (!LOOKUP_ACTIONS.includes(action)) return `${name} appears twice`;
+  return `${name} appears twice, but one reply is one ${action} with one ${name}; send only the first now and the next one in a later reply, after its result`;
+}
 
 function rejectUnexpected(
   { action, names }: HeaderRules,
