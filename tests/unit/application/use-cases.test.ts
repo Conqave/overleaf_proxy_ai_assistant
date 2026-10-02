@@ -798,18 +798,85 @@ describe('delegation to a subagent', () => {
   });
 
   it('reports the subagent as reviewing the named files, or else every text file', async () => {
-    agent.will(delegate(['main.tex', 'refs.bib']), answer('Nothing.'), answer('Done.'));
+    agent.will(
+      delegate(['refs.bib', 'chapters']),
+      tool({ tool: 'search', query: 'knuth', path: 'chapters' }),
+      readBib(),
+      answer('Nothing.'),
+      answer('Done.'),
+    );
     await send('check');
     const reviewing = progress.flatMap((p) => (p.stage === 'delegating' ? [p.fileCount] : []));
     expect(reviewing).toEqual([2]);
     const steps = progress.flatMap((p) => (p.stage === 'subagent' ? [p.progress.stage] : []));
-    expect(steps).toEqual(['thinking', 'measured']);
+    expect(steps).toEqual([
+      'thinking',
+      'measured',
+      'searching',
+      'thinking',
+      'measured',
+      'reading',
+      'thinking',
+      'measured',
+    ]);
     progress = [];
     agent.will(delegate(), answer('All defined.'), answer('Done.'));
     await send('check all');
     expect(progress.filter((p) => p.stage === 'delegating')).toEqual([
       { stage: 'delegating', task: TASK, fileCount: 3 },
     ]);
+  });
+
+  it('counts the text files of a folder the delegation names once', async () => {
+    agent.will(
+      delegate(['chapters', 'chapters/intro.tex', 'main.tex']),
+      tool({ tool: 'search', query: 'knuth' }),
+      answer('Ok.'),
+      answer('Done.'),
+    );
+    await send('check');
+    expect(progress.filter((p) => p.stage === 'delegating')).toEqual([
+      { stage: 'delegating', task: TASK, fileCount: 2 },
+    ]);
+    expect(requestAt(1).request).toEqual({
+      kind: 'subtask',
+      task: TASK,
+      files: ['chapters/intro.tex', 'main.tex'],
+    });
+  });
+
+  it('rejects findings until every file of the task is checked', async () => {
+    agent.will(
+      delegate(['main.tex', 'chapters']),
+      answer('Too early.'),
+      tool({ tool: 'search', query: 'knuth', path: 'main.tex' }),
+      answer('Still early.'),
+      tool({ tool: 'read_file', path: 'chapters/intro.tex' }),
+      answer('All checked.'),
+      answer('Done.'),
+    );
+    await send('check');
+    const subtask = (index: number) =>
+      itemAt(
+        agent.requests.filter((r) => r.request.kind === 'subtask'),
+        index,
+        'subtask step',
+      );
+    expect(subtask(1).transcript).toEqual([
+      {
+        kind: 'mistake',
+        decision: answer('Too early.'),
+        problem:
+          'main.tex, chapters/intro.tex of the task are not checked yet; read_file or search each of them before you reply',
+      },
+    ]);
+    expect(subtask(3).transcript.at(-1)).toEqual({
+      kind: 'mistake',
+      decision: answer('Still early.'),
+      problem:
+        'chapters/intro.tex of the task is not checked yet; read_file or search each of them before you reply',
+    });
+    expect(delegationOf(0).report).toMatchObject({ text: 'All checked.', lookups: 2 });
   });
 
   it('records the delegation like any other lookup and reports it once', async () => {
@@ -929,7 +996,7 @@ describe('delegation to a subagent', () => {
       {
         kind: 'mistake',
         decision: delegate(['appendix.tex']),
-        problem: 'The project has no file appendix.tex.',
+        problem: 'The project has no file or folder appendix.tex.',
       },
     ]);
     expect(requestAt(1).request.kind).toBe('user');

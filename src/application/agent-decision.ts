@@ -7,7 +7,7 @@ import {
   type ToolCall,
 } from '../domain/agent-action';
 import type { EditRequest } from '../domain/change-set';
-import { checkReply, checkToolCall, type AgentPolicy } from '../domain/agent-policy';
+import { checkFilesChecked, checkReply, checkToolCall } from '../domain/agent-policy';
 import { assertEditShown, getShownDocument, type AgentTurn } from '../domain/agent-transcript';
 import {
   DelegationLimitError,
@@ -21,6 +21,7 @@ import {
   RepeatedToolCallError,
   ToolBudgetExhaustedError,
   ToolNotAllowedError,
+  UncheckedFilesError,
   UnreadFileEditError,
   UnshownLinesEditError,
 } from '../domain/errors';
@@ -28,7 +29,7 @@ import { checkSeparateEdits } from '../domain/file-change';
 import { findSearchScope, findTextFile, type TextFile } from '../domain/project-file';
 import { ResolvedEdit } from '../domain/resolved-edit';
 import type { ReadRange } from '../domain/read-window';
-import type { AgentWorkspace } from '../ports/agent-port';
+import { getRequestPolicy, type AgentRequest, type AgentWorkspace } from '../ports/agent-port';
 import { InvalidChangeSetEditError } from './errors';
 
 export type ProjectToolRun =
@@ -64,6 +65,7 @@ export type AgentMistake =
   | ToolNotAllowedError
   | ReplyNotAllowedError
   | DelegationLimitError
+  | UncheckedFilesError
   | ToolBudgetExhaustedError
   | RepeatedToolCallError
   | ProjectFileNotFoundError
@@ -81,6 +83,7 @@ export function isAgentMistake(error: unknown): error is AgentMistake {
     error instanceof ToolNotAllowedError ||
     error instanceof ReplyNotAllowedError ||
     error instanceof DelegationLimitError ||
+    error instanceof UncheckedFilesError ||
     error instanceof ToolBudgetExhaustedError ||
     error instanceof RepeatedToolCallError ||
     error instanceof ProjectFileNotFoundError ||
@@ -97,12 +100,14 @@ export function isAgentMistake(error: unknown): error is AgentMistake {
 
 export function acceptDecision(
   decision: AgentDecision,
-  policy: AgentPolicy,
+  request: AgentRequest,
   workspace: AgentWorkspace,
   transcript: readonly AgentTurn[],
 ): AcceptedDecision {
+  const policy = getRequestPolicy(request);
   if (decision.kind === 'reply') {
     checkReply(policy, decision.reply);
+    if (request.kind === 'subtask') checkFilesChecked(policy, transcript, request.files);
     return acceptReply(decision.reply, workspace, transcript);
   }
   const { call } = decision;
@@ -111,7 +116,7 @@ export function acceptDecision(
     return {
       kind: 'delegate',
       call,
-      files: call.files.map((path) => findTextFile(workspace.files, path)),
+      files: [...new Set(call.files.flatMap((path) => findSearchScope(workspace.files, path)))],
     };
   }
   return { kind: 'tool', call, run: planToolRun(call, workspace) };

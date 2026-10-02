@@ -1096,6 +1096,7 @@ describe('assistant subagent', () => {
       replies: [
         reply('ACTION: delegate', `TASK: ${TASK}`, 'FILES: main.tex, refs.bib'),
         { response: reply('ACTION: read_file', 'PATH: refs.bib').response, heldUntil: held },
+        reply('ACTION: search', 'QUERY: \\cite{', 'PATH: main.tex'),
         reply('ACTION: answer', 'TEXT:', FINDINGS),
         reply('ACTION: answer', 'TEXT:', 'The key greenwade93 is not defined in refs.bib.'),
       ],
@@ -1116,20 +1117,20 @@ describe('assistant subagent', () => {
       'main.tex:108 \\cite{greenwade93}: key missing from refs.bib',
     ]);
     expect(element(card, '.ola-result-meta').textContent).toBe(
-      '1 lookup · files: main.tex, refs.bib',
+      '2 lookups · files: main.tex, refs.bib',
     );
     expect(texts('.ola-result-body').at(-1)).toBe(
       'The key greenwade93 is not defined in refs.bib.',
     );
     const delegating = itemAt(ollama.prompts, 0, 'delegating prompt');
     const subagent = itemAt(ollama.prompts, 1, 'subagent prompt');
-    const answering = itemAt(ollama.prompts, 3, 'answering prompt');
+    const answering = itemAt(ollama.prompts, 4, 'answering prompt');
     expect(delegating.instructions).toContain('- delegate: hands a research task to a helper');
     expect(subagent.instructions).toContain('You are a research helper of Hans');
     expect(subagent.userMessage).toContain(`Task from Hans:\n${TASK}`);
     expect(subagent.userMessage).not.toContain('Numbered lines of');
     expect(answering.userMessage).toContain(
-      `Result 1 (delegate ${JSON.stringify(TASK)}):\n[findings of the helper after 1 lookup]\n${FINDINGS}`,
+      `Result 1 (delegate ${JSON.stringify(TASK)}):\n[findings of the helper after 2 lookups]\n${FINDINGS}`,
     );
     expect(answering.userMessage).not.toContain('title = {The TeXbook}');
     const reloaded = await start({ sessions });

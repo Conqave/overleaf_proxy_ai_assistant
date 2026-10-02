@@ -5,14 +5,13 @@ import type { ConversationView } from '../domain/conversation-view';
 import { failDelegation, finishDelegation } from '../domain/delegation';
 import { InvariantViolation } from '../domain/errors';
 import { listTextFiles } from '../domain/project-file';
-import {
-  getRequestPolicy,
-  type AgentPort,
-  type AgentRequest,
-  type AgentStep,
-  type AgentStepRequest,
-  type AgentWorkspace,
-  type ContextUsage,
+import type {
+  AgentPort,
+  AgentRequest,
+  AgentStep,
+  AgentStepRequest,
+  AgentWorkspace,
+  ContextUsage,
 } from '../ports/agent-port';
 import type { CancellationSignal } from '../ports/cancellation';
 import { AssistantContextOverflowError, AssistantProtocolError } from '../ports/errors';
@@ -61,7 +60,6 @@ export class AgentLoop {
 
   async run(run: AgentRun): Promise<AgentOutcome> {
     const { request, workspace, host, signal, onProgress } = run;
-    const policy = getRequestPolicy(request);
     const transcript: AgentTurn[] = [];
     const stepRequest = (): AgentStepRequest => ({
       request,
@@ -86,7 +84,7 @@ export class AgentLoop {
       onProgress({ stage: 'measured', contextUsage });
       let accepted: AcceptedDecision;
       try {
-        accepted = acceptDecision(decision, policy, workspace, transcript);
+        accepted = acceptDecision(decision, request, workspace, transcript);
       } catch (error) {
         if (!isAgentMistake(error)) throw error;
         recordMistake(transcript, decision, error);
@@ -125,7 +123,7 @@ export class AgentLoop {
     onProgress({ stage: 'delegating', task: call.task, fileCount });
     let lookups = 0;
     const subtask: AgentRun = {
-      request: { kind: 'subtask', task: call.task, files: call.files },
+      request: { kind: 'subtask', task: call.task, files: files.map((file) => file.path) },
       workspace,
       host: {
         viewHistory: () => NO_HISTORY,

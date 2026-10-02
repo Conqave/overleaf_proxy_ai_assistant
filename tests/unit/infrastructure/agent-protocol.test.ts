@@ -330,12 +330,31 @@ describe('subagent exchange', () => {
   it('shows the subagent the task and the files but neither the open file nor the selection', () => {
     const selected = subtask({ workspace: { ...request().workspace, selection: 'Bo' } });
     const { prompt } = createAgentExchange(selected, budget).request;
-    expect(prompt).toContain(`Task from Hans:\n${TASK}\nFiles named for the task: main.tex`);
+    expect(prompt).toContain(`Task from Hans:\n${TASK}\nFiles to check: main.tex`);
     expect(prompt).toContain('Project files:\nmain.tex\nrefs.bib\nfrog.jpg (binary)');
     expect(prompt).not.toContain('Numbered lines of');
     expect(prompt).not.toContain('Selected text');
     expect(prompt).not.toContain('User message');
-    expect(prompt.endsWith(`Lookups left: ${String(SUBAGENT_POLICY.maxToolCalls)}`)).toBe(true);
+    expect(
+      prompt.endsWith(
+        `Files to check that are not checked yet: main.tex\nLookups left: ${String(SUBAGENT_POLICY.maxToolCalls)}`,
+      ),
+    ).toBe(true);
+  });
+
+  it('tells the subagent when every file to check is checked', () => {
+    const read: AgentTurn = {
+      kind: 'tool',
+      call: { tool: AgentTool.ReadFile, path: 'main.tex' },
+      result: {
+        tool: AgentTool.ReadFile,
+        path: 'main.tex',
+        document: main,
+        shown: { first: 1, last: 2 },
+      },
+    };
+    const { prompt } = createAgentExchange(subtask({ transcript: [read] }), budget).request;
+    expect(prompt).toContain('Every file to check is checked.\nLookups left: ');
   });
 
   it('tells the subagent to answer once its lookups are used up', () => {

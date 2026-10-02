@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   AGENT_POLICY,
+  checkFilesChecked,
   checkReply,
   checkToolCall,
   countToolCallsLeft,
@@ -8,7 +9,7 @@ import {
   MAIN_AGENT_POLICY,
   SUBAGENT_POLICY,
 } from '../../../src/domain/agent-policy';
-import type { AgentTurn } from '../../../src/domain/agent-transcript';
+import { findUncheckedFiles, type AgentTurn } from '../../../src/domain/agent-transcript';
 import { finishDelegation } from '../../../src/domain/delegation';
 import { createDocumentSnapshot } from '../../../src/domain/document';
 import {
@@ -17,6 +18,7 @@ import {
   RepeatedToolCallError,
   ToolBudgetExhaustedError,
   ToolNotAllowedError,
+  UncheckedFilesError,
 } from '../../../src/domain/errors';
 
 const MAIN = MAIN_AGENT_POLICY;
@@ -181,6 +183,48 @@ describe('delegation policy', () => {
         `all ${String(SUBAGENT_POLICY.maxToolCalls)} lookups are used; reply now with answer`,
       ),
     );
+  });
+});
+
+describe('files a subagent has to check', () => {
+  const searchTurn = (path: string | undefined, truncated: boolean): AgentTurn => ({
+    kind: 'tool',
+    call:
+      path === undefined ? { tool: 'search', query: 'k' } : { tool: 'search', query: 'k', path },
+    result: { tool: 'search', matches: [], truncated },
+  });
+  const files = ['ch/a.tex', 'ch/b.tex', 'refs.bib'];
+
+  it('counts a read file and every file a complete search covered as checked', () => {
+    expect(findUncheckedFiles(files, [readTurn('refs.bib')])).toEqual(['ch/a.tex', 'ch/b.tex']);
+    expect(findUncheckedFiles(files, [searchTurn('ch', false)])).toEqual(['refs.bib']);
+    expect(findUncheckedFiles(files, [searchTurn(undefined, false)])).toEqual([]);
+  });
+
+  it('does not count a cut search or a rejected step as checking', () => {
+    expect(findUncheckedFiles(files, [searchTurn('ch', true), mistakeTurn('refs.bib')])).toEqual(
+      files,
+    );
+  });
+
+  it('refuses findings while files are unchecked and lookups are left', () => {
+    expect(() => {
+      checkFilesChecked(SUBAGENT_POLICY, [readTurn('refs.bib')], files);
+    }).toThrow(
+      new UncheckedFilesError(
+        'ch/a.tex, ch/b.tex of the task are not checked yet; read_file or search each of them before you reply',
+      ),
+    );
+    expect(() => {
+      checkFilesChecked(SUBAGENT_POLICY, [searchTurn(undefined, false)], files);
+    }).not.toThrow();
+  });
+
+  it('accepts findings once the lookups are used up', () => {
+    const full = repeat(SUBAGENT_POLICY.maxToolCalls, (i) => readTurn(`x${String(i)}.tex`));
+    expect(() => {
+      checkFilesChecked(SUBAGENT_POLICY, full, files);
+    }).not.toThrow();
   });
 });
 

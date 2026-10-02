@@ -1,11 +1,17 @@
 import { AgentTool, isSameToolCall, type AgentReply, type ToolCall } from './agent-action';
-import { getToolTurns, type AgentTurn, type ToolTurn } from './agent-transcript';
+import {
+  findUncheckedFiles,
+  getToolTurns,
+  type AgentTurn,
+  type ToolTurn,
+} from './agent-transcript';
 import {
   DelegationLimitError,
   ReplyNotAllowedError,
   RepeatedToolCallError,
   ToolBudgetExhaustedError,
   ToolNotAllowedError,
+  UncheckedFilesError,
 } from './errors';
 
 export const AGENT_POLICY = {
@@ -95,6 +101,20 @@ export function checkReply(policy: AgentPolicy, reply: AgentReply): void {
   if (!policy.replies.includes(reply.kind)) {
     throw new ReplyNotAllowedError(
       `${reply.kind} is not available in this task; reply with ${policy.replies.join(' or ')}`,
+    );
+  }
+}
+
+export function checkFilesChecked(
+  policy: AgentPolicy,
+  transcript: readonly AgentTurn[],
+  paths: readonly string[],
+): void {
+  if (countToolCallsLeft(policy, transcript) === 0) return;
+  const unchecked = findUncheckedFiles(paths, transcript);
+  if (unchecked.length) {
+    throw new UncheckedFilesError(
+      `${unchecked.join(', ')} of the task ${unchecked.length === 1 ? 'is' : 'are'} not checked yet; ${AgentTool.ReadFile} or ${AgentTool.Search} each of them before you reply`,
     );
   }
 }

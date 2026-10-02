@@ -7,7 +7,12 @@ import {
   SUBAGENT_POLICY,
   type AgentPolicy,
 } from '../../domain/agent-policy';
-import { recordToolTurn, type AgentTurn, type ToolRecord } from '../../domain/agent-transcript';
+import {
+  findUncheckedFiles,
+  recordToolTurn,
+  type AgentTurn,
+  type ToolRecord,
+} from '../../domain/agent-transcript';
 import type { ConversationView } from '../../domain/conversation-view';
 import type { DocumentSnapshot } from '../../domain/document';
 import { DocumentOperation } from '../../domain/document-command';
@@ -107,7 +112,7 @@ const actionLine = (action: AgentAction): string => fieldLine(AgentField.Action,
 
 const replyFormat = (policy: AgentPolicy): readonly string[] => [
   `Every reply is exactly one action written as plain text lines in the reply itself. The first line is always ${fieldLine(AgentField.Action, '<action>')}. No JSON, no markdown fences, nothing before or after.`,
-  `You have no functions and no tools to call. Never send a message to a recipient or a function: the whole reply goes to the final channel as plain text, including ${policy.tools.join(', ')}, which are only lines of text that the editor reads.`,
+  `You have no functions and no tools to call. Never send a message to a recipient or a function: the whole reply goes to the final channel as plain text, including ${listItems(policy.tools, 'and')}, which are only lines of text that the editor reads.`,
 ];
 
 const LOOKUP_INTRO =
@@ -142,21 +147,22 @@ const DELEGATE_LOOKUP: readonly string[] = [
   fieldLine(AgentField.Files, 'chapters/ch2.tex, chapters/ch3.tex, chapters/ch4.tex'),
 ];
 
-const PARTIAL_READ_RULE = `- A result "Showing only lines A–B of N" shows only part of the file; lines up to N exist. Read the part you need with ${AgentField.StartLine} and ${EditField.EndLine}, or ${A.Search} for it, before you answer or edit.`;
+const partialReadRule = (before: string): string =>
+  `- A result "Showing only lines A–B of N" shows only part of the file; lines up to N exist. Read the part you need with ${AgentField.StartLine} and ${EditField.EndLine}, or ${A.Search} for it, before you ${before}.`;
 
 const STEP_RULES: readonly string[] = [
-  '- Reply as soon as you know enough. Never repeat a lookup; use the result you already have.',
+  '- Never repeat a lookup; use the result you already have.',
   `- A result marked ${REJECTED} explains why your action at that step was not carried out; send a corrected action instead of repeating it.`,
 ];
 
-const LOOKUPS_LEFT_RULE = (policy: AgentPolicy): string =>
-  `- When "Lookups left" is 0, reply now with ${listChoices(policy.replies)}.`;
+const lookupsLeftRule = (policy: AgentPolicy): string =>
+  `- When "Lookups left" is 0, reply now with ${listItems(policy.replies, 'or')}.`;
 
-function listChoices(choices: readonly string[]): string {
-  const last = choices.at(-1);
-  if (last === undefined) throw new InvariantViolation('a policy offers at least one reply');
-  const others = choices.slice(0, -1);
-  return others.length ? `${others.join(', ')} or ${last}` : last;
+function listItems(items: readonly string[], conjunction: 'and' | 'or'): string {
+  const last = items.at(-1);
+  if (last === undefined) throw new InvariantViolation('a policy lists at least one action');
+  const others = items.slice(0, -1);
+  return others.length ? `${others.join(', ')} ${conjunction} ${last}` : last;
 }
 
 const AGENT_SYSTEM = lines(
@@ -189,7 +195,7 @@ const AGENT_SYSTEM = lines(
   '- The open file is already shown with numbered lines: never read it; answer or edit it directly.',
   `- Any other file must be read with ${A.ReadFile} before you edit it or quote it; you can only edit lines that were shown to you. A ${A.Search} result shows single matching lines and does not count as reading them: read the lines around a match before you edit them.`,
   `- ${AgentField.Path} is always a path exactly as listed under Project files; files marked (binary) cannot be read or edited. If a file the user names is not listed, say so in an ${A.Answer}.`,
-  PARTIAL_READ_RULE,
+  partialReadRule('answer or edit'),
   `- Use ${A.Search} to find labels, citations, commands or text when you do not know which file has them.`,
   `- When a ${A.Search} result says that more matches were omitted and the request needs all of them (every \\cite, every table, every label across the chapters), ${A.Delegate} the check instead of searching again.`,
   `- A ${A.Delegate} result holds only the helper's findings: answer from it, and read the lines you change with ${A.ReadFile} before an ${A.Edit}.`,
@@ -197,8 +203,9 @@ const AGENT_SYSTEM = lines(
   `- A System request about compile errors comes with "${COMPILE_RESULT_LABEL}": do not ${A.Compile} again; read the file it names and fix only the first error it reports, with a single block.`,
   `- Verbs such as translate, fix, change, add, remove, rewrite (przetłumacz, popraw, zmień, dodaj, usuń, przepisz) applied to text of a file, including the selected text, ask for an ${A.Edit} of that file even when the user does not name the file; the new text never goes into an ${A.Answer}.`,
   `- Verbs such as explain, describe, summarize (wyjaśnij, opisz, streść) ask for an ${A.Answer}; they never change a file.`,
+  '- Reply as soon as you know enough.',
   ...STEP_RULES,
-  LOOKUPS_LEFT_RULE(MAIN_AGENT_POLICY),
+  lookupsLeftRule(MAIN_AGENT_POLICY),
   '- Base answers on the files; do not invent content they do not have. Quote LaTeX exactly.',
   '',
   EDIT_RULES,
@@ -268,9 +275,11 @@ const SUBAGENT_SYSTEM = lines(
   `- Every reply is one lookup: one ${A.ReadFile} with one ${AgentField.Path}, or one ${A.Search} with one ${AgentField.Query}. To read or search several files, take them one after another, one file per reply.`,
   `- When a ${A.Search} result says that more matches were omitted, search each file the task names on its own with ${AgentField.Path}, or ${A.ReadFile} it, instead of repeating the search.`,
   `- ${AgentField.Path} is always a path exactly as listed under Project files; files marked (binary) cannot be read.`,
-  PARTIAL_READ_RULE,
+  partialReadRule('reply'),
+  '- Check every file and every item the task covers before you reply: findings that leave a file out are wrong. Reply as soon as everything is checked.',
+  '- When the task compares items, such as \\cite keys against .bib entries, go through the results item by item before you reply: take each item, look it up in the other result, and note every one that does not match.',
   ...STEP_RULES,
-  LOOKUPS_LEFT_RULE(SUBAGENT_POLICY),
+  lookupsLeftRule(SUBAGENT_POLICY),
   '- Base the findings on the files only; quote LaTeX exactly. Write them in English.',
   '',
   'Example of a lookup:',
@@ -407,7 +416,7 @@ function composePrompt(request: AgentStepRequest, budget: number): ComposedPromp
       !isMain || workspace.selection === ''
         ? []
         : [{ label: SELECTION_LABEL, text: workspace.selection }],
-    toolsLeft: toolsLeft(policy, transcript),
+    toolsLeft: toolsLeft(request.request, transcript),
   };
 }
 
@@ -534,10 +543,20 @@ function fileNote(file: ProjectFile, openPath: string | null): string {
   return '';
 }
 
-function toolsLeft(policy: AgentPolicy, transcript: readonly AgentTurn[]): string {
+function toolsLeft(request: AgentRequest, transcript: readonly AgentTurn[]): string {
+  const counted = countLookupsLeft(getRequestPolicy(request), transcript);
+  if (request.kind !== 'subtask' || !request.files.length) return counted;
+  const unchecked = findUncheckedFiles(request.files, transcript);
+  const checked = unchecked.length
+    ? `Files to check that are not checked yet: ${unchecked.join(', ')}`
+    : 'Every file to check is checked.';
+  return lines(checked, counted);
+}
+
+function countLookupsLeft(policy: AgentPolicy, transcript: readonly AgentTurn[]): string {
   const left = countToolCallsLeft(policy, transcript);
   if (left === 0) {
-    return `Lookups left: 0. Reply now with ${fieldLine(AgentField.Action, listChoices(policy.replies))}.`;
+    return `Lookups left: 0. Reply now with ${fieldLine(AgentField.Action, listItems(policy.replies, 'or'))}.`;
   }
   return `Lookups left: ${String(left)}`;
 }

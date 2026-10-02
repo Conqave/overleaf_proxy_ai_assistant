@@ -8,6 +8,7 @@ import {
   UnreadFileEditError,
   UnshownLinesEditError,
 } from './errors';
+import { isInScope } from './project-file';
 import type { LineSpan } from './read-window';
 
 export interface SearchMatch {
@@ -150,6 +151,26 @@ export type AgentTurn = ToolTurn | MistakeTurn;
 
 export function getToolTurns(transcript: readonly AgentTurn[]): readonly ToolTurn[] {
   return transcript.filter((turn) => turn.kind === 'tool');
+}
+
+export function findUncheckedFiles(
+  paths: readonly string[],
+  transcript: readonly AgentTurn[],
+): readonly string[] {
+  const turns = getToolTurns(transcript);
+  return paths.filter((path) => !turns.some((turn) => isFileChecked(path, turn)));
+}
+
+function isFileChecked(path: string, { call, result }: ToolTurn): boolean {
+  switch (call.tool) {
+    case AgentTool.ReadFile:
+      return call.path === path;
+    case AgentTool.Search:
+      return result.tool === AgentTool.Search && !result.truncated && isInScope(path, call.path);
+    case AgentTool.Compile:
+    case AgentTool.Delegate:
+      return false;
+  }
 }
 
 export interface OpenFileView {

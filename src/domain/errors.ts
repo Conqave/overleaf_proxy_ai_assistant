@@ -33,6 +33,8 @@ export class ReplyNotAllowedError extends NamedError {}
 
 export class DelegationLimitError extends NamedError {}
 
+export class UncheckedFilesError extends NamedError {}
+
 export class UnreadFileEditError extends NamedError {}
 
 export class UnshownLinesEditError extends NamedError {}
