@@ -1,5 +1,5 @@
 import { AgentTool, type AgentDecision, type ToolCall } from '../../domain/agent-action';
-import { countToolCallsLeft } from '../../domain/agent-policy';
+import { AGENT_POLICY, countToolCallsLeft } from '../../domain/agent-policy';
 import { recordToolTurn, type AgentTurn, type ToolRecord } from '../../domain/agent-transcript';
 import type { ConversationView } from '../../domain/conversation-view';
 import type { DocumentSnapshot } from '../../domain/document';
@@ -90,6 +90,10 @@ const EDIT_RULES = lines(
   '- It must be valid LaTeX: close every environment you open.',
   '- When the user asks for new text without giving it (for example a section with one sentence), write suitable text yourself instead of asking.',
   '- Only the new or changed lines; never repeat unchanged surrounding lines and never rewrite the whole document.',
+  'Several changes:',
+  `- Use one block per place: a request that touches several places, such as renaming a \\label together with every \\ref to it, gets all its blocks in one ${A.Edit} reply.`,
+  `- ${F.Line} and ${F.EndLine} in every block are the line numbers as shown to you; the editor applies the blocks bottom-up, so earlier blocks never shift the lines of later ones.`,
+  `- Two blocks never change the same line or the same place; join neighbouring changes into one ${DocumentOperation.Replace} with ${F.Line} and ${F.EndLine}.`,
 );
 
 const actionLine = (action: AgentAction): string => fieldLine(AgentField.Action, action);
@@ -118,14 +122,15 @@ const AGENT_SYSTEM = lines(
   `- ${A.Question}: only when you cannot act at all. Details the user leaves open, such as the exact wording or an example sentence, you write yourself and still reply with ${A.Edit}.`,
   actionLine(A.Question),
   fieldLine(AgentField.Question, '<one short question>'),
-  `- ${A.Edit}: exactly one change of one file (an insertion around a line, or a replacement or deletion of one line or a range of consecutive lines). Every request to add, change, remove, fix, rewrite or translate content of a file ends with an ${A.Edit} that the user reviews and applies, never with the new text in an ${A.Answer}; translating the selected text means replacing it in its file.`,
+  `- ${A.Edit}: one or more changes, each an insertion around a line or a replacement or deletion of one line or a range of consecutive lines, in one file or in several files. Every request to add, change, remove, fix, rewrite or translate content of a file ends with an ${A.Edit} that the user reviews and applies, never with the new text in an ${A.Answer}; translating the selected text means replacing it in its file. Each change is one block that starts with its ${AgentField.Path} line:`,
   actionLine(A.Edit),
   fieldLine(AgentField.Path, '<file path exactly as listed under Project files>'),
   EDIT_FORMAT,
+  `For several changes (several places or several files), repeat the block from ${AgentField.Path} to its content once per change, at most ${String(AGENT_POLICY.maxEditsPerChange)} blocks in one reply; every block starts with its own ${AgentField.Path} line, also for another place in the same file, and the content of a block ends where the next ${AgentField.Path} line starts.`,
   '',
   'How to work:',
   '- The open file is already shown with numbered lines: never read it; answer or edit it directly.',
-  `- Any other file must be read with ${A.ReadFile} before you edit it or quote it; you can only edit lines that were shown to you.`,
+  `- Any other file must be read with ${A.ReadFile} before you edit it or quote it; you can only edit lines that were shown to you. A ${A.Search} result shows single matching lines and does not count as reading them: read the lines around a match before you edit them.`,
   `- ${AgentField.Path} is always a path exactly as listed under Project files; files marked (binary) cannot be read or edited. If a file the user names is not listed, say so in an ${A.Answer}.`,
   `- A result "Showing only lines A–B of N" shows only part of the file; lines up to N exist. Read the part you need with ${AgentField.StartLine} and ${EditField.EndLine}, or ${A.Search} for it, before you answer or edit.`,
   `- Use ${A.Search} to find labels, citations, commands or text when you do not know which file has them.`,
@@ -160,6 +165,22 @@ const AGENT_SYSTEM = lines(
   '  title = {The TeXbook},',
   '  year = {1984}',
   '}',
+  'Example of one edit with two changes in two files (renaming a label and its reference, both files read before):',
+  actionLine(A.Edit),
+  fieldLine(AgentField.Path, 'chapters/results.tex'),
+  fieldLine(F.Operation, DocumentOperation.Replace),
+  fieldLine(F.Line, '2'),
+  fieldLine(F.LineText, '\\label{sec:results}'),
+  fieldLine(F.Reason, 'Zmieniam etykietę sekcji.'),
+  CONTENT_MARKER,
+  '\\label{sec:measurements}',
+  fieldLine(AgentField.Path, 'main.tex'),
+  fieldLine(F.Operation, DocumentOperation.Replace),
+  fieldLine(F.Line, '41'),
+  fieldLine(F.LineText, 'Wyniki są w rozdziale~\\ref{sec:results}.'),
+  fieldLine(F.Reason, 'Aktualizuję odwołanie do etykiety.'),
+  CONTENT_MARKER,
+  'Wyniki są w rozdziale~\\ref{sec:measurements}.',
   'Example of a deletion of a whole subsection (heading, blank line and paragraph):',
   actionLine(A.Edit),
   fieldLine(AgentField.Path, 'main.tex'),

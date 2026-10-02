@@ -4,8 +4,11 @@ import {
   type AgentReply,
   type ToolCall,
 } from '../../domain/agent-action';
+import { AGENT_POLICY } from '../../domain/agent-policy';
+import type { EditRequest } from '../../domain/change-set';
 import {
   createDocumentCommand,
+  DocumentOperation,
   type DocumentCommand,
   type DocumentCommandInput,
 } from '../../domain/document-command';
@@ -127,7 +130,47 @@ function parseQuestion(rows: readonly string[]): string {
   return question;
 }
 
+const PATH_LINE = createFieldPattern([AgentField.Path]);
+
 function parseEditReply(rows: readonly string[]): AgentReply {
+  const blocks = splitEditBlocks(rows);
+  const { maxEditsPerChange } = AGENT_POLICY;
+  if (blocks.length > maxEditsPerChange) {
+    throw new InvalidAssistantResponse(
+      `one ${AgentAction.Edit} reply carries at most ${String(maxEditsPerChange)} edit blocks, but this one has ${String(blocks.length)}; send at most ${String(maxEditsPerChange)} blocks: merge changes of neighbouring lines into one ${DocumentOperation.Replace} with ${EditField.Line} and ${EditField.EndLine}, or leave the rest for a later request`,
+    );
+  }
+  if (blocks.length === 1) return { kind: 'edit', edits: blocks.map(parseEditBlock) };
+  return {
+    kind: 'edit',
+    edits: blocks.map((block, index) => parseEditBlockOfMany(block, index, blocks.length)),
+  };
+}
+
+function splitEditBlocks(rows: readonly string[]): readonly (readonly string[])[] {
+  const blocks: string[][] = [[]];
+  for (const row of rows) {
+    const current = blocks.at(-1);
+    if (current === undefined) throw new InvariantViolation('the edit blocks start with one block');
+    const startsBlock = PATH_LINE.test(row) && current.some((line) => PATH_LINE.test(line));
+    if (startsBlock) blocks.push([row]);
+    else current.push(row);
+  }
+  return blocks;
+}
+
+function parseEditBlockOfMany(block: readonly string[], index: number, count: number): EditRequest {
+  try {
+    return parseEditBlock(block);
+  } catch (error) {
+    if (!(error instanceof InvalidAssistantResponse)) throw error;
+    throw new InvalidAssistantResponse(
+      `edit block ${String(index + 1)} of ${String(count)}: ${error.problem}`,
+    );
+  }
+}
+
+function parseEditBlock(rows: readonly string[]): EditRequest {
   const { fields, content } = parseHeaderReply(rows, AgentAction.Edit, AGENT_EDIT_FIELDS);
   const path = parseEditPath(getRequiredField(fields, AgentField.Path));
   const lineNumber = getLineNumber(fields, EditField.Line);
@@ -140,7 +183,7 @@ function parseEditReply(rows: readonly string[]): AgentReply {
     content,
     reason: getOptionalField(fields, EditField.Reason),
   });
-  return { kind: 'edit', edits: [{ path, command }] };
+  return { path, command };
 }
 
 function parseEditPath(value: string): string {
@@ -203,7 +246,7 @@ function parseHeaderReply(
   const misplaced = contentRows.find((row) => pattern.test(row));
   if (misplaced !== undefined) {
     throw new InvalidAssistantResponse(
-      `${JSON.stringify(misplaced)} comes after ${CONTENT_MARKER}; every header line goes before ${CONTENT_MARKER} and only the new LaTeX follows it`,
+      `${JSON.stringify(misplaced)} comes after ${CONTENT_MARKER}; every header line goes before ${CONTENT_MARKER} and only the new LaTeX follows it, and a further edit block starts with its own ${AgentField.Path} line`,
     );
   }
   if (contentRows.length === 0) return { fields };

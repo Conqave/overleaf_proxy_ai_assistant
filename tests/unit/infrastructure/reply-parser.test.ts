@@ -270,3 +270,97 @@ describe('parseAgentDecision edit header', () => {
     expect(() => parse(raw)).toThrow(InvalidAssistantResponse);
   });
 });
+
+describe('parseAgentDecision edit blocks', () => {
+  const block = (
+    path: string,
+    line: number,
+    operation = 'replace',
+    content = `Line ${String(line)}.`,
+  ) =>
+    [
+      `PATH: ${path}`,
+      `OPERATION: ${operation}`,
+      `LINE: ${String(line)}`,
+      `LINE_TEXT: old ${String(line)}`,
+      ...(operation === 'delete' ? [] : ['CONTENT:', content]),
+    ].join('\n');
+
+  const editsOf = (raw: string) => {
+    const decision = parseAgentDecision(raw);
+    if (decision.kind !== 'reply' || decision.reply.kind !== 'edit') {
+      throw new TestFixtureError('the reply was no edit');
+    }
+    return decision.reply.edits;
+  };
+
+  it('reads one edit per block, each starting with its PATH line', () => {
+    const edits = editsOf(
+      [
+        'ACTION: edit',
+        block('chapters/results.tex', 2, 'replace', '\\label{sec:new}'),
+        block('main.tex', 9, 'delete'),
+        block('main.tex', 20, 'insert_after', 'See Section~\\ref{sec:new}.\n\nMore.'),
+      ].join('\n'),
+    );
+    expect(edits).toEqual([
+      {
+        path: 'chapters/results.tex',
+        command: {
+          operation: 'replace',
+          target: { lineNumber: 2, lineText: 'old 2' },
+          lineCount: 1,
+          content: '\\label{sec:new}',
+        },
+      },
+      {
+        path: 'main.tex',
+        command: {
+          operation: 'delete',
+          target: { lineNumber: 9, lineText: 'old 9' },
+          lineCount: 1,
+        },
+      },
+      {
+        path: 'main.tex',
+        command: {
+          operation: 'insert_after',
+          target: { lineNumber: 20, lineText: 'old 20' },
+          content: 'See Section~\\ref{sec:new}.\n\nMore.',
+        },
+      },
+    ]);
+  });
+
+  it('keeps the fields of a block in any order after its PATH line', () => {
+    const edits = editsOf(
+      'ACTION: edit\nOPERATION: delete\nPATH: a.tex\nLINE: 1\nLINE_TEXT: x\nPATH: b.tex\nLINE: 2\nLINE_TEXT: y\nOPERATION: delete',
+    );
+    expect(edits.map(({ path }) => path)).toEqual(['a.tex', 'b.tex']);
+  });
+
+  it('accepts eight blocks and asks for fewer when there are more', () => {
+    const blocks = (count: number) =>
+      ['ACTION: edit', ...Array.from({ length: count }, (_, i) => block('main.tex', i + 1))].join(
+        '\n',
+      );
+    expect(editsOf(blocks(8))).toHaveLength(8);
+    expect(problem(blocks(9))).toBe(
+      'one edit reply carries at most 8 edit blocks, but this one has 9; send at most 8 blocks: merge changes of neighbouring lines into one replace with LINE and END_LINE, or leave the rest for a later request',
+    );
+  });
+
+  it('names the block that is wrong', () => {
+    expect(
+      problem(
+        ['ACTION: edit', block('main.tex', 1), 'PATH: refs.bib\nOPERATION: replace'].join('\n'),
+      ),
+    ).toBe('edit block 2 of 2: LINE is missing');
+  });
+
+  it('tells the model that a header line after the content needs its own block', () => {
+    expect(problem(`ACTION: edit\n${block('main.tex', 1)}\nOPERATION: delete`)).toContain(
+      'a further edit block starts with its own PATH line',
+    );
+  });
+});

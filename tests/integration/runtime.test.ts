@@ -662,6 +662,85 @@ describe('assistant agent', () => {
     ]);
   });
 
+  it('proposes edits of two files as one change, previews each file and applies them', async () => {
+    const twoFiles = reply(
+      'ACTION: edit',
+      'PATH: main.tex',
+      'OPERATION: replace',
+      'LINE: 4',
+      `LINE_TEXT: ${EXPERIMENT_LINE}`,
+      'CONTENT:',
+      BOLD_EXPERIMENT,
+      'PATH: refs.bib',
+      'OPERATION: insert_after',
+      'LINE: 3',
+      'LINE_TEXT: }',
+      'CONTENT:',
+      SMITH_ENTRY,
+    );
+    const { doc, send, click, texts, ide, editorText, preview } = await start({
+      replies: [reply('ACTION: read_file', 'PATH: refs.bib'), twoFiles],
+    });
+    await send('Cite smith20 in bold and add its entry.');
+    expect(texts('.ola-ai .ola-result-title')).toEqual(['Proposed changes: 2 edits in 2 files']);
+    expect(texts('.ola-change-path')).toEqual(['main.tex', 'refs.bib']);
+    expect(ide.store.get('editor.open_doc_id')).toBe(FIXTURE_DOC_ID);
+    expect(preview()).toEqual([BOLD_EXPERIMENT]);
+    const showBib = doc.querySelectorAll<HTMLButtonElement>('.ola-preview-file')[1];
+    if (showBib === undefined) throw new TestFixtureError('refs.bib has no Show button');
+    showBib.click();
+    await vi.waitFor(() => {
+      expect(preview()).toEqual([SMITH_ENTRY.replaceAll('\n', '')]);
+    }, PAGE_WAIT);
+    expect(ide.store.get('editor.open_doc_id')).toBe(REFS_DOC_ID);
+    await click('.ola-apply', () => {
+      expect(texts('.ola-system')).toEqual([
+        'Done. Applied 2 edits in main.tex, refs.bib.',
+        'Compiled without errors.',
+      ]);
+    });
+    expect(editorText()).toBe(`${REFS_TEXT}\n${SMITH_ENTRY}`);
+    expect(ide.textOf(FIXTURE_DOC_ID).split('\n')[3]).toBe(BOLD_EXPERIMENT);
+    expect(ide.compileCount).toBe(1);
+    expect(texts('.ola-ai.is-applied > .ola-result-status')).toEqual(['Applied']);
+  });
+
+  it('applies and rejects single edits of a change and compiles after the last one', async () => {
+    const twoPlaces = reply(
+      'ACTION: edit',
+      'PATH: main.tex',
+      'OPERATION: replace',
+      'LINE: 4',
+      `LINE_TEXT: ${EXPERIMENT_LINE}`,
+      'CONTENT:',
+      BOLD_EXPERIMENT,
+      'PATH: main.tex',
+      'OPERATION: insert_after',
+      'LINE: 6',
+      'LINE_TEXT: The results are shown below.',
+      'CONTENT:',
+      'They look fine.',
+    );
+    const { send, click, texts, ide, editorText, preview } = await start({ replies: [twoPlaces] });
+    await send('Bold the experiment and comment the results.');
+    expect(preview()).toEqual([BOLD_EXPERIMENT, 'They look fine.']);
+    await click('.ola-reject-edit', () => {
+      expect(texts('.ola-ai > .ola-result-status')).toEqual(['1 rejected · 1 open']);
+    });
+    expect(preview()).toEqual(['They look fine.']);
+    await click('.ola-apply-edit', () => {
+      expect(texts('.ola-system')).toContain('Compiled without errors.');
+    });
+    expect(editorText().split('\n').slice(3, 7)).toEqual([
+      EXPERIMENT_LINE,
+      '\\section{Results}',
+      'The results are shown below.',
+      'They look fine.',
+    ]);
+    expect(ide.compileCount).toBe(1);
+    expect(texts('.ola-ai > .ola-result-status')).toEqual(['1 applied · 1 rejected']);
+  });
+
   it.each([
     ['still produces a PDF', 'pdf'],
     ['stops it before any PDF', 'pdf-unless-errors'],
