@@ -15,6 +15,15 @@ describe('readProjectTree', () => {
     ]);
   });
 
+  it('names the root folder and every folder by its path', () => {
+    const { rootFolderId, folders } = readProjectTree({ rootFolder: [FIXTURE_ROOT_FOLDER] });
+    expect(rootFolderId).toBe('folder-root');
+    expect([...folders]).toEqual([
+      ['chapters', 'folder-chapters'],
+      ['chapters/intro', 'folder-intro'],
+    ]);
+  });
+
   it('knows the folders to expand before a file is visible', () => {
     const { folderIds } = readProjectTree({ rootFolder: [FIXTURE_ROOT_FOLDER] });
     expect(folderIds.get('doc-main')).toEqual([]);

@@ -34,6 +34,10 @@ export class ProjectFileReadError extends OperationalError {}
 
 export class ProjectFileReadTimeoutError extends OperationalError {}
 
+export class ProjectFileWriteError extends OperationalError {}
+
+export class ProjectFileWriteTimeoutError extends OperationalError {}
+
 export class FileOpenTimeoutError extends OperationalError {}
 
 export class CompileTimeoutError extends OperationalError {}

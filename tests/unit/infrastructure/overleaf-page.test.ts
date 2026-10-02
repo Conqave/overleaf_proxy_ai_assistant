@@ -1,8 +1,9 @@
 import { JSDOM } from 'jsdom';
 import { describe, expect, it } from 'vitest';
 import {
+  getCsrfToken,
   getPageIdentity,
-  MissingPageIdentityError,
+  MissingPageMetadataError,
 } from '../../../src/infrastructure/overleaf/overleaf-page';
 
 const page = (head: string) => new JSDOM(`<!doctype html><head>${head}</head>`).window.document;
@@ -15,10 +16,17 @@ describe('getPageIdentity', () => {
   });
 
   it('fails fast on a page that names no user or no project', () => {
-    expect(() => getPageIdentity(page(PROJECT))).toThrow(MissingPageIdentityError);
-    expect(() => getPageIdentity(page(USER))).toThrow(MissingPageIdentityError);
+    expect(() => getPageIdentity(page(PROJECT))).toThrow(MissingPageMetadataError);
+    expect(() => getPageIdentity(page(USER))).toThrow(MissingPageMetadataError);
     expect(() => getPageIdentity(page(USER + '<meta name="ol-project_id" content="">'))).toThrow(
-      MissingPageIdentityError,
+      MissingPageMetadataError,
     );
+  });
+});
+
+describe('getCsrfToken', () => {
+  it('reads the token Overleaf expects on every write request', () => {
+    expect(getCsrfToken(page('<meta name="ol-csrfToken" content="t1">'))).toBe('t1');
+    expect(() => getCsrfToken(page(USER))).toThrow(MissingPageMetadataError);
   });
 });

@@ -5,10 +5,7 @@ import { ProjectFileKind, type ProjectFile, type TextFile } from '../../domain/p
 import {
   FileOpenTimeoutError,
   NoOpenTextFileError,
-  ProjectFileReadError,
-  ProjectFileReadTimeoutError,
   ProjectTreeOutdatedError,
-  ProjectUnavailableError,
 } from '../../ports/errors';
 import type { CancellationSignal } from '../../ports/cancellation';
 import type { ProjectPort } from '../../ports/project-port';
@@ -16,22 +13,20 @@ import { throwAbortReason, withDeadline } from '../deadline';
 import { formatDuration } from '../duration';
 import { OverleafCompiler } from './overleaf-compiler';
 import type { OpenEditor, OverleafEditorBridge } from './overleaf-editor-bridge';
+import type { OverleafProjectFiles } from './overleaf-project-files';
 import { OverleafStoreContractError, StoreKey, type OverleafStore } from './overleaf-store';
 import { readProjectTree } from './project-tree';
 
 const FILE_TREE_SELECTOR = '.file-tree';
 const ENTITY_SELECTOR = '.entity[data-file-id]';
-const HTTP_NOT_FOUND = 404;
 const EXPAND_ICON_SELECTOR = '.file-tree-expand-icon';
 const FILE_OPEN_MS = 20_000;
-const FILE_READ_MS = 20_000;
 
 export interface OverleafProjectDependencies {
   readonly window: Window & typeof globalThis;
   readonly store: OverleafStore;
   readonly bridge: OverleafEditorBridge;
-  readonly fetch: typeof fetch;
-  readonly projectId: string;
+  readonly files: OverleafProjectFiles;
 }
 
 export class OverleafFileTreeContractError extends NamedError {
@@ -81,15 +76,7 @@ export class OverleafProjectAdapter implements ProjectPort {
       );
       return createDocumentSnapshot(view.state.doc.toJSON());
     }
-    const text = await withDeadline(
-      FILE_READ_MS,
-      () =>
-        new ProjectFileReadTimeoutError(
-          `${file.path} could not be read within ${formatDuration(FILE_READ_MS)}.`,
-        ),
-      [cancel],
-      (signal) => this.download(file, signal),
-    );
+    const text = await this.deps.files.read(file, cancel);
     return createDocumentSnapshot(text.split(/\r?\n/));
   }
 
@@ -160,47 +147,6 @@ export class OverleafProjectAdapter implements ProjectPort {
     return this.deps.store.getString(StoreKey.OpenDocId);
   }
 
-  private async download(file: TextFile, signal: AbortSignal): Promise<string> {
-    const response = await this.requestDownload(file, signal);
-    if (response.status === HTTP_NOT_FOUND) {
-      throw this.outdatedTree(file);
-    }
-    if (!response.ok) {
-      throw new ProjectFileReadError(
-        `${file.path} could not be read: Overleaf answered HTTP ${String(response.status)}.`,
-      );
-    }
-    return await this.readText(response, file, signal);
-  }
-
-  private async requestDownload(file: TextFile, signal: AbortSignal): Promise<Response> {
-    const { projectId } = this.deps;
-    try {
-      return await this.deps.fetch(`/Project/${projectId}/doc/${file.id}/download`, {
-        cache: 'no-store',
-        signal,
-      });
-    } catch (error) {
-      signal.throwIfAborted();
-      if (!(error instanceof TypeError)) throw error;
-      throw new ProjectUnavailableError(`Overleaf could not be reached to read ${file.path}.`, {
-        cause: error,
-      });
-    }
-  }
-
-  private async readText(response: Response, file: TextFile, signal: AbortSignal): Promise<string> {
-    try {
-      return await response.text();
-    } catch (error) {
-      signal.throwIfAborted();
-      if (!(error instanceof TypeError)) throw error;
-      throw new ProjectUnavailableError(`The download of ${file.path} was interrupted.`, {
-        cause: error,
-      });
-    }
-  }
-
   private expandFolder(folderId: string, file: TextFile): void {
     const entity = this.findEntity(folderId, file);
     const item = entity.closest('[role="treeitem"]');
@@ -221,14 +167,10 @@ export class OverleafProjectAdapter implements ProjectPort {
     const entities = tree.querySelectorAll<HTMLElement>(ENTITY_SELECTOR);
     const entity = [...entities].find((element) => element.dataset.fileId === id);
     if (entity === undefined) {
-      throw this.outdatedTree(file);
+      throw new ProjectTreeOutdatedError(
+        `${file.path} was moved or deleted after the page loaded; reload Overleaf to see the current files.`,
+      );
     }
     return entity;
-  }
-
-  private outdatedTree(file: TextFile): ProjectTreeOutdatedError {
-    return new ProjectTreeOutdatedError(
-      `${file.path} was moved or deleted after the page loaded; reload Overleaf to see the current files.`,
-    );
   }
 }

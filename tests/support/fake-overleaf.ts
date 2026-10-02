@@ -1,5 +1,6 @@
 import { EditorState, StateEffect, StateField, type Extension } from '@codemirror/state';
 import { Decoration, EditorView, ViewPlugin, WidgetType } from '@codemirror/view';
+import { FakeOverleafServer } from './fake-overleaf-server';
 import { FakeOverleafStore } from './fake-overleaf-store';
 import { TestFixtureError } from './test-errors';
 
@@ -76,6 +77,8 @@ export const FIXTURE_TEXTS: ReadonlyMap<string, string> = new Map([
   ['doc-intro', '\\section{Introduction}\nThe introduction.'],
 ]);
 
+export const FIXTURE_FILE_TEXTS: ReadonlyMap<string, string> = new Map([['file-frog', 'JFIF']]);
+
 export const EMPTY_LOG_ENTRIES = { errors: [], warnings: [], typesetting: [], all: [] };
 
 export class FakeSharedDocument {
@@ -98,6 +101,7 @@ export class FakeSharedDocument {
 
 export class FakeOverleafIde {
   readonly store: FakeOverleafStore;
+  readonly server: FakeOverleafServer;
   readonly sharedDocument = new FakeSharedDocument();
   editor: EditorView;
   opensDocs = true;
@@ -114,7 +118,9 @@ export class FakeOverleafIde {
   constructor(
     private readonly window: Window & typeof globalThis,
     rootFolder: FakeFolder = FIXTURE_ROOT_FOLDER,
+    fileTexts: ReadonlyMap<string, string> = FIXTURE_FILE_TEXTS,
   ) {
+    this.server = new FakeOverleafServer(rootFolder, this, fileTexts);
     const { document } = window;
     document.body.innerHTML =
       '<ul class="file-tree"></ul><div id="editor"></div>' +

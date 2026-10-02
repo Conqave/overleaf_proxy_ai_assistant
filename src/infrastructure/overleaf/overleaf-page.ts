@@ -5,7 +5,7 @@ export interface OverleafPageIdentity {
   readonly projectId: string;
 }
 
-export class MissingPageIdentityError extends NamedError {
+export class MissingPageMetadataError extends NamedError {
   constructor(meta: string) {
     super(`The Overleaf page has no ${meta} metadata.`);
   }
@@ -18,8 +18,12 @@ export function getPageIdentity(document: Document): OverleafPageIdentity {
   };
 }
 
+export function getCsrfToken(document: Document): string {
+  return getMetaContent(document, 'ol-csrfToken');
+}
+
 function getMetaContent(document: Document, name: string): string {
   const meta = document.querySelector<HTMLMetaElement>(`meta[name="${name}"]`);
-  if (!meta || meta.content === '') throw new MissingPageIdentityError(name);
+  if (!meta || meta.content === '') throw new MissingPageMetadataError(name);
   return meta.content;
 }

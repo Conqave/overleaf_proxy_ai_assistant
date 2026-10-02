@@ -1,27 +1,24 @@
-import { FakeOverleafIde } from './fake-overleaf';
+import { FakeOverleafIde, type FakeFolder } from './fake-overleaf';
 
 declare global {
   interface Window {
-    fakeOverleaf: { load(): FakeOverleafIde };
+    fakeOverleaf: {
+      load(rootFolder?: FakeFolder, fileTexts?: ReadonlyMap<string, string>): FakeOverleafIde;
+    };
   }
 }
 
-const DOWNLOAD_URL = /^\/Project\/[^/]+\/doc\/([^/]+)\/download$/;
-const HTTP_NOT_FOUND = 404;
+const OVERLEAF_URL = /^\/project\//i;
 
 window.fakeOverleaf = {
-  load() {
-    const ide = new FakeOverleafIde(window);
+  load(rootFolder, fileTexts) {
+    const ide = new FakeOverleafIde(window, rootFolder, fileTexts);
     const pageFetch = window.fetch.bind(window);
     window.fetch = (input, init) => {
-      if (typeof input !== 'string') return pageFetch(input, init);
-      const download = DOWNLOAD_URL.exec(input);
-      const docId = download?.[1];
-      if (docId === undefined) return pageFetch(input, init);
-      if (!ide.hasText(docId)) {
-        return Promise.resolve(new Response('missing', { status: HTTP_NOT_FOUND }));
+      if (typeof input === 'string' && OVERLEAF_URL.test(input)) {
+        return ide.server.fetch(input, init);
       }
-      return Promise.resolve(new Response(ide.textOf(docId)));
+      return pageFetch(input, init);
     };
     return ide;
   },

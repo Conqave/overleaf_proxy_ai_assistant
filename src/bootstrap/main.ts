@@ -25,10 +25,12 @@ import { OverleafHookContractError } from '../infrastructure/overleaf/codemirror
 import { OverleafEditorAdapter } from '../infrastructure/overleaf/overleaf-editor-adapter';
 import { OverleafEditorBridge } from '../infrastructure/overleaf/overleaf-editor-bridge';
 import {
+  getCsrfToken,
   getPageIdentity,
-  MissingPageIdentityError,
+  MissingPageMetadataError,
 } from '../infrastructure/overleaf/overleaf-page';
 import { OverleafProjectAdapter } from '../infrastructure/overleaf/overleaf-project-adapter';
+import { OverleafProjectFiles } from '../infrastructure/overleaf/overleaf-project-files';
 import {
   OverleafStore,
   OverleafStoreContractError,
@@ -57,13 +59,13 @@ function compose(
     window.fetch.bind(window),
   );
   const agent = new OllamaAgent(client);
-  const project = new OverleafProjectAdapter({
-    window,
+  const files = new OverleafProjectFiles({
     store,
-    bridge,
     fetch: window.fetch.bind(window),
     projectId: identity.projectId,
+    csrfToken: getCsrfToken(window.document),
   });
+  const project = new OverleafProjectAdapter({ window, store, bridge, files });
   const newId = (): string => createUuid(window.crypto);
   const sessions = new IndexedDbSessionRepository(window, identity);
   const conversation = new ConversationLog({ sessions, newId, now: () => Date.now() });
@@ -150,12 +152,12 @@ function isStartupFailure(
   error: unknown,
 ): error is
   | ConfigurationError
-  | MissingPageIdentityError
+  | MissingPageMetadataError
   | OverleafHookContractError
   | OverleafStoreContractError {
   return (
     error instanceof ConfigurationError ||
-    error instanceof MissingPageIdentityError ||
+    error instanceof MissingPageMetadataError ||
     error instanceof OverleafHookContractError ||
     error instanceof OverleafStoreContractError
   );

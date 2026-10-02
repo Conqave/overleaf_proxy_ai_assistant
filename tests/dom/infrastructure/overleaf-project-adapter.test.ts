@@ -6,6 +6,7 @@ import {
   OverleafFileTreeContractError,
   OverleafProjectAdapter,
 } from '../../../src/infrastructure/overleaf/overleaf-project-adapter';
+import { OverleafProjectFiles } from '../../../src/infrastructure/overleaf/overleaf-project-files';
 import { OverleafToolbarContractError } from '../../../src/infrastructure/overleaf/overleaf-compiler';
 import { OverleafStore, StoreKey } from '../../../src/infrastructure/overleaf/overleaf-store';
 import {
@@ -46,10 +47,9 @@ beforeEach(() => {
   requests = [];
   cancel = new AbortController();
   answer = () => Promise.resolve(new Response('@book{knuth84,\r\n}'));
-  adapter = new OverleafProjectAdapter({
-    window,
-    store: OverleafStore.fromWindow(window),
-    bridge,
+  const store = OverleafStore.fromWindow(window);
+  const files = new OverleafProjectFiles({
+    store,
     fetch: (input, init) => {
       if (typeof input !== 'string') throw new TestFixtureError('the adapter fetches by URL text');
       const signal = init?.signal;
@@ -58,7 +58,9 @@ beforeEach(() => {
       return answer(signal);
     },
     projectId: 'project-1',
+    csrfToken: 'csrf-1',
   });
+  adapter = new OverleafProjectAdapter({ window, store, bridge, files });
   return () => {
     uninstall();
   };

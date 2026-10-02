@@ -10,6 +10,14 @@ import { OverleafStoreContractError } from './overleaf-store';
 export interface ProjectTree {
   readonly files: readonly ProjectFile[];
   readonly folderIds: ReadonlyMap<string, readonly string[]>;
+  readonly rootFolderId: string;
+  readonly folders: ReadonlyMap<string, string>;
+}
+
+interface TreeListing {
+  readonly files: ProjectFile[];
+  readonly folderIds: Map<string, readonly string[]>;
+  readonly folders: Map<string, string>;
 }
 
 interface Entity {
@@ -31,10 +39,15 @@ export function readProjectTree(project: unknown): ProjectTree {
   if (!Array.isArray(rootFolder) || rootFolder.length !== 1) {
     throw new OverleafStoreContractError('project.rootFolder is not a list of one folder');
   }
-  const files: ProjectFile[] = [];
-  const folderIds = new Map<string, readonly string[]>();
-  collectFolder(readFolder(rootFolder[0]), [], [], files, folderIds);
-  return { files: validateFiles(files), folderIds };
+  const root = readFolder(rootFolder[0]);
+  const listing: TreeListing = { files: [], folderIds: new Map(), folders: new Map() };
+  collectFolder(root, [], [], listing);
+  return {
+    files: validateFiles(listing.files),
+    folderIds: listing.folderIds,
+    rootFolderId: root.id,
+    folders: listing.folders,
+  };
 }
 
 function validateFiles(files: readonly ProjectFile[]): readonly ProjectFile[] {
@@ -54,9 +67,9 @@ function collectFolder(
   folder: Folder,
   names: readonly string[],
   ancestors: readonly string[],
-  files: ProjectFile[],
-  folderIds: Map<string, readonly string[]>,
+  listing: TreeListing,
 ): void {
+  const { files, folderIds, folders } = listing;
   const entry = (value: unknown): { id: string; path: string } => {
     const { id, name } = readEntity(value);
     folderIds.set(id, ancestors);
@@ -68,7 +81,9 @@ function collectFolder(
   }
   for (const value of folder.folders) {
     const child = readFolder(value);
-    collectFolder(child, [...names, child.name], [...ancestors, child.id], files, folderIds);
+    const path = [...names, child.name];
+    folders.set(path.join(PATH_SEPARATOR), child.id);
+    collectFolder(child, path, [...ancestors, child.id], listing);
   }
 }
 
