@@ -114,6 +114,7 @@ describe('agent exchange', () => {
     const { system } = createAgentExchange(request(), budget).request;
     expect(system).toMatch(/- answer: [^\n]*may use Markdown/);
     expect(system).toMatch(/- Everything after CONTENT: [^\n]*no Markdown\./);
+    expect(system).toMatch(/- answer: [^\n]*never HTML: no <br>/);
   });
 
   it('teaches how to escape given text and how to add a .bib field', () => {

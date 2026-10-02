@@ -1260,4 +1260,22 @@ describe('Ollama agent contract', () => {
     },
     CASE_TIMEOUT_MS,
   );
+
+  it(
+    'writes Markdown tables without HTML',
+    async () => {
+      const run = await runApplication(model, {
+        ...UNTOUCHED_PROJECT,
+        name: 'table answer',
+        request:
+          'Do a stylistic review of the introduction and the first section: answer with a table with the columns Sentence, Problem and Suggestion, with at least four rows and several points per cell where needed.',
+      });
+      expect(run.result.message).toMatchObject({
+        kind: 'explanation',
+        text: textMatching(/\|[^\n]*\|/),
+      });
+      expect(run.result.message).not.toMatchObject({ text: textMatching(/<\/?[a-z][^>]*>/i) });
+    },
+    CASE_TIMEOUT_MS,
+  );
 });
