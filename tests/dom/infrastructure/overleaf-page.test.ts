@@ -1,4 +1,3 @@
-import { JSDOM } from 'jsdom';
 import { describe, expect, it } from 'vitest';
 import {
   getCsrfToken,
@@ -6,7 +5,8 @@ import {
   MissingPageMetadataError,
 } from '../../../src/infrastructure/overleaf/overleaf-page';
 
-const page = (head: string) => new JSDOM(`<!doctype html><head>${head}</head>`).window.document;
+const page = (head: string) =>
+  new DOMParser().parseFromString(`<!doctype html><head>${head}</head>`, 'text/html');
 const USER = '<meta name="ol-user_id" content="u1">';
 const PROJECT = '<meta name="ol-project_id" content="p1">';
 
