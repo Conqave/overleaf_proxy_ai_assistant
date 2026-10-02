@@ -4,10 +4,14 @@ import type {
   ConversationMessage,
   UserMessage,
 } from '../../../src/domain/conversation';
+import { EditStatus } from '../../../src/domain/change-set';
+import { createDocumentCommand } from '../../../src/domain/document-command';
 import { InvariantViolation } from '../../../src/domain/errors';
 import {
   appendToSession,
   createSessionTitle,
+  discardUndecidedProposals,
+  hasUndecidedProposals,
   MAX_SESSION_MESSAGES,
   MAX_SESSION_TITLE_LENGTH,
   replaceInSession,
@@ -16,6 +20,7 @@ import {
   summarizeSession,
   type SessionSummary,
 } from '../../../src/domain/session';
+import { editWith, proposalOf } from '../../support/proposals';
 
 const first: UserMessage = { id: 'u1', role: 'user', text: '  Add a table\n of results  ' };
 const answer: ConversationMessage = {
@@ -135,5 +140,34 @@ describe('session', () => {
     const sessions = [summary('a', 1, 5), summary('b', 2, 9), summary('c', 3, 5)];
     expect(sortNewestFirst(sessions).map(({ id }) => id)).toEqual(['b', 'c', 'a']);
     expect(sessions.map(({ id }) => id)).toEqual(['a', 'b', 'c']);
+  });
+});
+
+describe('undecided proposals', () => {
+  const command = createDocumentCommand({
+    operation: 'delete',
+    target: { lineNumber: 2, lineText: 'x' },
+  });
+  const decided = proposalOf('p1', editWith('a.tex', command, EditStatus.Applied));
+  const undecided = proposalOf(
+    'p2',
+    editWith('a.tex', command, EditStatus.Rejected),
+    editWith('b.tex', command, EditStatus.Proposed),
+  );
+  const session = { ...startSession('s1', first, 1), messages: [first, decided, undecided] };
+
+  it('are discarded while decided edits keep their status', () => {
+    expect(hasUndecidedProposals(session)).toBe(true);
+    const discarded = discardUndecidedProposals(session);
+    expect(discarded.messages).toEqual([
+      first,
+      decided,
+      proposalOf(
+        'p2',
+        editWith('a.tex', command, EditStatus.Rejected),
+        editWith('b.tex', command, EditStatus.Discarded),
+      ),
+    ]);
+    expect(hasUndecidedProposals(discarded)).toBe(false);
   });
 });

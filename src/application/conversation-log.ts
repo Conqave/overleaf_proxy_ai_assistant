@@ -1,13 +1,14 @@
-import { decideEdits, EditStatus, findPendingEdits, type ProposedEdit } from '../domain/change-set';
+import type { ProposedEdit } from '../domain/change-set';
 import {
   AssistantMessageKind,
-  isUndecidedProposal,
   type ConversationMessage,
   type ProposalMessage,
 } from '../domain/conversation';
 import { InvariantViolation } from '../domain/errors';
 import {
   appendToSession,
+  discardUndecidedProposals,
+  hasUndecidedProposals,
   replaceInSession,
   startSession,
   type ConversationSession,
@@ -50,7 +51,7 @@ export class ConversationLog {
   show(session: ConversationSession): void {
     this.currentEpoch += 1;
     this.current = session;
-    if (session.messages.some(isUndecidedProposal)) this.discardUndecidedProposals(session);
+    if (hasUndecidedProposals(session)) this.update(discardUndecidedProposals(session));
   }
 
   startNew(): void {
@@ -95,22 +96,6 @@ export class ConversationLog {
     const failure = this.persistenceFailure;
     this.persistenceFailure = null;
     return failure;
-  }
-
-  private discardUndecidedProposals(session: ConversationSession): void {
-    const messages = session.messages.map((message) =>
-      isUndecidedProposal(message)
-        ? {
-            ...message,
-            edits: decideEdits(
-              message.edits,
-              findPendingEdits(message.edits),
-              EditStatus.Discarded,
-            ),
-          }
-        : message,
-    );
-    this.update({ ...session, messages });
   }
 
   private update(session: ConversationSession): void {

@@ -1,4 +1,5 @@
-import type { ConversationMessage, UserMessage } from './conversation';
+import { decideEdits, EditStatus, findPendingEdits } from './change-set';
+import { isUndecidedProposal, type ConversationMessage, type UserMessage } from './conversation';
 import { countCoveredMessages } from './conversation-view';
 import { InvariantViolation } from './errors';
 
@@ -63,6 +64,22 @@ export function replaceInSession(
   }
   const messages = session.messages.map((shown) => (shown.id === message.id ? message : shown));
   return { ...session, messages, updatedAt: now };
+}
+
+export function hasUndecidedProposals(session: ConversationSession): boolean {
+  return session.messages.some(isUndecidedProposal);
+}
+
+export function discardUndecidedProposals(session: ConversationSession): ConversationSession {
+  const messages = session.messages.map((message) =>
+    isUndecidedProposal(message)
+      ? {
+          ...message,
+          edits: decideEdits(message.edits, findPendingEdits(message.edits), EditStatus.Discarded),
+        }
+      : message,
+  );
+  return { ...session, messages };
 }
 
 export function summarizeSession(session: ConversationSession): SessionSummary {
