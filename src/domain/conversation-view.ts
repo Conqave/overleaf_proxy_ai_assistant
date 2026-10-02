@@ -29,9 +29,7 @@ export function viewConversation(
   imported: ImportedHistory | null,
 ): ConversationView {
   const summary = findLatestSummary(messages);
-  const exchange = messages
-    .slice(countCoveredMessages(messages))
-    .filter((message): message is ExchangeMessage => message.role !== 'summary');
+  const exchange = messages.slice(countCoveredMessages(messages)).filter(isExchangeMessage);
   if (imported === null) return { summary, messages: exchange, imported: null };
   const messageCount = exchange.findIndex(({ id }) => id === imported.lastMessageId) + 1;
   return { summary, messages: exchange, imported: { path: imported.path, messageCount } };
@@ -172,4 +170,8 @@ function parseActivityPath(value: unknown): string {
     if (!(error instanceof InvalidProjectPathError)) throw error;
     throw new InvalidCompactionSummaryError(error.message, { cause: error });
   }
+}
+
+function isExchangeMessage(message: ConversationMessage): message is ExchangeMessage {
+  return message.role !== 'summary' && message.role !== 'notice';
 }

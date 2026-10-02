@@ -1,9 +1,10 @@
-import type { EditRequest } from '../domain/change-set';
 import type {
   CompactionSummaryMessage,
+  NoticeMessage,
   ProposalMessage,
   SystemRequestMessage,
   ToolMessage,
+  UndoMessage,
   UserMessage,
 } from '../domain/conversation';
 import type { ContextUsage } from '../domain/context-usage';
@@ -12,11 +13,6 @@ import type { PendingWebSearch } from './web-search-approval';
 export interface FileConflict {
   readonly path: string;
   readonly problem: string;
-}
-
-export interface ApplyReport {
-  readonly applied: readonly EditRequest[];
-  readonly conflicts: readonly FileConflict[];
 }
 
 export type AgentProgress =
@@ -35,9 +31,9 @@ export type AgentProgress =
       readonly fileCount: number;
       readonly progress: AgentProgress;
     }
-  | { readonly stage: 'recorded'; readonly message: ToolMessage }
+  | { readonly stage: 'recorded'; readonly message: ToolMessage | UndoMessage }
   | { readonly stage: 'opening'; readonly path: string }
   | { readonly stage: 'decided'; readonly message: ProposalMessage }
-  | { readonly stage: 'applied'; readonly report: ApplyReport }
+  | { readonly stage: 'noted'; readonly message: NoticeMessage }
   | { readonly stage: 'compacting' }
   | { readonly stage: 'compacted'; readonly message: CompactionSummaryMessage };

@@ -5,11 +5,11 @@ import { DocumentConflictError } from '../domain/errors';
 import { planEditChange } from '../domain/file-change';
 import type { TextFile } from '../domain/project-file';
 import type { CancellationSignal } from '../ports/cancellation';
-import type { AgentProgress, ApplyReport, FileConflict } from './agent-progress';
+import type { AgentProgress, FileConflict } from './agent-progress';
 import { concludeDecision, type ChangeSetDeps, type ChangeSetOutcome } from './change-set-outcome';
-import type { ConversationLog } from './conversation-log';
 import { FailureRecordingError } from './errors';
 import { ensureNotCancelled, type OperationLock } from './operation-lock';
+import { note, recordingFailure } from './notices';
 import type { PendingEdit } from './pending-change';
 import { showProjectFile } from './show-project-file';
 
@@ -33,35 +33,35 @@ type FileOutcome =
     };
 
 export class ApplyChangeSet {
-  constructor(
-    private readonly deps: ChangeSetDeps & {
-      readonly conversation: ConversationLog;
-      readonly lock: OperationLock;
-    },
-  ) {}
+  constructor(private readonly deps: ChangeSetDeps & { readonly lock: OperationLock }) {}
 
   execute(
     proposalId: string,
     indexes: readonly number[] | null,
     onProgress: (progress: AgentProgress) => void,
   ): Promise<ChangeSetOutcome> {
-    return this.deps.lock.run(async (signal) => {
-      const run = { proposalId, onProgress, signal };
-      const selected = this.deps.pendingChanges.select(proposalId, indexes);
-      const applied: EditRequest[] = [];
-      const conflicts: FileConflict[] = [];
-      let message = this.deps.conversation.findProposal(proposalId);
-      for (const { file, edits } of groupByFile(selected)) {
-        const outcome = await this.applyFile(file, edits, run);
-        message = outcome.message;
-        onProgress({ stage: 'decided', message });
-        if (outcome.kind === 'conflict') conflicts.push(outcome.conflict);
-        else applied.push(...edits.map(({ change }) => describeEdit(change)));
-      }
-      const report: ApplyReport = { applied, conflicts };
-      onProgress({ stage: 'applied', report });
-      return await concludeDecision(this.deps, message, onProgress, signal);
-    });
+    return this.deps.lock.run((signal) =>
+      recordingFailure(this.deps.conversation, async () => {
+        const run = { proposalId, onProgress, signal };
+        const selected = this.deps.pendingChanges.select(proposalId, indexes);
+        const applied: EditRequest[] = [];
+        const conflicts: FileConflict[] = [];
+        let message = this.deps.conversation.findProposal(proposalId);
+        for (const { file, edits } of groupByFile(selected)) {
+          const outcome = await this.applyFile(file, edits, run);
+          message = outcome.message;
+          onProgress({ stage: 'decided', message });
+          if (outcome.kind === 'conflict') conflicts.push(outcome.conflict);
+          else applied.push(...edits.map(({ change }) => describeEdit(change)));
+        }
+        const { conversation } = this.deps;
+        if (applied.length) note(conversation, { kind: 'applied', applied }, onProgress);
+        for (const conflict of conflicts) {
+          note(conversation, { kind: 'conflict', ...conflict }, onProgress);
+        }
+        return await concludeDecision(this.deps, message, onProgress, signal);
+      }),
+    );
   }
 
   private async applyFile(

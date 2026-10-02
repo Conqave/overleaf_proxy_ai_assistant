@@ -127,9 +127,9 @@ async function openAssistantWith(
     compactor,
     webSearch: new WebSearchTool({ search: webSearch, approval: webSearchApproval }),
   });
-  const review = new ReviewAppliedChange({ project, conversationAgent });
+  const review = new ReviewAppliedChange({ project, conversation, conversationAgent });
   const sessionDeps = { sessions, conversation, pendingChanges, lock };
-  const changeSetDeps = { project, editor, pendingChanges, review };
+  const changeSetDeps = { project, conversation, editor, pendingChanges, review };
   const exchangeDeps = {
     ...sessionDeps,
     archive: new InMemorySessionArchive(),
@@ -142,9 +142,15 @@ async function openAssistantWith(
     handleRequest,
     readContextUsage: new ReadContextUsage({ conversation, agent }),
     lock,
-    applyChange: new ApplyChangeSet({ ...changeSetDeps, conversation, lock }),
+    applyChange: new ApplyChangeSet({ ...changeSetDeps, lock }),
     rejectChange: new RejectChangeSet({ ...changeSetDeps, lock }),
-    previewChange: new PreviewChangeSetFile({ project, editor, pendingChanges, lock }),
+    previewChange: new PreviewChangeSetFile({
+      project,
+      conversation,
+      editor,
+      pendingChanges,
+      lock,
+    }),
     undoChange: new UndoChangeSet({ project, editor, conversation, lock, newId }),
     compactConversation: new CompactConversation({ compactor, conversation, lock }),
     restoreSession: new RestoreLatestSession(sessionDeps),
@@ -450,6 +456,26 @@ describe('AssistantController web search', () => {
     );
     expect(texts('.ola-web-search-title')).toEqual([`Web search: ${QUERY}`]);
     expect(texts('.ola-web-search .ola-result-meta')).toEqual(['2 results · excerpts shortened']);
+  });
+});
+
+describe('AssistantController reopened sessions', () => {
+  it('keeps the errors and system notices of a session when it is opened again', async () => {
+    const { controller, project, agent, changeId, conversation, texts } = await proposeBibEdit();
+    project.willCompile([]);
+    await controller.apply(changeId, null);
+    agent.will(new AssistantUnreachableError('Ollama is not reachable.'));
+    await controller.send('and now?');
+    const live = { system: texts('.ola-system'), errors: texts('.ola-error') };
+    expect(live).toEqual({
+      system: ['Done. Inserted after the selected anchor in refs.bib.', 'Compiled without errors.'],
+      errors: ['Error: Ollama is not reachable.'],
+    });
+    const sessionId = conversation.sessionId;
+    if (sessionId === null) throw new TestFixtureError('the request started no session');
+    await controller.newConversation();
+    await controller.openSession(sessionId);
+    expect({ system: texts('.ola-system'), errors: texts('.ola-error') }).toEqual(live);
   });
 });
 

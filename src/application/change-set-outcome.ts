@@ -4,6 +4,7 @@ import type { CancellationSignal } from '../ports/cancellation';
 import type { EditorPort } from '../ports/editor-port';
 import type { ProjectPort } from '../ports/project-port';
 import type { AgentProgress } from './agent-progress';
+import type { ConversationLog } from './conversation-log';
 import type { PendingChanges } from './pending-change';
 import type { ReviewAppliedChange, ReviewOutcome } from './review-applied-change';
 
@@ -14,6 +15,7 @@ export interface ChangeSetOutcome {
 
 export interface ChangeSetDeps {
   readonly project: ProjectPort;
+  readonly conversation: ConversationLog;
   readonly editor: EditorPort;
   readonly pendingChanges: PendingChanges;
   readonly review: ReviewAppliedChange;

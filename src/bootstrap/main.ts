@@ -128,10 +128,10 @@ function compose(
     lock,
     newId,
   });
-  const handleRequest = new HandleAssistantRequest({ conversationAgent, lock });
-  const review = new ReviewAppliedChange({ project, conversationAgent });
+  const handleRequest = new HandleAssistantRequest({ conversationAgent, conversation, lock });
+  const review = new ReviewAppliedChange({ project, conversation, conversationAgent });
   const sessionDeps = { sessions, conversation, pendingChanges, lock };
-  const changeSetDeps = { project, editor, pendingChanges, review };
+  const changeSetDeps = { project, conversation, editor, pendingChanges, review };
   const exchangeDeps = {
     ...sessionDeps,
     archive: new OverleafSessionArchive(files),
@@ -144,10 +144,16 @@ function compose(
   const controller = new AssistantController({
     handleRequest,
     readContextUsage: new ReadContextUsage({ conversation, agent }),
-    applyChange: new ApplyChangeSet({ ...changeSetDeps, conversation, lock }),
+    applyChange: new ApplyChangeSet({ ...changeSetDeps, lock }),
     lock,
     rejectChange: new RejectChangeSet({ ...changeSetDeps, lock }),
-    previewChange: new PreviewChangeSetFile({ project, editor, pendingChanges, lock }),
+    previewChange: new PreviewChangeSetFile({
+      project,
+      conversation,
+      editor,
+      pendingChanges,
+      lock,
+    }),
     undoChange: new UndoChangeSet({ project, editor, conversation, lock, newId }),
     compactConversation: new CompactConversation({ compactor, conversation, lock }),
     restoreSession: new RestoreLatestSession(sessionDeps),

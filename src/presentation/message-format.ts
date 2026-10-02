@@ -1,4 +1,4 @@
-import type { AgentProgress, ApplyReport, FileConflict } from '../application/agent-progress';
+import type { AgentProgress } from '../application/agent-progress';
 import type { ContextUsage } from '../domain/context-usage';
 import { AutoApprovalScope } from '../application/web-search-approval';
 import { EditStatus, type EditRequest, type ProposedEdit } from '../domain/change-set';
@@ -7,9 +7,11 @@ import type {
   CompactionSummaryMessage,
   UndoMessage,
   UndoRefusal,
+  Notice,
 } from '../domain/conversation';
 import type { DelegateRecord, WebSearchRecord } from '../domain/agent-transcript';
 import { DelegationOutcome } from '../domain/delegation';
+import { InvariantViolation } from '../domain/errors';
 import { DocumentOperation, type DocumentCommand } from '../domain/document-command';
 import type { SessionSummary } from '../domain/session';
 import { SESSION_EXPORT_FOLDER } from '../domain/session-export';
@@ -88,9 +90,9 @@ export const VIEW_TEXT = {
     'Ask for an explanation, a cleaner paragraph, or a precise LaTeX edit. I will show a suggestion before changing anything.',
 } as const;
 
-export const COMPILED = 'Compiled without errors.';
+const COMPILED = 'Compiled without errors.';
 
-export function compiledWithErrorsNotice(errorCount: number): string {
+function compiledWithErrorsNotice(errorCount: number): string {
   return `Compiled with ${countOf(errorCount, 'error')}; see the PDF pane for details.`;
 }
 export const INTERNAL_ERROR = 'Unexpected internal error. Details are in the browser console.';
@@ -191,11 +193,11 @@ export function sessionDetails({ updatedAt, messageCount }: SessionSummary): str
   return `${SESSION_DATE_FORMAT.format(updatedAt)} · ${count}`;
 }
 
-export function exportedNotice(path: string): string {
+function exportedNotice(path: string): string {
   return `Exported to ${path}. Collaborators can import it after reloading the project.`;
 }
 
-export function importedNotice(path: string): string {
+function importedNotice(path: string): string {
   return `Imported ${path} as a new session of yours; edits it left open were discarded.`;
 }
 
@@ -203,13 +205,39 @@ export function exportFileName(path: string): string {
   return path.slice(path.lastIndexOf(PATH_SEPARATOR) + 1);
 }
 
-export function errorNotice(message: string): string {
+function errorNotice(message: string): string {
   return `Error: ${message}`;
 }
 
-export function appliedNotice({ applied }: ApplyReport): string | undefined {
+export type NoticeTone = 'info' | 'error';
+
+export interface NoticeText {
+  readonly text: string;
+  readonly tone: NoticeTone;
+}
+
+export function noticeText(notice: Notice): NoticeText {
+  switch (notice.kind) {
+    case 'applied':
+      return { text: appliedNotice(notice.applied), tone: 'info' };
+    case 'conflict':
+      return { text: `Not applied in ${notice.path}: ${notice.problem}`, tone: 'error' };
+    case 'compiled':
+      return notice.errorCount === 0
+        ? { text: COMPILED, tone: 'info' }
+        : { text: compiledWithErrorsNotice(notice.errorCount), tone: 'error' };
+    case 'exported':
+      return { text: exportedNotice(notice.path), tone: 'info' };
+    case 'imported':
+      return { text: importedNotice(notice.path), tone: 'info' };
+    case 'failed':
+      return { text: errorNotice(notice.problem), tone: 'error' };
+  }
+}
+
+function appliedNotice(applied: readonly EditRequest[]): string {
   const [only] = applied;
-  if (only === undefined) return undefined;
+  if (only === undefined) throw new InvariantViolation('an applied notice names no edit');
   if (applied.length === 1) return singleEditNotice(only);
   const paths = [...new Set(applied.map(({ path }) => path))];
   return `Done. Applied ${countOf(applied.length, 'edit')} in ${paths.join(', ')}.`;
@@ -239,10 +267,6 @@ export function undoNotice({ undone }: UndoMessage): string {
 
 export function undoRefusalNotice({ path, problem }: UndoRefusal): string {
   return `Not undone in ${path}: ${problem}`;
-}
-
-export function conflictNotice({ path, problem }: FileConflict): string {
-  return `Not applied in ${path}: ${problem}`;
 }
 
 export function contextUsageText({ promptTokens, contextTokens }: ContextUsage): string {
@@ -332,7 +356,7 @@ export function progressStatus(progress: AgentProgress): string | null {
     case 'compacting':
       return 'Hans is summarising the earlier conversation';
     case 'decided':
-    case 'applied':
+    case 'noted':
     case 'compacted':
       return '';
     case 'measured':
@@ -365,7 +389,7 @@ function subagentStatus(fileCount: number, progress: AgentProgress): string | nu
     case 'recorded':
     case 'opening':
     case 'decided':
-    case 'applied':
+    case 'noted':
     case 'compacting':
     case 'compacted':
       return null;

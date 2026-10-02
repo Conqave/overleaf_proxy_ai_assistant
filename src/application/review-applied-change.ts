@@ -1,8 +1,10 @@
-import { DiagnosticLevel } from '../domain/agent-transcript';
+import { countCompileErrors } from '../domain/agent-transcript';
 import type { CancellationSignal } from '../ports/cancellation';
 import type { ProjectPort } from '../ports/project-port';
 import type { AgentProgress } from './agent-progress';
 import type { AgentResult, ConversationAgent } from './conversation-agent';
+import type { ConversationLog } from './conversation-log';
+import { note } from './notices';
 import { ensureNotCancelled } from './operation-lock';
 
 export type ReviewOutcome =
@@ -12,6 +14,7 @@ export class ReviewAppliedChange {
   constructor(
     private readonly deps: {
       project: ProjectPort;
+      conversation: ConversationLog;
       conversationAgent: ConversationAgent;
     },
   ) {}
@@ -23,7 +26,8 @@ export class ReviewAppliedChange {
     onProgress({ stage: 'compiling' });
     const diagnostics = await this.deps.project.compile(signal);
     ensureNotCancelled(signal);
-    if (!diagnostics.some((diagnostic) => diagnostic.level === DiagnosticLevel.Error)) {
+    if (countCompileErrors(diagnostics) === 0) {
+      note(this.deps.conversation, { kind: 'compiled', errorCount: 0 }, onProgress);
       return { kind: 'compiled' };
     }
     const result = await this.deps.conversationAgent.fixCompileErrors(

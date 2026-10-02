@@ -22,6 +22,13 @@ const STORED_EDIT = {
   command: { operation: 'delete', target: { lineNumber: 1, lineText: 'x' }, lineCount: 1 },
   status: 'proposed',
 };
+const STORED_REQUEST = {
+  path: 'main.tex',
+  command: createDocumentCommand({
+    operation: 'delete',
+    target: { lineNumber: 1, lineText: 'x' },
+  }),
+};
 const STORED_APPLIED = { line: 1, before: ['x', 'y'], after: ['y'], sequence: 0 };
 const STORED_APPLIED_EDIT = { ...STORED_EDIT, status: 'applied', applied: STORED_APPLIED };
 
@@ -317,6 +324,23 @@ describe('IndexedDbSessionRepository', () => {
     await expect(repository.load('a')).resolves.toEqual(imported);
   });
 
+  it('keeps the notices of a session', async () => {
+    const noticed: ConversationSession = {
+      ...session('a'),
+      messages: [
+        ...messages,
+        { id: 'n1', role: 'notice', notice: { kind: 'applied', applied: [STORED_REQUEST] } },
+        { id: 'n2', role: 'notice', notice: { kind: 'conflict', path: 'a.tex', problem: 'x' } },
+        { id: 'n3', role: 'notice', notice: { kind: 'compiled', errorCount: 2 } },
+        { id: 'n4', role: 'notice', notice: { kind: 'exported', path: 'hans-sessions/a.json' } },
+        { id: 'n5', role: 'notice', notice: { kind: 'imported', path: 'hans-sessions/a.json' } },
+        { id: 'n6', role: 'notice', notice: { kind: 'failed', problem: 'Ollama is down.' } },
+      ],
+    };
+    await repository.save(noticed);
+    await expect(repository.load('a')).resolves.toEqual(noticed);
+  });
+
   it('keeps the last context usage of a session', async () => {
     const measured = {
       ...session('a'),
@@ -379,6 +403,14 @@ describe('IndexedDbSessionRepository', () => {
     ['with a count that does not match its messages', { messageCount: 2 }],
     ['with an empty title', { title: '' }],
     ['with an imported marker without its last message', { imported: { path: 'a.json' } }],
+    [
+      'with a notice of an unknown kind',
+      { messages: [{ id: 'n', role: 'notice', notice: { kind: 'shout', text: 'Hi' } }] },
+    ],
+    [
+      'with a compile notice of a negative error count',
+      { messages: [{ id: 'n', role: 'notice', notice: { kind: 'compiled', errorCount: -1 } }] },
+    ],
     [
       'with a context usage of an unknown pressure',
       { contextUsage: { contextTokens: 98_304, promptTokens: 10, pressure: 'extreme' } },

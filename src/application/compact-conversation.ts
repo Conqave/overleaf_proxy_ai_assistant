@@ -4,6 +4,7 @@ import type { AgentProgress } from './agent-progress';
 import type { ConversationCompactor } from './conversation-compactor';
 import type { ConversationLog } from './conversation-log';
 import { NothingToCompactError } from './errors';
+import { recordingFailure } from './notices';
 import type { OperationLock } from './operation-lock';
 
 export class CompactConversation {
@@ -25,15 +26,17 @@ export class CompactConversation {
   }
 
   execute(onProgress: (progress: AgentProgress) => void): Promise<CompactionSummaryMessage> {
-    return this.deps.lock.run(async (signal) => {
-      const conversation = this.view();
-      const summary = await this.deps.compactor.compact(
-        { kind: 'manual', conversation },
-        onProgress,
-        signal,
-      );
-      if (summary === null) throw new NothingToCompactError();
-      return summary;
-    });
+    return this.deps.lock.run((signal) =>
+      recordingFailure(this.deps.conversation, async () => {
+        const conversation = this.view();
+        const summary = await this.deps.compactor.compact(
+          { kind: 'manual', conversation },
+          onProgress,
+          signal,
+        );
+        if (summary === null) throw new NothingToCompactError();
+        return summary;
+      }),
+    );
   }
 }

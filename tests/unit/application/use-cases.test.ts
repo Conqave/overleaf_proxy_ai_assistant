@@ -219,11 +219,11 @@ beforeEach(() => {
   newId = sequentialIds();
   summarizer = new FakeSummarizer();
   wireRequests();
-  review = new ReviewAppliedChange({ project, conversationAgent });
-  const changeSetDeps = { project, editor, pendingChanges, review };
-  apply = new ApplyChangeSet({ ...changeSetDeps, conversation, lock });
+  review = new ReviewAppliedChange({ project, conversation, conversationAgent });
+  const changeSetDeps = { project, conversation, editor, pendingChanges, review };
+  apply = new ApplyChangeSet({ ...changeSetDeps, lock });
   reject = new RejectChangeSet({ ...changeSetDeps, lock });
-  preview = new PreviewChangeSetFile({ project, editor, pendingChanges, lock });
+  preview = new PreviewChangeSetFile({ project, conversation, editor, pendingChanges, lock });
   undo = new UndoChangeSet({ project, editor, conversation, lock, newId });
   progress = [];
   resets = [];
@@ -623,7 +623,7 @@ describe('HandleAssistantRequest', () => {
     agent.will(tool({ tool: 'read_file', path: 'refs.bib' }), bibEdit());
     await expect(send('add knuth84')).rejects.toThrow(DocumentConflictError);
     expect(editor.preview).toBeNull();
-    expect(conversation.messages().map((m) => m.role)).toEqual(['user', 'tool']);
+    expect(conversation.messages().map((m) => m.role)).toEqual(['user', 'tool', 'notice']);
   });
 
   it('drops an edit when the document changed while the agent was working', async () => {
@@ -633,14 +633,14 @@ describe('HandleAssistantRequest', () => {
     agent.will(mainEdit());
     await expect(send('add more')).rejects.toThrow(DocumentConflictError);
     expect(editor.preview).toBeNull();
-    expect(conversation.messages().map((m) => m.role)).toEqual(['user']);
+    expect(conversation.messages().map((m) => m.role)).toEqual(['user', 'notice']);
   });
 
   it('drops an edit whose preview fails', async () => {
     agent.will(mainEdit());
     editor.previewFailure = new EditorUnavailableError('gone');
     await expect(send('add more')).rejects.toThrow(EditorUnavailableError);
-    expect(conversation.messages().map((m) => m.role)).toEqual(['user']);
+    expect(conversation.messages().map((m) => m.role)).toEqual(['user', 'notice']);
   });
 
   it('propagates agent failures', async () => {
@@ -673,7 +673,12 @@ describe('HandleAssistantRequest', () => {
     editor.available = false;
     await expect(send('summarize')).rejects.toThrow(EditorUnavailableError);
     expect(agent.requests).toHaveLength(0);
-    expect(conversation.messages().map((m) => m.role)).toEqual(['user', 'user']);
+    expect(conversation.messages().map((m) => m.role)).toEqual([
+      'user',
+      'notice',
+      'user',
+      'notice',
+    ]);
   });
 
   it('waits for the editor to show the open file and never mixes up two files', async () => {
@@ -1377,7 +1382,7 @@ describe('delegation to a subagent', () => {
   it('lets other failures of the subagent end the whole request', async () => {
     agent.will(delegate(), new AssistantUnreachableError('offline'));
     await expect(send('check')).rejects.toThrow(AssistantUnreachableError);
-    expect(conversation.messages().map((m) => m.role)).toEqual(['user']);
+    expect(conversation.messages().map((m) => m.role)).toEqual(['user', 'notice']);
   });
 
   it('cuts the findings of the subagent at the policy limit', async () => {
@@ -1646,7 +1651,7 @@ describe('compaction on demand', () => {
 });
 
 describe('preview / apply / reject', () => {
-  const latest = () => conversation.messages().at(-1);
+  const latest = () => conversation.messages().findLast(({ role }) => role !== 'notice');
 
   it('applies an approved change and then compiles the project', async () => {
     project.willCompile([]);
@@ -1668,18 +1673,23 @@ describe('preview / apply / reject', () => {
         },
       ],
     });
-    expect(storedMessages().at(-1)).toEqual(applied);
+    expect(storedMessages().at(-3)).toEqual(applied);
+    const noticed = (notice: unknown) => ({
+      stage: 'noted',
+      message: { id: anInstanceOf(String), role: 'notice', notice },
+    });
     expect(progress).toEqual([
       { stage: 'decided', message: applied },
-      {
-        stage: 'applied',
-        report: {
-          applied: [{ path: 'main.tex', command: objectContaining({ content: 'Added.' }) }],
-          conflicts: [],
-        },
-      },
+      noticed({
+        kind: 'applied',
+        applied: [{ path: 'main.tex', command: objectContaining({ content: 'Added.' }) }],
+      }),
       { stage: 'compiling' },
+      noticed({ kind: 'compiled', errorCount: 0 }),
     ]);
+    expect(storedMessages().slice(-2)).toEqual(
+      progress.flatMap((p) => (p.stage === 'noted' ? [p.message] : [])),
+    );
   });
 
   it('cancels the review compile of an applied change for a new conversation', async () => {
@@ -1767,7 +1777,10 @@ describe('preview / apply / reject', () => {
     const failed = { id: changeId, kind: 'proposal', edits: [{ status: 'failed' }] };
     expect(progress).toEqual([{ stage: 'decided', message: latest() }]);
     expect(latest()).toMatchObject(failed);
-    expect(storedMessages().at(-1)).toMatchObject(failed);
+    expect(storedMessages().slice(-2)).toMatchObject([
+      failed,
+      { role: 'notice', notice: { kind: 'failed', problem: 'switched' } },
+    ]);
     await expect(apply.execute(changeId, null, record)).rejects.toThrow(ChangeNoLongerPendingError);
   });
 
@@ -1893,18 +1906,17 @@ describe('preview / apply / reject', () => {
     expect(latest()).toMatchObject({ id: changeId, edits: [{ status: 'failed' }] });
     expect(editor.applied).toHaveLength(0);
     expect(progress).toContainEqual({
-      stage: 'applied',
-      report: {
-        applied: [],
-        conflicts: [
-          {
-            path: 'main.tex',
-            problem:
-              'The document changed after the suggestion was made. Ask again to get a fresh suggestion.',
-          },
-        ],
-      },
+      stage: 'noted',
+      message: objectContaining({
+        notice: {
+          kind: 'conflict',
+          path: 'main.tex',
+          problem:
+            'The document changed after the suggestion was made. Ask again to get a fresh suggestion.',
+        },
+      }),
     });
+    expect(progress.map(({ stage }) => stage)).not.toContain('compiling');
     await expect(apply.execute(changeId, null, record)).rejects.toThrow(ChangeNoLongerPendingError);
   });
 });
@@ -1934,7 +1946,7 @@ describe('change sets', () => {
     '\\section{Results}',
     'Numbers changed.',
   ];
-  const latest = () => conversation.messages().at(-1);
+  const latest = () => conversation.messages().findLast(({ role }) => role !== 'notice');
   const proposeBatch = () => proposeEdit(readBib(), editsOf(addIntro, changeNumbers, addBook));
   const statuses = () => {
     const message = conversation
@@ -2009,16 +2021,17 @@ describe('change sets', () => {
     expect(statuses()).toEqual(['applied', 'applied', 'failed']);
     expect(project.savedDocument('main.tex')).toEqual(EDITED_MAIN);
     expect(editor.lines[0]).toBe('@misc{changed,');
-    expect(progress).toContainEqual({
-      stage: 'applied',
-      report: {
+    expect(progress.flatMap((p) => (p.stage === 'noted' ? [p.message.notice] : []))).toEqual([
+      {
+        kind: 'applied',
         applied: [
           { path: 'main.tex', command: addIntro.command },
           { path: 'main.tex', command: changeNumbers.command },
         ],
-        conflicts: [{ path: 'refs.bib', problem: textContaining('document changed') }],
       },
-    });
+      { kind: 'conflict', path: 'refs.bib', problem: textContaining('document changed') },
+      { kind: 'compiled', errorCount: 0 },
+    ]);
     expect(outcome.review).toEqual({ kind: 'compiled' });
   });
 
@@ -2053,14 +2066,20 @@ describe('change sets', () => {
     await apply.execute(changeId, null, record);
     progress = [];
     project.willCompile([]);
-    const { message, notice, diagnostics } = await undo.execute(changeId, record);
-    expect(diagnostics).toEqual([]);
+    const { message, notice } = await undo.execute(changeId, record);
     expect(project.compileCalls).toBe(2);
-    expect(progress.at(-1)).toEqual({ stage: 'compiling' });
+    expect(progress.at(-1)).toEqual({
+      stage: 'noted',
+      message: {
+        id: anInstanceOf(String),
+        role: 'notice',
+        notice: { kind: 'compiled', errorCount: 0 },
+      },
+    });
     expect(project.savedDocument('main.tex')).toEqual(MAIN);
     expect(editor.lines).toEqual(BIB);
     expect(statuses()).toEqual(['undone', 'undone', 'undone']);
-    expect(message).toEqual(conversation.messages().at(-2));
+    expect(message).toEqual(conversation.findProposal(changeId));
     expect(notice).toEqual({
       id: notice.id,
       role: 'undo',
@@ -2068,7 +2087,7 @@ describe('change sets', () => {
       undone: ['main.tex', 'refs.bib'],
       refused: [],
     });
-    expect(storedMessages().at(-1)).toEqual(notice);
+    expect(storedMessages().at(-2)).toEqual(notice);
     expect(progress.filter(({ stage }) => stage === 'decided')).toHaveLength(2);
     agent.will(answer('Noted.'));
     await send('what happened?');
@@ -2113,9 +2132,9 @@ describe('change sets', () => {
     const changeId = await proposeEdit(readBib(), bibEdit());
     await apply.execute(changeId, null, record);
     editor.lines[3] = 'changed by hand';
-    const { notice, diagnostics } = await undo.execute(changeId, record);
+    const { notice } = await undo.execute(changeId, record);
     expect(notice.undone).toEqual([]);
-    expect(diagnostics).toBeNull();
+    expect(conversation.messages().at(-1)).toEqual(notice);
     expect(project.compileCalls).toBe(1);
   });
 
@@ -2141,11 +2160,10 @@ describe('change sets', () => {
     const undoing = undo.execute(changeId, record);
     expect(isBusy()).toBe(true);
     await expect(undoing).rejects.toThrow(FileOpenTimeoutError);
-    expect(conversation.messages().at(-1)).toMatchObject({
-      role: 'undo',
-      undone: ['main.tex'],
-      refused: [],
-    });
+    expect(conversation.messages().slice(-2)).toMatchObject([
+      { role: 'undo', undone: ['main.tex'], refused: [] },
+      { role: 'notice', notice: { kind: 'failed', problem: 'slow' } },
+    ]);
     expect(editor.lines).toEqual(MAIN);
     expect(isBusy()).toBe(false);
   });
@@ -2245,7 +2263,17 @@ describe('ReviewAppliedChange', () => {
     project.willCompile([{ level: 'warning', message: 'Overfull \\hbox.' }]);
     await expect(reviewApplied()).resolves.toEqual({ kind: 'compiled' });
     expect(agent.requests).toHaveLength(0);
-    expect(progress).toEqual([{ stage: 'compiling' }]);
+    expect(progress).toEqual([
+      { stage: 'compiling' },
+      {
+        stage: 'noted',
+        message: conversation.messages().at(-1),
+      },
+    ]);
+    expect(conversation.messages().at(-1)).toMatchObject({
+      role: 'notice',
+      notice: { kind: 'compiled', errorCount: 0 },
+    });
   });
 
   it('records the fix request as a system request, not as a user message', async () => {

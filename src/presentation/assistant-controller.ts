@@ -25,21 +25,10 @@ import type {
 import type { RejectChangeSet } from '../application/reject-change-set';
 import type { UndoChangeSet } from '../application/undo-change-set';
 import type { WebSearchApproval, WebSearchDecision } from '../application/web-search-approval';
-import { DiagnosticLevel, type CompileDiagnostic } from '../domain/agent-transcript';
+import type { Notice } from '../domain/conversation';
 import { InvariantViolation, OperationalError } from '../domain/errors';
 import type { AssistantView, ViewEvents } from './assistant-view';
-import {
-  appliedNotice,
-  COMPILED,
-  compiledWithErrorsNotice,
-  conflictNotice,
-  contextUsageText,
-  errorNotice,
-  exportedNotice,
-  importedNotice,
-  INTERNAL_ERROR,
-  progressStatus,
-} from './message-format';
+import { contextUsageText, INTERNAL_ERROR, noticeText, progressStatus } from './message-format';
 
 interface UseCases {
   handleRequest: HandleAssistantRequest;
@@ -139,15 +128,10 @@ export class AssistantController implements ViewEvents {
     const view = this.requireView();
     return this.guard(async () => {
       try {
-        const { message, notice, diagnostics } = await this.useCases.undoChange.execute(
-          proposalId,
-          (progress) => {
-            this.showProgress(view, progress);
-          },
-        );
+        const { message } = await this.useCases.undoChange.execute(proposalId, (progress) => {
+          this.showProgress(view, progress);
+        });
         view.updateMessage(message);
-        view.appendMessage(notice);
-        if (diagnostics !== null) this.showCompiled(view, diagnostics);
       } finally {
         view.setStatus('');
       }
@@ -170,24 +154,11 @@ export class AssistantController implements ViewEvents {
           this.showProgress(view, progress);
         });
         view.updateMessage(message);
-        if (review === null) return;
-        switch (review.kind) {
-          case 'compiled':
-            view.showNotice(COMPILED, 'info');
-            break;
-          case 'fix':
-            this.showResult(view, review.result);
-        }
+        if (review?.kind === 'fix') this.showResult(view, review.result);
       } finally {
         view.setStatus('');
       }
     });
-  }
-
-  private showCompiled(view: AssistantView, diagnostics: readonly CompileDiagnostic[]): void {
-    const errors = diagnostics.filter(({ level }) => level === DiagnosticLevel.Error).length;
-    if (errors === 0) view.showNotice(COMPILED, 'info');
-    else view.showNotice(compiledWithErrorsNotice(errors), 'error');
   }
 
   newConversation(): Promise<void> {
@@ -227,7 +198,7 @@ export class AssistantController implements ViewEvents {
     const view = this.requireView();
     return this.guard(async () => {
       const path = await this.useCases.exportSession.execute(id);
-      view.showNotice(exportedNotice(path), 'info');
+      showNotice(view, { kind: 'exported', path });
     });
   }
 
@@ -243,7 +214,6 @@ export class AssistantController implements ViewEvents {
     return this.guard(async () => {
       await this.replacingConversation(view, () => this.useCases.importSession.execute(path));
       view.closeSessionList();
-      view.showNotice(importedNotice(path), 'info');
     });
   }
 
@@ -297,16 +267,9 @@ export class AssistantController implements ViewEvents {
       case 'decided':
         view.updateMessage(progress.message);
         break;
-      case 'applied': {
-        const notice = appliedNotice(progress.report);
-        if (notice !== undefined) view.showNotice(notice, 'info');
-        for (const conflict of progress.report.conflicts) {
-          view.showNotice(conflictNotice(conflict), 'error');
-        }
-        break;
-      }
       case 'compacted':
       case 'recorded':
+      case 'noted':
         view.appendMessage(progress.message);
         break;
       case 'measured':
@@ -346,7 +309,7 @@ export class AssistantController implements ViewEvents {
         this.requireView().showNotice(INTERNAL_ERROR, 'error');
         throw error;
       }
-      this.requireView().showNotice(errorNotice(error.message), 'error');
+      showNotice(this.requireView(), { kind: 'failed', problem: error.message });
     } finally {
       await this.reportPersistence();
     }
@@ -365,4 +328,9 @@ export class AssistantController implements ViewEvents {
 
 function indexesOf(index: number | null): readonly number[] | null {
   return index === null ? null : [index];
+}
+
+function showNotice(view: AssistantView, notice: Notice): void {
+  const { text, tone } = noticeText(notice);
+  view.showNotice(text, tone);
 }

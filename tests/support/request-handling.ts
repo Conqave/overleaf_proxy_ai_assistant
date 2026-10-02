@@ -49,6 +49,6 @@ export function composeRequestHandling(deps: RequestHandlingDeps): RequestHandli
   });
   return {
     conversationAgent,
-    handleRequest: new HandleAssistantRequest({ conversationAgent, lock }),
+    handleRequest: new HandleAssistantRequest({ conversationAgent, conversation, lock }),
   };
 }

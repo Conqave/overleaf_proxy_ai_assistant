@@ -670,7 +670,7 @@ describe('assistant session exchange', () => {
       `Imported: ${BOLD_REQUEST}`,
     ]);
     expect(await readStoredSessions(collaboratorSessions)).toEqual([
-      expect.objectContaining({ userId: 'user-2', projectId: 'project-1', messageCount: 6 }),
+      expect.objectContaining({ userId: 'user-2', projectId: 'project-1', messageCount: 7 }),
     ]);
     expect(collaborator.ide.server.textAt(path)).toBe(text);
     expect(collaborator.ide.server.requests.filter(({ method }) => method === 'POST')).toEqual([]);
@@ -1025,7 +1025,13 @@ describe('assistant agent', () => {
       expect(editorText().split('\n')[3]).toBe(fixed);
       expect(ide.compileCount).toBe(2);
       const reloaded = await start({ sessions });
-      expect(reloaded.texts('.ola-system')).toEqual([COMPILE_FIX_REQUEST]);
+      expect(reloaded.texts('.ola-system')).toEqual(texts('.ola-system'));
+      expect(reloaded.texts('.ola-system')).toEqual([
+        'Done. Line replaced in main.tex.',
+        COMPILE_FIX_REQUEST,
+        'Done. Line replaced in main.tex.',
+        'Compiled without errors.',
+      ]);
       expect(reloaded.texts('.ola-user')).toEqual(['Make the word experiment bold.']);
     },
   );

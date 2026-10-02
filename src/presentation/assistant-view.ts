@@ -15,6 +15,7 @@ import {
   type ConversationMessage,
   type ProposalMessage,
   type ToolMessage,
+  type NoticeMessage,
   type UndoMessage,
 } from '../domain/conversation';
 import { AgentTool } from '../domain/agent-action';
@@ -54,6 +55,9 @@ import {
   webResultSource,
   webSearchMeta,
   webSearchTitle,
+  noticeText,
+  type NoticeText,
+  type NoticeTone,
 } from './message-format';
 
 interface AutoApprovalOption {
@@ -71,7 +75,8 @@ interface ShownToolMessage extends ToolMessage {
   readonly record: DelegateRecord | WebSearchRecord;
 }
 
-type ShownMessage = ChatMessage | CompactionSummaryMessage | UndoMessage | ShownToolMessage;
+type ShownMessage =
+  ChatMessage | CompactionSummaryMessage | UndoMessage | NoticeMessage | ShownToolMessage;
 
 function isShownMessage(message: ConversationMessage): message is ShownMessage {
   if (message.role !== 'tool') return true;
@@ -353,8 +358,12 @@ export class AssistantView {
     this.sessionList.textContent = '';
   }
 
-  showNotice(text: string, tone: 'info' | 'error'): void {
-    this.append(this.el('div', `ola-msg ${tone === 'error' ? 'ola-error' : 'ola-system'}`, text));
+  showNotice(text: string, tone: NoticeTone): void {
+    this.append(this.renderNotice({ text, tone }));
+  }
+
+  private renderNotice({ text, tone }: NoticeText): HTMLElement {
+    return this.el('div', `ola-msg ${tone === 'error' ? 'ola-error' : 'ola-system'}`, text);
   }
 
   setBusy(busy: boolean): void {
@@ -404,6 +413,8 @@ export class AssistantView {
         return this.renderSummary(message);
       case 'undo':
         return this.renderUndo(message);
+      case 'notice':
+        return this.renderNotice(noticeText(message.notice));
       case 'user':
         return this.el('div', 'ola-msg ola-user', message.text);
       case 'system':

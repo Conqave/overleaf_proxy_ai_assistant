@@ -3,6 +3,7 @@ import {
   isEditStatus,
   restoreChangeSet,
   type AppliedRecord,
+  type EditRequest,
   type ProposedEdit,
 } from '../../domain/change-set';
 import {
@@ -11,6 +12,7 @@ import {
   type CompactionSummaryMessage,
   type ConversationMessage,
   type ImportedHistory,
+  type Notice,
   type UndoRefusal,
 } from '../../domain/conversation';
 import { createCompactionSummaryMessage, createFileActivity } from '../../domain/conversation-view';
@@ -78,6 +80,7 @@ function parseMessage(value: unknown): ConversationMessage {
   if (role === 'user' || role === 'system') return { id, role, text: getString(fields, 'text') };
   if (role === 'tool') return { id, role, record: parseRecord(fields.get('record')) };
   if (role === 'summary') return parseSummary(id, fields);
+  if (role === 'notice') return { id, role, notice: parseNotice(getFields(fields.get('notice'))) };
   if (role === 'undo') {
     return {
       id,
@@ -94,6 +97,30 @@ function parseMessage(value: unknown): ConversationMessage {
   }
   if (!isReplyKind(kind)) throw new UnknownStoredFormatError('unknown message kind');
   return { id, role, kind, text: getString(fields, 'text') };
+}
+
+function parseNotice(fields: Map<string, unknown>): Notice {
+  const kind = fields.get('kind');
+  switch (kind) {
+    case 'applied':
+      return { kind, applied: getArray(fields, 'applied').map(parseEditRequest) };
+    case 'conflict':
+      return { kind, path: parsePath(fields.get('path')), problem: getString(fields, 'problem') };
+    case 'compiled':
+      return { kind, errorCount: getNonNegativeInteger(fields, 'errorCount') };
+    case 'exported':
+    case 'imported':
+      return { kind, path: parsePath(fields.get('path')) };
+    case 'failed':
+      return { kind, problem: getString(fields, 'problem') };
+    default:
+      throw new UnknownStoredFormatError('unknown notice');
+  }
+}
+
+function parseEditRequest(value: unknown): EditRequest {
+  const fields = getFields(value);
+  return { path: parsePath(fields.get('path')), command: parseCommand(fields.get('command')) };
 }
 
 function parseRefusal(value: unknown): UndoRefusal {

@@ -1,5 +1,5 @@
 import type { ToolRecord } from './agent-transcript';
-import { hasPendingEdits, type ProposedEdit } from './change-set';
+import { hasPendingEdits, type EditRequest, type ProposedEdit } from './change-set';
 
 export const AssistantMessageKind = {
   Explanation: 'explanation',
@@ -96,7 +96,21 @@ export type ChatMessage = RequestMessage | AssistantMessage;
 
 export type ExchangeMessage = ChatMessage | ToolMessage | UndoMessage;
 
-export type ConversationMessage = ExchangeMessage | CompactionSummaryMessage;
+export type Notice =
+  | { readonly kind: 'applied'; readonly applied: readonly EditRequest[] }
+  | { readonly kind: 'conflict'; readonly path: string; readonly problem: string }
+  | { readonly kind: 'compiled'; readonly errorCount: number }
+  | { readonly kind: 'exported'; readonly path: string }
+  | { readonly kind: 'imported'; readonly path: string }
+  | { readonly kind: 'failed'; readonly problem: string };
+
+export interface NoticeMessage {
+  readonly id: string;
+  readonly role: 'notice';
+  readonly notice: Notice;
+}
+
+export type ConversationMessage = ExchangeMessage | CompactionSummaryMessage | NoticeMessage;
 
 export function isRequestMessage(message: ConversationMessage): message is RequestMessage {
   return message.role === 'user' || message.role === 'system';

@@ -53,6 +53,18 @@ describe('viewConversation', () => {
     expect(viewConversation(messages, null)).toEqual({ summary: null, imported: null, messages });
   });
 
+  it('leaves the notices of the editor out of what the model sees', () => {
+    const notice = {
+      id: 'n1',
+      role: 'notice',
+      notice: { kind: 'compiled', errorCount: 0 },
+    } as const;
+    expect(viewConversation([user('u1'), notice, answer('a1')], null).messages).toEqual([
+      user('u1'),
+      answer('a1'),
+    ]);
+  });
+
   it('replaces the turns the latest summary covers by that summary', () => {
     const first = summary('s1', 'a1');
     const latest = summary('s2', 'a2', 2);

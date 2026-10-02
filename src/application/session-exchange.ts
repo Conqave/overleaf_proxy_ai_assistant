@@ -24,17 +24,19 @@ export class ExportSession {
   constructor(
     private readonly deps: Pick<
       SessionExchangeDeps,
-      'sessions' | 'archive' | 'project' | 'scope' | 'lock' | 'now'
+      'sessions' | 'archive' | 'project' | 'scope' | 'conversation' | 'lock' | 'now'
     >,
   ) {}
 
   execute(id: string): Promise<string> {
-    const { sessions, archive, project, scope, lock, now } = this.deps;
+    const { sessions, archive, project, scope, conversation, lock, now } = this.deps;
     return lock.run(async (signal) => {
       const session = await sessions.load(id);
       const exported = createSessionExport(session, scope, now());
       const path = getSessionExportPath(exported, project.listFiles());
       await archive.save(path, exported, signal);
+      ensureNotCancelled(signal);
+      if (conversation.sessionId === id) conversation.recordNotice({ kind: 'exported', path });
       return path;
     });
   }
@@ -60,6 +62,7 @@ export class ImportSession {
       ensureNotCancelled(signal);
       leaveCurrentSession(this.deps);
       conversation.show(session);
+      conversation.recordNotice({ kind: 'imported', path });
     });
   }
 }

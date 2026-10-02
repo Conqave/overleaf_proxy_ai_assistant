@@ -38,6 +38,10 @@ export interface CompileDiagnostic {
   readonly lineNumber?: number;
 }
 
+export function countCompileErrors(diagnostics: readonly CompileDiagnostic[]): number {
+  return diagnostics.filter(({ level }) => level === DiagnosticLevel.Error).length;
+}
+
 export type ToolResult =
   | {
       readonly tool: typeof AgentTool.ReadFile;

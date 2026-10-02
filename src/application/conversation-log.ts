@@ -3,6 +3,8 @@ import {
   AssistantMessageKind,
   type ConversationMessage,
   type ImportedHistory,
+  type Notice,
+  type NoticeMessage,
   type ProposalMessage,
 } from '../domain/conversation';
 import type { ContextUsage } from '../domain/context-usage';
@@ -115,6 +117,15 @@ export class ConversationLog {
       throw new InvariantViolation('the context was measured outside of a session');
     }
     this.update(recordContextUsage(this.current, contextUsage));
+  }
+
+  recordNotice(notice: Notice): NoticeMessage {
+    const message: NoticeMessage = { id: this.deps.newId(), role: 'notice', notice };
+    if (this.current === null) {
+      throw new InvariantViolation(`a ${notice.kind} notice is recorded outside of a session`);
+    }
+    this.update(appendToSession(this.current, message, this.deps.now()));
+    return message;
   }
 
   async takePersistenceFailure(): Promise<PersistenceError | null> {

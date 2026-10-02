@@ -5,7 +5,7 @@ import {
   hasPendingEdits,
   recordUndoneEdits,
 } from '../domain/change-set';
-import type { CompileDiagnostic } from '../domain/agent-transcript';
+import { countCompileErrors } from '../domain/agent-transcript';
 import type { ProposalMessage, UndoMessage, UndoRefusal } from '../domain/conversation';
 import { NotATextFileError, ProjectFileNotFoundError, UndoConflictError } from '../domain/errors';
 import { planUndo, type FileChange } from '../domain/file-change';
@@ -16,13 +16,13 @@ import type { ProjectPort } from '../ports/project-port';
 import type { AgentProgress } from './agent-progress';
 import type { ConversationLog } from './conversation-log';
 import { FailureRecordingError, NothingToUndoError, UndecidedEditsError } from './errors';
+import { note, recordingFailure } from './notices';
 import { ensureNotCancelled, type OperationLock } from './operation-lock';
 import { showProjectFile } from './show-project-file';
 
 interface UndoOutcome {
   readonly message: ProposalMessage;
   readonly notice: UndoMessage;
-  readonly diagnostics: readonly CompileDiagnostic[] | null;
 }
 
 interface UndoRun {
@@ -47,37 +47,46 @@ export class UndoChangeSet {
   ) {}
 
   execute(proposalId: string, onProgress: (progress: AgentProgress) => void): Promise<UndoOutcome> {
-    return this.deps.lock.run(async (signal) => {
-      const { conversation, project } = this.deps;
-      let message = conversation.findProposal(proposalId);
-      if (hasPendingEdits(message.edits)) throw new UndecidedEditsError();
-      if (!canUndoEdits(message.edits)) throw new NothingToUndoError();
-      const run = { proposalId, onProgress, signal };
-      const files = project.listFiles();
-      const undone: string[] = [];
-      const refused: UndoRefusal[] = [];
-      try {
-        for (const path of appliedPaths(message)) {
-          const outcome = await this.undoFile(files, path, run);
-          if (outcome.kind === 'refused') {
-            refused.push(outcome.refusal);
-            continue;
+    const { conversation, project, lock } = this.deps;
+    return lock.run((signal) =>
+      recordingFailure(conversation, async () => {
+        let message = conversation.findProposal(proposalId);
+        if (hasPendingEdits(message.edits)) throw new UndecidedEditsError();
+        if (!canUndoEdits(message.edits)) throw new NothingToUndoError();
+        const run = { proposalId, onProgress, signal };
+        const files = project.listFiles();
+        const undone: string[] = [];
+        const refused: UndoRefusal[] = [];
+        try {
+          for (const path of appliedPaths(message)) {
+            const outcome = await this.undoFile(files, path, run);
+            if (outcome.kind === 'refused') {
+              refused.push(outcome.refusal);
+              continue;
+            }
+            message = outcome.message;
+            onProgress({ stage: 'decided', message });
+            undone.push(path);
           }
-          message = outcome.message;
-          onProgress({ stage: 'decided', message });
-          undone.push(path);
+        } catch (error) {
+          if (undone.length || refused.length) {
+            this.recordAfterFailure(error, { proposalId, undone, refused }, onProgress);
+          }
+          throw error;
         }
-      } catch (error) {
-        if (undone.length || refused.length) {
-          this.recordAfterFailure(error, { proposalId, undone, refused });
-        }
-        throw error;
-      }
-      const notice = this.record(proposalId, undone, refused);
-      if (undone.length === 0) return { message, notice, diagnostics: null };
-      onProgress({ stage: 'compiling' });
-      return { message, notice, diagnostics: await project.compile(signal) };
-    });
+        const notice = this.record({ proposalId, undone, refused }, onProgress);
+        if (undone.length === 0) return { message, notice };
+        onProgress({ stage: 'compiling' });
+        const diagnostics = await project.compile(signal);
+        ensureNotCancelled(signal);
+        note(
+          conversation,
+          { kind: 'compiled', errorCount: countCompileErrors(diagnostics) },
+          onProgress,
+        );
+        return { message, notice };
+      }),
+    );
   }
 
   private async undoFile(
@@ -119,19 +128,19 @@ export class UndoChangeSet {
 
   private recordAfterFailure(
     failure: unknown,
-    { proposalId, undone, refused }: Pick<UndoMessage, 'proposalId' | 'undone' | 'refused'>,
+    outcome: Pick<UndoMessage, 'proposalId' | 'undone' | 'refused'>,
+    onProgress: (progress: AgentProgress) => void,
   ): void {
     try {
-      this.record(proposalId, undone, refused);
+      this.record(outcome, onProgress);
     } catch (recordingError) {
       throw new FailureRecordingError(failure, recordingError);
     }
   }
 
   private record(
-    proposalId: string,
-    undone: readonly string[],
-    refused: readonly UndoRefusal[],
+    { proposalId, undone, refused }: Pick<UndoMessage, 'proposalId' | 'undone' | 'refused'>,
+    onProgress: (progress: AgentProgress) => void,
   ): UndoMessage {
     const notice: UndoMessage = {
       id: this.deps.newId(),
@@ -141,6 +150,7 @@ export class UndoChangeSet {
       refused,
     };
     this.deps.conversation.append(notice);
+    onProgress({ stage: 'recorded', message: notice });
     return notice;
   }
 }

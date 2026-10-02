@@ -5,13 +5,12 @@ import {
   type DocumentCommandInput,
 } from '../../../src/domain/document-command';
 import {
-  appliedNotice,
   changeSetStatusText,
-  conflictNotice,
   contextUsageText,
   editStatusText,
   messageMeta,
   messageTitle,
+  noticeText,
   delegationMeta,
   delegationTitle,
   progressStatus,
@@ -43,7 +42,7 @@ describe('messageMeta', () => {
   });
 });
 
-describe('appliedNotice', () => {
+describe('noticeText', () => {
   const replaced = {
     path: 'refs.bib',
     command: createDocumentCommand({ operation: 'replace', target, lineCount: 1, content: 'x' }),
@@ -54,27 +53,47 @@ describe('appliedNotice', () => {
   };
 
   it('reports how many lines of one edit changed in which file', () => {
-    expect(appliedNotice({ applied: [replaced], conflicts: [] })).toBe(
-      'Done. Line replaced in refs.bib.',
-    );
-    expect(appliedNotice({ applied: [deleted], conflicts: [] })).toBe(
+    expect(noticeText({ kind: 'applied', applied: [replaced] })).toEqual({
+      text: 'Done. Line replaced in refs.bib.',
+      tone: 'info',
+    });
+    expect(noticeText({ kind: 'applied', applied: [deleted] }).text).toBe(
       'Done. 4 lines deleted in main.tex.',
     );
   });
 
-  it('counts the edits of several files and says nothing when none was applied', () => {
-    expect(appliedNotice({ applied: [replaced, deleted, deleted], conflicts: [] })).toBe(
+  it('counts the edits of several files', () => {
+    expect(noticeText({ kind: 'applied', applied: [replaced, deleted, deleted] }).text).toBe(
       'Done. Applied 3 edits in refs.bib, main.tex.',
     );
-    expect(appliedNotice({ applied: [], conflicts: [] })).toBeUndefined();
   });
-});
 
-describe('conflictNotice', () => {
   it('names the file that was left unchanged and why', () => {
-    expect(conflictNotice({ path: 'refs.bib', problem: 'It changed.' })).toBe(
-      'Not applied in refs.bib: It changed.',
+    expect(noticeText({ kind: 'conflict', path: 'refs.bib', problem: 'It changed.' })).toEqual({
+      text: 'Not applied in refs.bib: It changed.',
+      tone: 'error',
+    });
+  });
+
+  it('reports a compile, an export, an import and a failure', () => {
+    expect(noticeText({ kind: 'compiled', errorCount: 0 })).toEqual({
+      text: 'Compiled without errors.',
+      tone: 'info',
+    });
+    expect(noticeText({ kind: 'compiled', errorCount: 2 })).toEqual({
+      text: 'Compiled with 2 errors; see the PDF pane for details.',
+      tone: 'error',
+    });
+    expect(noticeText({ kind: 'exported', path: 'hans-sessions/a.json' }).text).toBe(
+      'Exported to hans-sessions/a.json. Collaborators can import it after reloading the project.',
     );
+    expect(noticeText({ kind: 'imported', path: 'hans-sessions/a.json' }).text).toBe(
+      'Imported hans-sessions/a.json as a new session of yours; edits it left open were discarded.',
+    );
+    expect(noticeText({ kind: 'failed', problem: 'Ollama is down.' })).toEqual({
+      text: 'Error: Ollama is down.',
+      tone: 'error',
+    });
   });
 });
 
