@@ -11,7 +11,7 @@ const ALLOWED: ReadonlyMap<string, readonly string[]> = new Map([
   ['ports', ['ports', 'domain']],
   ['application', ['application', 'ports', 'domain']],
   ['infrastructure', ['infrastructure', 'ports', 'domain']],
-  ['presentation', ['presentation', 'application', 'domain']],
+  ['presentation', ['presentation', 'application', 'ports', 'domain']],
   ['bootstrap', ['bootstrap', 'presentation', 'application', 'infrastructure', 'ports', 'domain']],
 ]);
 
@@ -96,6 +96,14 @@ describe('dependency rules', () => {
       .filter((edge) => !allowedLayersOf(layerOf(path.join(SRC, edge.from))).includes(edge.layer))
       .map((edge) => `${edge.from} -> ${edge.target}`);
     expect(violations).toEqual([]);
+  });
+
+  it('presentation knows ports only as types it is given implementations of', () => {
+    const runtime = edges
+      .filter((edge) => edge.from.startsWith(`presentation${path.sep}`))
+      .filter((edge) => edge.layer === 'ports' && !edge.typeOnly)
+      .map((e) => `${e.from} -> ${e.target}`);
+    expect(runtime).toEqual([]);
   });
 
   it('src imports third-party code at runtime only in the MCP client and the Markdown renderer', () => {

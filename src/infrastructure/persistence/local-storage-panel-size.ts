@@ -1,28 +1,25 @@
+import type { PanelSize, PanelSizeStore } from '../../ports/panel-size-store';
+
 const STORAGE_KEY = 'ola-panel-size';
 
 const UNAVAILABLE_STORAGE = new Set(['SecurityError', 'QuotaExceededError']);
-
-export interface StoredPanelSize {
-  readonly width: number;
-  readonly height: number;
-}
 
 export interface StorageWindow {
   readonly localStorage: Pick<Storage, 'getItem' | 'setItem'>;
   readonly DOMException: typeof DOMException;
 }
 
-export class LocalStoragePanelSize {
+export class LocalStoragePanelSize implements PanelSizeStore {
   constructor(private readonly window: StorageWindow) {}
 
-  load(): StoredPanelSize | null {
+  load(): PanelSize | null {
     const stored = this.readStored();
     if (stored === null) return null;
     const size = parseJson(stored);
     return isStoredPanelSize(size) ? { width: size.width, height: size.height } : null;
   }
 
-  save(size: StoredPanelSize): void {
+  save(size: PanelSize): void {
     const text = JSON.stringify({ width: size.width, height: size.height });
     try {
       this.window.localStorage.setItem(STORAGE_KEY, text);
@@ -56,7 +53,7 @@ function parseJson(text: string): unknown {
   }
 }
 
-function isStoredPanelSize(value: unknown): value is StoredPanelSize {
+function isStoredPanelSize(value: unknown): value is PanelSize {
   if (typeof value !== 'object' || value === null) return false;
   if (!('width' in value) || !('height' in value)) return false;
   return isLength(value.width) && isLength(value.height);

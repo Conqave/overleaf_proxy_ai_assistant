@@ -33,7 +33,7 @@ import css from './assistant.css?raw';
 import { InvariantViolation } from '../domain/errors';
 import { MarkdownRenderer } from './markdown-renderer';
 import { PanelResizer } from './panel-resizer';
-import type { PanelSizeStore } from './panel-size';
+import type { PanelSizeStore } from '../ports/panel-size-store';
 import {
   changeSetStatusText,
   compactionFiles,

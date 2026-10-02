@@ -1,10 +1,6 @@
 import { VIEW_TEXT } from './message-format';
-import {
-  DEFAULT_PANEL_SIZE,
-  fitPanelSize,
-  type PanelSize,
-  type PanelSizeStore,
-} from './panel-size';
+import type { PanelSize, PanelSizeStore } from '../ports/panel-size-store';
+import { DEFAULT_PANEL_SIZE, fitPanelSize } from './panel-size';
 
 const KEY_STEP_PX = 10;
 const LARGE_KEY_STEP_PX = 50;

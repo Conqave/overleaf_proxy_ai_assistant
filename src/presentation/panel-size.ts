@@ -1,12 +1,4 @@
-export interface PanelSize {
-  readonly width: number;
-  readonly height: number;
-}
-
-export interface PanelSizeStore {
-  load(): PanelSize | null;
-  save(size: PanelSize): void;
-}
+import type { PanelSize } from '../ports/panel-size-store';
 
 export const DEFAULT_PANEL_SIZE: PanelSize = { width: 380, height: 640 };
 
