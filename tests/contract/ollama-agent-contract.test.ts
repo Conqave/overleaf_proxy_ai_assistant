@@ -320,7 +320,7 @@ const CASES: readonly Case[] = [
     ...UNTOUCHED_PROJECT,
     name: 'searches the project for a label',
     request: 'w którym pliku i w której linii jest etykieta sec:results?',
-    tools: [[AgentTool.Search]],
+    tools: [[AgentTool.Search], [AgentTool.ReadFile]],
     answer: new RegExp(`chapters/results\\.tex[\\s\\S]*${String(lineOf(RESULTS, 'sec:results'))}`),
   },
   {
