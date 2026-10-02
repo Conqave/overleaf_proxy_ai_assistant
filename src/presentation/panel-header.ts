@@ -36,8 +36,6 @@ export class PanelHeader {
     this.contextUsage = dom.el('span', 'ola-context');
     this.contextUsage.title = VIEW_TEXT.contextHint;
     this.compactButton = dom.button('ola-head-btn ola-compact', VIEW_TEXT.compact);
-    this.compactButton.title = VIEW_TEXT.compactHint;
-    this.compactButton.disabled = true;
     this.compactButton.addEventListener('click', () => {
       events.compact();
     });
@@ -46,6 +44,7 @@ export class PanelHeader {
     const actions = dom.el('div', 'ola-head-actions');
     actions.append(this.compactButton, sessionsButton, newButton);
     this.element.append(titleRow, actions);
+    this.showCompactable();
   }
 
   setBusy(busy: boolean): void {
@@ -67,5 +66,12 @@ export class PanelHeader {
 
   private showCompactable(): void {
     this.compactButton.disabled = this.busy || !this.compactable;
+    this.compactButton.title = this.compactHint();
+  }
+
+  private compactHint(): string {
+    if (this.busy) return VIEW_TEXT.compactBusyHint;
+    if (!this.compactable) return VIEW_TEXT.compactNothingHint;
+    return VIEW_TEXT.compactHint;
   }
 }

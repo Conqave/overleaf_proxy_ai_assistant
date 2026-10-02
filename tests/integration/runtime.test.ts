@@ -1343,7 +1343,7 @@ describe('assistant compact button', () => {
     const { doc } = await start({});
     expect(button(doc, '.ola-compact').disabled).toBe(true);
     expect(button(doc, '.ola-compact').title).toBe(
-      'Compact context now: summarise the earlier conversation',
+      'Nothing to compact yet: the earlier conversation is too short to summarise',
     );
   });
 
@@ -1363,6 +1363,7 @@ describe('assistant compact button', () => {
       expect(texts('.ola-status')).toEqual(['Hans is summarising the earlier conversation']);
     }, PAGE_WAIT);
     expect(compact.disabled).toBe(true);
+    expect(compact.title).toBe('Compacting is possible once Hans has finished');
     expect(button(doc, '.ola-send').disabled).toBe(true);
     release();
     await vi.waitFor(() => {

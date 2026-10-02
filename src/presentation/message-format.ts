@@ -65,6 +65,8 @@ export const VIEW_TEXT = {
     'Add this session to your sessions and open it; the project file stays as it is',
   compact: 'Compact',
   compactHint: 'Compact context now: summarise the earlier conversation',
+  compactNothingHint: 'Nothing to compact yet: the earlier conversation is too short to summarise',
+  compactBusyHint: 'Compacting is possible once Hans has finished',
   inputLabel: 'Command',
   inputPlaceholder:
     'Describe what you want: explain an error, improve text, insert a table or delete a line.',

@@ -512,11 +512,14 @@ describe('AssistantController compaction', () => {
     expect(compact().textContent).toBe('Compact');
     expect(texts('.ola-head-row > *')).toEqual(['Hans AI Assistant', 'Context 2.0k / 98.3k']);
     expect(texts('.ola-head-actions > button')).toEqual(['Compact', 'Sessions', 'New']);
-    expect(compact().title).toBe('Compact context now: summarise the earlier conversation');
     expect(compact().disabled).toBe(true);
+    expect(compact().title).toBe(
+      'Nothing to compact yet: the earlier conversation is too short to summarise',
+    );
     agent.will({ kind: 'reply', reply: { kind: 'answer', text: 'Smith is cited.' } });
     await controller.send('who is cited?');
     expect(compact().disabled).toBe(false);
+    expect(compact().title).toBe('Compact context now: summarise the earlier conversation');
     summarizer.will('## Goal\nAdd the knuth84 entry.');
     compact().click();
     await vi.waitFor(() => {
