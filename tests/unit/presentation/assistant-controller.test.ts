@@ -299,7 +299,9 @@ describe('AssistantController web search', () => {
     expect(texts('.ola-approval .ola-result-meta')).toEqual([
       'Exa (exa.ai), an external search service, receives this query.',
     ]);
-    expect(texts('.ola-approval-option')).toEqual(['Auto-approve web searches in this session']);
+    expect(texts('.ola-approval-option')).toEqual([
+      'Auto-approve further searches until web results are in this session',
+    ]);
     expect(texts('.ola-status')).toEqual(['Hans is waiting for your approval of a web search']);
     expect(buttons('.ola-send').every((button) => button.disabled)).toBe(true);
     expect(buttons('.ola-approval button').every((button) => !button.disabled)).toBe(true);
@@ -346,14 +348,14 @@ describe('AssistantController web search', () => {
     expect(texts('.ola-msg').at(-1)).toContain('I could not search.');
   });
 
-  it('stops asking in this session once the user auto-approves', async () => {
+  it('stops asking while the session holds no web results once the user auto-approves', async () => {
     const assistant = await openAssistantWith([
       SEARCH,
       { kind: 'tool', call: { tool: 'web_search', query: 'LaTeX book publisher' } },
       answer('Found both.'),
     ]);
     const { window, controller, webSearch, click } = assistant;
-    webSearch.will(RESULTS, []);
+    webSearch.will([], RESULTS);
     const running = controller.send('find the DOI and the publisher');
     await waitForApprovalCard(window);
     const option = window.document.querySelector('.ola-approval-session');
@@ -365,6 +367,28 @@ describe('AssistantController web search', () => {
     await running;
     expect(webSearch.queries).toEqual([QUERY, 'LaTeX book publisher']);
     expect(window.document.querySelectorAll('.ola-approval')).toHaveLength(0);
+  });
+
+  it('asks without the session option once web results are in the session', async () => {
+    const assistant = await openAssistantWith([
+      SEARCH,
+      { kind: 'tool', call: { tool: 'web_search', query: 'LaTeX book publisher' } },
+      answer('Found both.'),
+    ]);
+    const { window, controller, webSearch, click } = assistant;
+    webSearch.will(RESULTS, []);
+    const running = controller.send('find the DOI and the publisher');
+    await waitForApprovalCard(window);
+    expect(window.document.querySelector('.ola-approval-option')).not.toBeNull();
+    click('.ola-approve-search');
+    await vi.waitFor(() => {
+      expect(webSearch.queries).toHaveLength(1);
+      expect(window.document.querySelector('.ola-approval')).not.toBeNull();
+    });
+    expect(window.document.querySelector('.ola-approval-option')).toBeNull();
+    click('.ola-approve-search');
+    await running;
+    expect(webSearch.queries).toEqual([QUERY, 'LaTeX book publisher']);
   });
 
   it('shows a failed search with its problem and reports a stale decision', async () => {

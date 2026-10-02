@@ -31,6 +31,14 @@ export class WebSearchNoLongerPendingError extends OperationalError {
   }
 }
 
+export class SessionApprovalUnavailableError extends OperationalError {
+  constructor() {
+    super(
+      'Web results or imported messages are already in this session, so each search needs its own approval.',
+    );
+  }
+}
+
 export class NothingToCompactError extends OperationalError {
   constructor() {
     super('There is nothing to compact yet: the latest turn always stays in full.');

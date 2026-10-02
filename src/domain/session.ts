@@ -1,7 +1,9 @@
+import { AgentTool } from './agent-action';
 import { decideEdits, EditStatus, findPendingEdits } from './change-set';
 import { isUndecidedProposal, type ConversationMessage, type UserMessage } from './conversation';
 import { countCoveredMessages } from './conversation-view';
 import { InvariantViolation } from './errors';
+import { carriesWebContent } from './web-search';
 
 export const MAX_SESSION_MESSAGES = 80;
 export const MAX_SESSION_TITLE_LENGTH = 80;
@@ -71,6 +73,18 @@ export function replaceInSession(
   }
   const messages = session.messages.map((shown) => (shown.id === message.id ? message : shown));
   return { ...session, messages, updatedAt: now };
+}
+
+export function holdsUntrustedContent(session: ConversationSession): boolean {
+  return session.imported !== null || session.messages.some(carriesWebResults);
+}
+
+function carriesWebResults(message: ConversationMessage): boolean {
+  return (
+    message.role === 'tool' &&
+    message.record.tool === AgentTool.WebSearch &&
+    carriesWebContent(message.record.outcome)
+  );
 }
 
 export function hasUndecidedProposals(session: ConversationSession): boolean {

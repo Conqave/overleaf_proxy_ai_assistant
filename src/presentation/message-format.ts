@@ -76,7 +76,7 @@ export const VIEW_TEXT = {
   approvalNote: 'Exa (exa.ai), an external search service, receives this query.',
   approve: 'Approve',
   deny: 'Deny',
-  approveForSession: 'Auto-approve web searches in this session',
+  approveForSession: 'Auto-approve further searches until web results are in this session',
   welcomeTitle: 'Ready to help with this document',
   welcomeCopy:
     'Ask for an explanation, a cleaner paragraph, or a precise LaTeX edit. I will show a suggestion before changing anything.',

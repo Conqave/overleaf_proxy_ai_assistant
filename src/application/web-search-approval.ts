@@ -2,11 +2,12 @@ import { InvariantViolation } from '../domain/errors';
 import type { CancellationSignal } from '../ports/cancellation';
 import type { AgentProgress } from './agent-progress';
 import type { ConversationLog } from './conversation-log';
-import { WebSearchNoLongerPendingError } from './errors';
+import { SessionApprovalUnavailableError, WebSearchNoLongerPendingError } from './errors';
 
 export interface PendingWebSearch {
   readonly id: string;
   readonly query: string;
+  readonly canApproveForSession: boolean;
 }
 
 export const WebSearchDecision = {
@@ -27,7 +28,7 @@ export class WebSearchApproval {
 
   constructor(
     private readonly deps: {
-      conversation: Pick<ConversationLog, 'sessionId'>;
+      conversation: Pick<ConversationLog, 'sessionId' | 'holdsUntrustedContent'>;
       newId: () => string;
     },
   ) {}
@@ -38,11 +39,17 @@ export class WebSearchApproval {
     signal: CancellationSignal,
   ): Promise<boolean> {
     if (signal.aborted) throw signal.reason;
+    const untrusted = this.deps.conversation.holdsUntrustedContent();
+    if (untrusted) this.approvedSessionId = null;
     if (this.isApprovedForSession()) return true;
     if (this.waiting !== null) {
       throw new InvariantViolation('another web search is already waiting for approval');
     }
-    const search: PendingWebSearch = { id: this.deps.newId(), query };
+    const search: PendingWebSearch = {
+      id: this.deps.newId(),
+      query,
+      canApproveForSession: !untrusted,
+    };
     const cancelled = Symbol('cancelled');
     const answer = new Promise<boolean | typeof cancelled>((resolve) => {
       const cancel = (): void => {
@@ -71,6 +78,7 @@ export class WebSearchApproval {
     if (waiting?.search.id !== id) throw new WebSearchNoLongerPendingError();
     switch (decision) {
       case WebSearchDecision.ApproveForSession:
+        if (!waiting.search.canApproveForSession) throw new SessionApprovalUnavailableError();
         this.approvedSessionId = this.requireSessionId();
         waiting.settle(true);
         break;

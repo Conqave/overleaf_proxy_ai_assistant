@@ -12,6 +12,7 @@ import {
   createSessionTitle,
   discardUndecidedProposals,
   hasUndecidedProposals,
+  holdsUntrustedContent,
   MAX_SESSION_MESSAGES,
   MAX_SESSION_TITLE_LENGTH,
   replaceInSession,
@@ -20,6 +21,7 @@ import {
   summarizeSession,
   type SessionSummary,
 } from '../../../src/domain/session';
+import type { WebSearchOutcome } from '../../../src/domain/web-search';
 import { editWith, proposalOf } from '../../support/proposals';
 
 const first: UserMessage = { id: 'u1', role: 'user', text: '  Add a table\n of results  ' };
@@ -170,5 +172,44 @@ describe('undecided proposals', () => {
       ),
     ]);
     expect(hasUndecidedProposals(discarded)).toBe(false);
+  });
+});
+
+describe('untrusted content of a session', () => {
+  const webSearch = (outcome: WebSearchOutcome): ConversationMessage => ({
+    id: 'w',
+    role: 'tool',
+    record: { tool: 'web_search', query: 'LaTeX DOI', outcome },
+  });
+  const result = { title: 'LaTeX', url: 'https://example.org', snippet: 'A book.' };
+  const sessionWith = (...messages: ConversationMessage[]) => ({
+    ...startSession('s1', first, 1),
+    messages: [first, ...messages],
+  });
+
+  it('is absent from a session of the user with no web results', () => {
+    expect(holdsUntrustedContent(sessionWith(answer))).toBe(false);
+    expect(holdsUntrustedContent(sessionWith(webSearch({ status: 'denied' })))).toBe(false);
+    expect(
+      holdsUntrustedContent(
+        sessionWith(webSearch({ status: 'found', results: [], truncated: false })),
+      ),
+    ).toBe(false);
+  });
+
+  it('is present once a web search returned results or an external problem', () => {
+    expect(
+      holdsUntrustedContent(
+        sessionWith(webSearch({ status: 'found', results: [result], truncated: false })),
+      ),
+    ).toBe(true);
+    expect(
+      holdsUntrustedContent(sessionWith(webSearch({ status: 'failed', problem: 'Exa says no.' }))),
+    ).toBe(true);
+  });
+
+  it('is present in an imported session', () => {
+    const imported = { path: 'hans-sessions/a.json', lastMessageId: 'u1' };
+    expect(holdsUntrustedContent({ ...sessionWith(), imported })).toBe(true);
   });
 });

@@ -137,7 +137,10 @@ describe('progressStatus', () => {
     [{ stage: 'searching', query: '\\label{fig}' } as const, 'Hans is searching for \\label{fig}'],
     [{ stage: 'compiling' } as const, 'Hans is compiling the project'],
     [
-      { stage: 'awaiting-approval', search: { id: 'a', query: 'LaTeX DOI' } } as const,
+      {
+        stage: 'awaiting-approval',
+        search: { id: 'a', query: 'LaTeX DOI', canApproveForSession: true },
+      } as const,
       'Hans is waiting for your approval of a web search',
     ],
     [

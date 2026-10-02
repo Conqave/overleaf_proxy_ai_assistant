@@ -237,12 +237,13 @@ export class AssistantView {
     this.messageNodes.set(message.id, node);
   }
 
-  showWebSearchApproval({ id, query }: PendingWebSearch): void {
+  showWebSearchApproval({ id, query, canApproveForSession }: PendingWebSearch): void {
     const node = this.el('div', 'ola-msg ola-ai ola-approval');
     const forSession = this.el('input', 'ola-approval-session');
     forSession.type = 'checkbox';
     const sessionLabel = this.el('label', 'ola-approval-option');
     sessionLabel.append(forSession, this.el('span', undefined, VIEW_TEXT.approveForSession));
+    const sessionOption = canApproveForSession ? [sessionLabel] : [];
     const decide = (decision: WebSearchDecision): void => {
       for (const control of node.querySelectorAll('button, input')) {
         control.setAttribute('disabled', '');
@@ -265,7 +266,7 @@ export class AssistantView {
       this.el('div', 'ola-result-title', VIEW_TEXT.approvalTitle),
       this.el('div', 'ola-result-body ola-approval-query', query),
       this.el('div', 'ola-result-meta', VIEW_TEXT.approvalNote),
-      sessionLabel,
+      ...sessionOption,
       actions,
     );
     this.chat.querySelector('.ola-welcome')?.remove();

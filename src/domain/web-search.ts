@@ -67,6 +67,17 @@ export const WEB_SEARCH_DENIED: WebSearchOutcome = Object.freeze({
   status: WebSearchStatus.Denied,
 });
 
+export function carriesWebContent(outcome: WebSearchOutcome): boolean {
+  switch (outcome.status) {
+    case WebSearchStatus.Found:
+      return outcome.results.length > 0;
+    case WebSearchStatus.Denied:
+      return false;
+    case WebSearchStatus.Failed:
+      return true;
+  }
+}
+
 export function failWebSearch(problem: string): WebSearchOutcome {
   return createWebSearchOutcome({ status: WebSearchStatus.Failed, problem: problem.trim() });
 }

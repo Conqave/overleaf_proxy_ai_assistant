@@ -9,6 +9,7 @@ import {
   appendToSession,
   discardUndecidedProposals,
   hasUndecidedProposals,
+  holdsUntrustedContent,
   replaceInSession,
   startSession,
   type ConversationSession,
@@ -41,6 +42,10 @@ export class ConversationLog {
 
   ensureCurrent(epoch: number): void {
     if (this.currentEpoch !== epoch) throw new RequestSupersededError();
+  }
+
+  holdsUntrustedContent(): boolean {
+    return this.current !== null && holdsUntrustedContent(this.current);
   }
 
   messages(): readonly ConversationMessage[] {
