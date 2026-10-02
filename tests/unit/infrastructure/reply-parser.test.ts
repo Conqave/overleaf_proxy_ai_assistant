@@ -36,23 +36,38 @@ describe('parseAgentDecision tool calls', () => {
   it.each([
     ['a path outside the project', 'ACTION: read_file\nPATH: ../x.tex', 'must be relative'],
     ['a read without a path', 'ACTION: read_file', 'read_file requires a path'],
-    ['a search with a path', 'ACTION: search\nQUERY: ab\nPATH: main.tex', 'search takes no path'],
+    [
+      'a search with a path',
+      'ACTION: search\nQUERY: ab\nPATH: main.tex',
+      'ACTION: search takes only QUERY; remove PATH',
+    ],
     ['a one-letter query', 'ACTION: search\nQUERY: a', 'must have 2 to 200 characters'],
     ['a compile with content', 'ACTION: compile\nCONTENT:\nx', 'has no content'],
-    ['an unknown field', 'ACTION: compile\nFILE: main.tex', 'unexpected line "FILE: main.tex"'],
+    [
+      'an unknown field',
+      'ACTION: compile\nFILE: main.tex',
+      'ACTION: compile takes no other lines; remove FILE',
+    ],
+    ['a stray line', 'ACTION: compile\nnow', 'unexpected line "now"; every line before CONTENT:'],
     ['a text start line', 'ACTION: read_file\nPATH: a.tex\nSTART_LINE: ten', 'must be a number'],
     [
       'a range ending before it starts',
       'ACTION: read_file\nPATH: a.tex\nSTART_LINE: 9\nEND_LINE: 2',
       'comes before the start line',
     ],
-    [
-      'a search with a start line',
-      'ACTION: search\nQUERY: ab\nSTART_LINE: 2',
-      'takes no start line',
-    ],
+    ['a search with a start line', 'ACTION: search\nQUERY: ab\nSTART_LINE: 2', 'remove START_LINE'],
   ])('rejects %s', (_name, raw, expected) => {
     expect(problem(raw)).toContain(expected);
+  });
+
+  it('names every unexpected field and line at once', () => {
+    expect(
+      problem(
+        'ACTION: read_file\nPATH: a.tex\nQUERY: x\nLINE: 4\nLINE_TEXT: y\nQUERY: z\nplease\nthanks',
+      ),
+    ).toBe(
+      'ACTION: read_file takes only PATH, START_LINE, END_LINE; remove QUERY, LINE, LINE_TEXT; unexpected lines "please", "thanks"; every line before CONTENT: must be one of PATH, START_LINE, END_LINE followed by ": "',
+    );
   });
 });
 
@@ -114,8 +129,8 @@ describe('parseAgentDecision replies', () => {
     ],
     [
       'an edit with a question',
-      'ACTION: edit\nPATH: main.tex\nQUESTION: x?',
-      'unexpected line "QUESTION: x?"',
+      'ACTION: edit\nPATH: main.tex\nQUESTION: x?\nTEXT: y',
+      'ACTION: edit takes only PATH, OPERATION, LINE, END_LINE, LINE_TEXT, REASON; remove QUESTION, TEXT',
     ],
   ])('rejects %s', (_name, raw, expected) => {
     expect(problem(raw)).toContain(expected);

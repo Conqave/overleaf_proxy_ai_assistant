@@ -32,12 +32,11 @@ import {
 
 const ACTION_LINE = createFieldPattern([AgentField.Action]);
 
-const TOOL_FIELDS: readonly string[] = [
-  AgentField.Path,
-  AgentField.Query,
-  AgentField.StartLine,
-  EditField.EndLine,
-];
+const TOOL_FIELDS: Readonly<Record<ToolCall['tool'], readonly string[]>> = {
+  [AgentAction.ReadFile]: [AgentField.Path, AgentField.StartLine, EditField.EndLine],
+  [AgentAction.Search]: [AgentField.Query],
+  [AgentAction.Compile]: [],
+};
 
 const AGENT_EDIT_FIELDS: readonly string[] = [AgentField.Path, ...EDIT_FIELDS];
 
@@ -85,7 +84,7 @@ function parseAction(line: string): AgentAction {
 }
 
 function parseToolCall(tool: ToolCall['tool'], rows: readonly string[]): ToolCall {
-  const { fields, content } = parseHeaderReply(rows, TOOL_FIELDS);
+  const { fields, content } = parseHeaderReply(rows, tool, TOOL_FIELDS[tool]);
   if (content !== undefined) {
     throw new InvalidAssistantResponse(`a ${tool} call has no content; send only its header lines`);
   }
@@ -119,7 +118,7 @@ function parseAnswerText(rows: readonly string[]): string {
 }
 
 function parseQuestion(rows: readonly string[]): string {
-  const { fields, content } = parseHeaderReply(rows, [AgentField.Question]);
+  const { fields, content } = parseHeaderReply(rows, AgentAction.Question, [AgentField.Question]);
   if (content !== undefined) {
     throw new InvalidAssistantResponse(`a question has only the ${AgentField.Question} line`);
   }
@@ -129,7 +128,7 @@ function parseQuestion(rows: readonly string[]): string {
 }
 
 function parseEditReply(rows: readonly string[]): AgentReply {
-  const { fields, content } = parseHeaderReply(rows, AGENT_EDIT_FIELDS);
+  const { fields, content } = parseHeaderReply(rows, AgentAction.Edit, AGENT_EDIT_FIELDS);
   const path = parseEditPath(getRequiredField(fields, AgentField.Path));
   const lineNumber = getLineNumber(fields, EditField.Line);
   const command = parseCommand({
@@ -183,14 +182,18 @@ function parseCommand(input: DocumentCommandInput): DocumentCommand {
   }
 }
 
-function parseHeaderReply(rows: readonly string[], names: readonly string[]): HeaderReply {
+function parseHeaderReply(
+  rows: readonly string[],
+  action: AgentAction,
+  names: readonly string[],
+): HeaderReply {
   const pattern = createFieldPattern(names);
   const contentStart = rows.findIndex((row) => row.trimEnd() === CONTENT_MARKER);
-  const fields = parseFields(
-    contentStart === -1 ? rows : rows.slice(0, contentStart),
+  const fields = parseFields(contentStart === -1 ? rows : rows.slice(0, contentStart), {
+    action,
     pattern,
     names,
-  );
+  });
   if (contentStart === -1) return { fields };
   const contentRows = rows.slice(contentStart + 1);
   while (contentRows.at(-1)?.trim() === '') contentRows.pop();
@@ -207,12 +210,16 @@ function parseHeaderReply(rows: readonly string[], names: readonly string[]): He
   return { fields, content: contentRows.join('\n') };
 }
 
-function parseFields(
-  headerRows: readonly string[],
-  pattern: RegExp,
-  names: readonly string[],
-): Map<string, string> {
+interface HeaderRules {
+  readonly action: AgentAction;
+  readonly pattern: RegExp;
+  readonly names: readonly string[];
+}
+
+function parseFields(headerRows: readonly string[], rules: HeaderRules): Map<string, string> {
   const fields = new Map<string, string>();
+  const unexpectedFields = new Set<string>();
+  const unexpectedLines: string[] = [];
   for (const row of headerRows) {
     if (row.trim() === '') continue;
     if (row.startsWith(CONTENT_MARKER)) {
@@ -220,20 +227,49 @@ function parseFields(
         `${JSON.stringify(row)} puts text on the ${CONTENT_MARKER} line; write ${CONTENT_MARKER} alone on its line and the new LaTeX on the lines below it`,
       );
     }
-    const match = pattern.exec(row);
-    if (!match) {
-      throw new InvalidAssistantResponse(
-        `unexpected line ${JSON.stringify(row)}; every line before ${CONTENT_MARKER} must be one of ${names.join(', ')} followed by ": "`,
-      );
+    const match = rules.pattern.exec(row);
+    if (match) {
+      const [, name, value] = match;
+      if (name === undefined || value === undefined) {
+        throw new InvariantViolation('the field pattern always captures a field and its value');
+      }
+      if (fields.has(name)) throw new InvalidAssistantResponse(`${name} appears twice`);
+      fields.set(name, name === EditField.LineText ? value : value.trim());
+      continue;
     }
-    const [, name, value] = match;
-    if (name === undefined || value === undefined) {
-      throw new InvariantViolation('the field pattern always captures a field and its value');
-    }
-    if (fields.has(name)) throw new InvalidAssistantResponse(`${name} appears twice`);
-    fields.set(name, name === EditField.LineText ? value : value.trim());
+    const otherField = ANY_FIELD.exec(row)?.[1];
+    if (otherField === undefined) unexpectedLines.push(row);
+    else unexpectedFields.add(otherField);
   }
+  rejectUnexpected(rules, [...unexpectedFields], unexpectedLines);
   return fields;
+}
+
+const ANY_FIELD = /^([A-Z][A-Z_]*):(?: |$)/;
+
+function rejectUnexpected(
+  { action, names }: HeaderRules,
+  unexpectedFields: readonly string[],
+  unexpectedLines: readonly string[],
+): void {
+  const problems: string[] = [];
+  if (unexpectedFields.length) {
+    const taken = names.length ? `only ${names.join(', ')}` : 'no other lines';
+    problems.push(
+      `${fieldLine(AgentField.Action, action)} takes ${taken}; remove ${unexpectedFields.join(', ')}`,
+    );
+  }
+  if (unexpectedLines.length) {
+    const quoted = unexpectedLines.map((row) => JSON.stringify(row)).join(', ');
+    const subject = unexpectedLines.length === 1 ? 'line' : 'lines';
+    const allowed = names.length
+      ? `must be one of ${names.join(', ')} followed by ": "`
+      : 'is not allowed';
+    problems.push(
+      `unexpected ${subject} ${quoted}; every line before ${CONTENT_MARKER} ${allowed}`,
+    );
+  }
+  if (problems.length) throw new InvalidAssistantResponse(problems.join('; '));
 }
 
 function getOptionalField(fields: ReadonlyMap<string, string>, name: string): string | undefined {
