@@ -40,11 +40,13 @@ export type ProjectToolRun =
     }
   | { readonly tool: typeof AgentTool.Compile };
 
-export type AcceptedDecision =
-  | { readonly kind: 'tool'; readonly call: ToolCall; readonly run: ProjectToolRun }
+export type AcceptedReply =
   | { readonly kind: 'answer'; readonly text: string }
   | { readonly kind: 'question'; readonly text: string }
   | { readonly kind: 'edit'; readonly changes: readonly ProjectEdit[] };
+
+export type AcceptedDecision =
+  { readonly kind: 'tool'; readonly call: ToolCall; readonly run: ProjectToolRun } | AcceptedReply;
 
 export type AgentMistake =
   | ToolBudgetExhaustedError
@@ -100,7 +102,7 @@ function acceptReply(
   reply: AgentReply,
   workspace: AgentWorkspace,
   transcript: readonly AgentTurn[],
-): AcceptedDecision {
+): AcceptedReply {
   switch (reply.kind) {
     case 'answer':
     case 'question':

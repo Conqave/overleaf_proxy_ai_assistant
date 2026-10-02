@@ -1,12 +1,5 @@
-import type { AgentDecision, ProjectEdit } from '../domain/agent-action';
-import { hasMistakesLeft } from '../domain/agent-policy';
-import {
-  recordToolTurn,
-  type AgentTurn,
-  type CompileDiagnostic,
-  type ToolResult,
-  type ToolTurn,
-} from '../domain/agent-transcript';
+import type { ProjectEdit } from '../domain/agent-action';
+import { recordToolTurn, type CompileDiagnostic } from '../domain/agent-transcript';
 import { createChangeSet } from '../domain/change-set';
 import type {
   ProposalMessage,
@@ -18,28 +11,16 @@ import type {
 import { viewConversation, type ConversationView } from '../domain/conversation-view';
 import { InvariantViolation } from '../domain/errors';
 import type { TextFile } from '../domain/project-file';
-import type {
-  AgentPort,
-  AgentRequest,
-  AgentStep,
-  AgentStepRequest,
-  AgentWorkspace,
-  ContextUsage,
-} from '../ports/agent-port';
+import type { AgentPort, AgentRequest, AgentWorkspace, ContextUsage } from '../ports/agent-port';
 import type { CancellationController, CancellationSignal } from '../ports/cancellation';
-import { AssistantContextOverflowError } from '../ports/errors';
 import type { EditorPort } from '../ports/editor-port';
 import type { ProjectPort } from '../ports/project-port';
-import {
-  acceptDecision,
-  isAgentMistake,
-  type AcceptedDecision,
-  type AgentMistake,
-} from './agent-decision';
+import type { AcceptedReply } from './agent-decision';
+import { AgentLoop } from './agent-loop';
 import type { AgentProgress } from './agent-progress';
 import type { ConversationCompactor } from './conversation-compactor';
 import type { ConversationLog } from './conversation-log';
-import { AgentMistakeLimitError, EmptyRequestError } from './errors';
+import { EmptyRequestError } from './errors';
 import type { OperationLock } from './operation-lock';
 import type { PendingChanges } from './pending-change';
 import { ProjectTools } from './project-tools';
@@ -69,7 +50,7 @@ export type AgentResult =
     };
 
 export class HandleAssistantRequest {
-  private readonly tools: ProjectTools;
+  private readonly loop: AgentLoop;
 
   constructor(
     private readonly deps: {
@@ -84,7 +65,11 @@ export class HandleAssistantRequest {
       compactor: ConversationCompactor;
     },
   ) {
-    this.tools = new ProjectTools(deps.project, deps.createController);
+    this.loop = new AgentLoop({
+      agent: deps.agent,
+      compactor: deps.compactor,
+      tools: new ProjectTools(deps.project, deps.createController),
+    });
   }
 
   getUnusedContext(): ContextUsage {
@@ -134,78 +119,33 @@ export class HandleAssistantRequest {
   }
 
   private async runAgent(request: AgentRequest, run: RequestRun): Promise<AgentResult> {
-    const { conversation, compactor } = this.deps;
+    const { conversation } = this.deps;
     const { epoch, signal, onProgress } = run;
     const workspace = await this.readWorkspace(signal);
     conversation.ensureCurrent(epoch);
-    const transcript: AgentTurn[] = [];
     const turnIds = new Set([request.message.id]);
-    const stepRequest = (): AgentStepRequest => ({
+    const { reply, contextUsage } = await this.loop.run({
       request,
-      conversation: this.viewHistory(turnIds),
       workspace,
-      transcript: [...transcript],
+      host: {
+        viewHistory: () => this.viewHistory(turnIds),
+        ensureCurrent: () => {
+          conversation.ensureCurrent(epoch);
+        },
+        recordLookup: (turn) => {
+          const record: ToolMessage = {
+            id: this.deps.newId(),
+            role: 'tool',
+            record: recordToolTurn(turn),
+          };
+          turnIds.add(record.id);
+          conversation.append(record);
+        },
+      },
       signal,
+      onProgress,
     });
-    let isCompacted = false;
-    for (let step = 1; ; step += 1) {
-      if (!isCompacted) {
-        const summary = await compactor.compact(
-          { kind: 'auto', step: stepRequest() },
-          onProgress,
-          signal,
-        );
-        isCompacted = summary !== null;
-      }
-      onProgress({ stage: 'thinking', step });
-      const { decision, contextUsage } = await this.decide(stepRequest, step, run);
-      conversation.ensureCurrent(epoch);
-      let accepted: AcceptedDecision;
-      try {
-        accepted = acceptDecision(decision, workspace, transcript);
-      } catch (error) {
-        if (!isAgentMistake(error)) throw error;
-        recordMistake(transcript, decision, error);
-        continue;
-      }
-      if (accepted.kind !== 'tool') {
-        return await this.answer(accepted, contextUsage, run);
-      }
-      let result: ToolResult;
-      try {
-        result = await this.tools.run(accepted.run, onProgress, signal);
-      } catch (error) {
-        if (!isAgentMistake(error)) throw error;
-        recordMistake(transcript, decision, error);
-        continue;
-      }
-      conversation.ensureCurrent(epoch);
-      const turn: ToolTurn = { kind: 'tool', call: accepted.call, result };
-      transcript.push(turn);
-      const record: ToolMessage = {
-        id: this.deps.newId(),
-        role: 'tool',
-        record: recordToolTurn(turn),
-      };
-      turnIds.add(record.id);
-      conversation.append(record);
-    }
-  }
-
-  private async decide(
-    stepRequest: () => AgentStepRequest,
-    step: number,
-    run: RequestRun,
-  ): Promise<AgentStep> {
-    const { agent, compactor } = this.deps;
-    try {
-      return await agent.decide(stepRequest());
-    } catch (error) {
-      if (!(error instanceof AssistantContextOverflowError)) throw error;
-    }
-    await compactor.compact({ kind: 'overflow', step: stepRequest() }, run.onProgress, run.signal);
-    run.onProgress({ stage: 'thinking', step });
-    return await agent.decideShortened(stepRequest());
+    return await this.answer(reply, contextUsage, run);
   }
 
   private viewHistory(turnIds: ReadonlySet<string>): ConversationView {
@@ -227,7 +167,7 @@ export class HandleAssistantRequest {
   }
 
   private async answer(
-    reply: Exclude<AcceptedDecision, { readonly kind: 'tool' }>,
+    reply: AcceptedReply,
     contextUsage: ContextUsage,
     { epoch, signal, onProgress }: RequestRun,
   ): Promise<AgentResult> {
@@ -272,13 +212,4 @@ export class HandleAssistantRequest {
     this.deps.conversation.append(message);
     return message;
   }
-}
-
-function recordMistake(
-  transcript: AgentTurn[],
-  decision: AgentDecision,
-  mistake: AgentMistake,
-): void {
-  transcript.push({ kind: 'mistake', decision, problem: mistake.message });
-  if (!hasMistakesLeft(transcript)) throw new AgentMistakeLimitError(mistake);
 }
