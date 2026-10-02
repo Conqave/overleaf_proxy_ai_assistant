@@ -18,7 +18,7 @@ import { rejectOnAbort } from '../../support/fakes';
 import { TestFixtureError } from '../../support/test-errors';
 
 const PAST_EVERY_DEADLINE_MS = 5 * 60_000;
-const EXPORT_PATH = 'hans-sessions/2026-10-02-0705-table.json';
+const EXPORT_PATH = 'hans-sessions/2026-10-02-070500-table.json';
 
 let ide: FakeOverleafIde;
 let server: FakeOverleafServer;

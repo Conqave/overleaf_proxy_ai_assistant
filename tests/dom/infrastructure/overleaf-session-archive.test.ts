@@ -13,7 +13,7 @@ import {
 } from '../../support/fake-overleaf';
 import { FAKE_CSRF_TOKEN } from '../../support/fake-overleaf-server';
 
-const PATH = 'hans-sessions/2026-10-02-0705-table.json';
+const PATH = 'hans-sessions/2026-10-02-070500-table.json';
 const exported: SessionExport = {
   projectId: 'project-1',
   exportedBy: 'user-1',

@@ -27,7 +27,7 @@ import { editWith, proposalOf } from '../../support/proposals';
 const OWNER: SessionScope = { userId: 'owner', projectId: 'project-1' };
 const COLLABORATOR: SessionScope = { userId: 'collaborator', projectId: 'project-1' };
 const EXPORTED_AT = new Date(2026, 9, 2, 7, 5).getTime();
-const EXPORT_PATH = 'hans-sessions/2026-10-02-0705-session-shared.json';
+const EXPORT_PATH = 'hans-sessions/2026-10-02-070500-session-shared.json';
 
 const command = createDocumentCommand({
   operation: 'delete',
@@ -107,6 +107,14 @@ describe('ExportSession', () => {
       exportedAt: EXPORTED_AT,
       session: { title: 'Session shared', createdAt: 0, updatedAt: 7, messages: sharedMessages },
     });
+  });
+
+  it('keeps an export of the same name in the project', async () => {
+    const owner = openWorkspace(OWNER, [EXPORT_PATH]);
+    owner.repository.stored.set('shared', storedSession('shared', sharedMessages, 7));
+    await expect(owner.exportSession('shared')).resolves.toBe(
+      'hans-sessions/2026-10-02-070500-session-shared-2.json',
+    );
   });
 
   it('writes nothing for a session that is gone and waits for a running operation', async () => {

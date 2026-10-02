@@ -55,9 +55,19 @@ export function createSessionExport(
   };
 }
 
-export function getSessionExportPath(exported: SessionExport): string {
+export function getSessionExportPath(
+  exported: SessionExport,
+  files: readonly ProjectFile[],
+): string {
   const name = `${formatExportTime(new Date(exported.exportedAt))}-${slugOf(exported.session.title)}`;
-  return [SESSION_EXPORT_FOLDER, `${name}${EXPORT_EXTENSION}`].join(PATH_SEPARATOR);
+  const taken = new Set(files.map(({ path }) => path));
+  for (let copy = 1; ; copy += 1) {
+    const suffix = copy === 1 ? '' : `-${String(copy)}`;
+    const path = [SESSION_EXPORT_FOLDER, `${name}${suffix}${EXPORT_EXTENSION}`].join(
+      PATH_SEPARATOR,
+    );
+    if (!taken.has(path)) return path;
+  }
 }
 
 export function isSessionExportPath(path: string): boolean {
@@ -116,7 +126,8 @@ function recordImportedMessage(message: ConversationMessage): ConversationMessag
 
 function formatExportTime(time: Date): string {
   const date = [time.getFullYear(), time.getMonth() + 1, time.getDate()].map(twoDigits);
-  return `${date.join('-')}-${twoDigits(time.getHours())}${twoDigits(time.getMinutes())}`;
+  const clock = [time.getHours(), time.getMinutes(), time.getSeconds()].map(twoDigits);
+  return `${date.join('-')}-${clock.join('')}`;
 }
 
 function twoDigits(value: number): string {

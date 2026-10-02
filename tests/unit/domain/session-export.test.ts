@@ -26,12 +26,13 @@ const command = createDocumentCommand({
   target: { lineNumber: 2, lineText: 'x' },
 });
 const EXPORTED_AT = new Date(2026, 9, 2, 7, 5).getTime();
+const LATER_EXPORT = new Date(2026, 9, 2, 7, 5, 42).getTime();
 
 function sessionTitled(title: string): ConversationSession {
   return { id: 's1', title, createdAt: 10, updatedAt: 20, messages: [first], imported: null };
 }
 
-const PATH = 'hans-sessions/2026-10-02-0705-add-a-table.json';
+const PATH = 'hans-sessions/2026-10-02-070500-add-a-table.json';
 const target = (scope: SessionScope) => ({ path: PATH, scope, id: 'fresh', now: 99 });
 
 const file = (path: string): ProjectFile => ({ id: path, path, kind: ProjectFileKind.Binary });
@@ -46,18 +47,30 @@ describe('session export', () => {
     });
   });
 
-  it('is named by its local export minute and the slug of the title', () => {
+  it('is named by its local export second and kept apart from an export of the same name', () => {
+    const exported = createSessionExport(sessionTitled('Table'), owner, LATER_EXPORT);
+    expect(getSessionExportPath(exported, [])).toBe('hans-sessions/2026-10-02-070542-table.json');
+    const taken = [
+      file('hans-sessions/2026-10-02-070542-table.json'),
+      file('hans-sessions/2026-10-02-070542-table-2.json'),
+    ];
+    expect(getSessionExportPath(exported, taken)).toBe(
+      'hans-sessions/2026-10-02-070542-table-3.json',
+    );
+  });
+
+  it('is named by its local export time and the slug of the title', () => {
     const exported = (title: string) =>
-      getSessionExportPath(createSessionExport(sessionTitled(title), owner, EXPORTED_AT));
+      getSessionExportPath(createSessionExport(sessionTitled(title), owner, EXPORTED_AT), []);
     expect(exported('Fix the Table: “Results” (v2)!')).toBe(
-      'hans-sessions/2026-10-02-0705-fix-the-table-results-v2.json',
+      'hans-sessions/2026-10-02-070500-fix-the-table-results-v2.json',
     );
     expect(exported('Zażółć gęślą jaźń')).toBe(
-      'hans-sessions/2026-10-02-0705-zazolc-gesla-jazn.json',
+      'hans-sessions/2026-10-02-070500-zazolc-gesla-jazn.json',
     );
-    expect(exported('???')).toBe('hans-sessions/2026-10-02-0705-session.json');
+    expect(exported('???')).toBe('hans-sessions/2026-10-02-070500-session.json');
     expect(exported(`${'word '.repeat(20)}end`)).toBe(
-      `hans-sessions/2026-10-02-0705-${'word-'.repeat(7)}word.json`,
+      `hans-sessions/2026-10-02-070500-${'word-'.repeat(7)}word.json`,
     );
   });
 
@@ -68,10 +81,10 @@ describe('session export', () => {
       file('hans-sessions/notes.txt'),
       file('hans-sessions/old/2026-01-01-0000-b.json'),
       file('other/2026-10-03-0000-c.json'),
-      file('hans-sessions/2026-10-02-0705-d.json'),
+      file('hans-sessions/2026-10-02-070500-d.json'),
     ];
     expect(listSessionExports(files).map(({ path }) => path)).toEqual([
-      'hans-sessions/2026-10-02-0705-d.json',
+      'hans-sessions/2026-10-02-070500-d.json',
       'hans-sessions/2026-10-01-0900-a.json',
     ]);
     expect(isSessionExportPath('hans-sessions/x.json')).toBe(true);

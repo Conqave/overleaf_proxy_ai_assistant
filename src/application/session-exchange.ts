@@ -24,16 +24,16 @@ export class ExportSession {
   constructor(
     private readonly deps: Pick<
       SessionExchangeDeps,
-      'sessions' | 'archive' | 'scope' | 'lock' | 'now'
+      'sessions' | 'archive' | 'project' | 'scope' | 'lock' | 'now'
     >,
   ) {}
 
   execute(id: string): Promise<string> {
-    const { sessions, archive, scope, lock, now } = this.deps;
+    const { sessions, archive, project, scope, lock, now } = this.deps;
     return lock.run(async (signal) => {
       const session = await sessions.load(id);
       const exported = createSessionExport(session, scope, now());
-      const path = getSessionExportPath(exported);
+      const path = getSessionExportPath(exported, project.listFiles());
       await archive.save(path, exported, signal);
       return path;
     });

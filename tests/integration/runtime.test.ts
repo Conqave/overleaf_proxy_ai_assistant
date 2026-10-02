@@ -630,7 +630,7 @@ describe('assistant session exchange', () => {
     const [path, ...others] = owner.ide.server.paths().filter((p) => p.startsWith('hans-'));
     if (path === undefined || others.length) throw new TestFixtureError('one export expected');
     expect(path).toMatch(
-      /^hans-sessions\/\d{4}-\d{2}-\d{2}-\d{4}-make-the-word-experiment-bold\.json$/,
+      /^hans-sessions\/\d{4}-\d{2}-\d{2}-\d{6}-make-the-word-experiment-bold\.json$/,
     );
     return { path, text: owner.ide.server.textAt(path) };
   }
