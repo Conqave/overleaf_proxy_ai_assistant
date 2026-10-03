@@ -2,6 +2,7 @@ import { WEB_SEARCH_LIMITS, type WebSearchResult } from '../../domain/web-search
 import type { CancellationSignal } from '../../ports/cancellation';
 import {
   WebSearchContractError,
+  WebSearchRateLimitedError,
   WebSearchRejectedError,
   WebSearchTimeoutError,
   WebSearchUnavailableError,
@@ -23,6 +24,7 @@ const EXA_SEARCH_TOOL = 'web_search_exa';
 export const EXA_SEARCH_TIMEOUT_MS = 30_000;
 const MAX_REFUSAL_CHARS = 300;
 const SHORTENED_MARK = '…';
+const FREE_RATE_LIMIT_ANSWER = "You've hit Exa's free MCP rate limit.";
 
 export class ExaWebSearch implements WebSearchPort {
   constructor(private readonly client: McpClient) {}
@@ -40,6 +42,11 @@ export class ExaWebSearch implements WebSearchPort {
     if (result.isError) {
       throw new WebSearchRejectedError(
         `Exa refused the web search: ${quoteRefusal(result.texts.join(' '))}`,
+      );
+    }
+    if (result.texts[0]?.startsWith(FREE_RATE_LIMIT_ANSWER) === true) {
+      throw new WebSearchRateLimitedError(
+        "Exa's free search limit is reached; try again later or configure an Exa API key.",
       );
     }
     return parseExaSearchResults(result.texts);

@@ -6,6 +6,7 @@ import {
 import { McpClient } from '../../../src/infrastructure/mcp/mcp-client';
 import {
   WebSearchContractError,
+  WebSearchRateLimitedError,
   WebSearchRejectedError,
   WebSearchTimeoutError,
   WebSearchUnavailableError,
@@ -19,6 +20,12 @@ import {
   toolAnswer,
 } from '../../support/fake-mcp-server';
 import { TestFixtureError } from '../../support/test-errors';
+
+const EXA_FREE_RATE_LIMIT_ANSWER = [
+  "You've hit Exa's free MCP rate limit. To continue using without limits, create your own Exa API key.",
+  '',
+  'Fix: Create API key at https://dashboard.exa.ai/api-keys , and then update Exa MCP URL to this https://mcp.exa.ai/mcp?exaApiKey=YOUR_EXA_API_KEY',
+].join('\n');
 
 const searchOf = (server: FakeMcpServer) =>
   new ExaWebSearch(new McpClient('/mcp', { name: 'hans', version: '1' }, server.fetch));
@@ -119,6 +126,21 @@ describe('ExaWebSearch', () => {
     const failure = search(new FakeMcpServer().willAnswerTool(toolAnswer(text)));
     await expect(failure).rejects.toThrow(WebSearchContractError);
     await expect(failure).rejects.toThrow(problem);
+  });
+
+  it('reports the free rate limit of Exa as a limited search without its text', async () => {
+    const server = new FakeMcpServer().willAnswerTool(toolAnswer(EXA_FREE_RATE_LIMIT_ANSWER));
+    await expect(search(server)).rejects.toThrow(
+      new WebSearchRateLimitedError(
+        "Exa's free search limit is reached; try again later or configure an Exa API key.",
+      ),
+    );
+  });
+
+  it('treats a rate limit mention inside other text as a broken contract', async () => {
+    const text = `No results. ${EXA_FREE_RATE_LIMIT_ANSWER}`;
+    const failure = search(new FakeMcpServer().willAnswerTool(toolAnswer(text)));
+    await expect(failure).rejects.toThrow(WebSearchContractError);
   });
 
   it('reports an error Exa returns as a refused search with its text quoted', async () => {

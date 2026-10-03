@@ -13,7 +13,11 @@ import { WebSearchTool } from '../../../src/application/web-search-tool';
 import { answer, tool } from '../../support/decisions';
 import { MAIN_AGENT_POLICY } from '../../support/policies';
 import { InvariantViolation } from '../../../src/domain/errors';
-import { WebSearchTimeoutError, WebSearchUnavailableError } from '../../../src/ports/errors';
+import {
+  WebSearchRateLimitedError,
+  WebSearchTimeoutError,
+  WebSearchUnavailableError,
+} from '../../../src/ports/errors';
 import {
   FakeWebSearch,
   PendingStep,
@@ -238,18 +242,26 @@ describe('web search', () => {
   });
 
   it('turns a failing search service into a failed lookup the agent sees', async () => {
-    world.agent.will(searchWeb(), searchWeb('other query'), answer('Search is down.'));
+    world.agent.will(
+      searchWeb(),
+      searchWeb('other query'),
+      searchWeb('third query'),
+      answer('Search is down.'),
+    );
     webSearch.will(
       new WebSearchUnavailableError('Exa web search is unavailable: HTTP 502.'),
       new WebSearchTimeoutError('Exa did not answer within 30 seconds.'),
+      new WebSearchRateLimitedError("Exa's free search limit is reached."),
     );
     const running = world.send('find the DOI');
     approval.decide((await nextApproval(1)).id, WebSearchDecision.Approve);
     approval.decide((await nextApproval(2)).id, WebSearchDecision.Approve);
+    approval.decide((await nextApproval(3)).id, WebSearchDecision.Approve);
     await expect(running).resolves.toMatchObject({ message: { text: 'Search is down.' } });
     expect(webRecords().map(({ outcome }) => outcome)).toEqual([
       { status: 'failed', problem: 'Exa web search is unavailable: HTTP 502.' },
       { status: 'failed', problem: 'Exa did not answer within 30 seconds.' },
+      { status: 'failed', problem: "Exa's free search limit is reached." },
     ]);
   });
 

@@ -36,6 +36,7 @@ import type { ConversationSession } from '../../../src/domain/session';
 import {
   AssistantUnreachableError,
   FileOpenTimeoutError,
+  WebSearchRateLimitedError,
   WebSearchUnavailableError,
 } from '../../../src/ports/errors';
 import { AssistantController } from '../../../src/presentation/assistant-controller';
@@ -432,6 +433,19 @@ describe('AssistantController web search', () => {
     expect(texts('.ola-error').at(-1)).toBe(
       'Error: This web search no longer waits for a decision.',
     );
+  });
+
+  it('shows the reached search limit of Exa in the chat', async () => {
+    const assistant = await openAssistantWith([SEARCH, answer('The search limit is reached.')]);
+    const { window, controller, webSearch, texts, click } = assistant;
+    const problem =
+      "Exa's free search limit is reached; try again later or configure an Exa API key.";
+    webSearch.will(new WebSearchRateLimitedError(problem));
+    const running = controller.send('find the DOI');
+    await waitForApprovalCard(window);
+    click('.ola-approve-search');
+    await running;
+    expect(texts('details.ola-web-search.is-failed .ola-fold-body')).toEqual([problem]);
   });
 
   it('shows stored web searches again when a session is reopened', async () => {

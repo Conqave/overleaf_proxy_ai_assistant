@@ -60,6 +60,8 @@ export class WebSearchUnavailableError extends WebSearchError {}
 
 export class WebSearchRejectedError extends WebSearchError {}
 
+export class WebSearchRateLimitedError extends WebSearchError {}
+
 export class WebSearchContractError extends WebSearchError {}
 
 export class WebSearchTimeoutError extends WebSearchError {}
