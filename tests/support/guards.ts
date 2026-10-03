@@ -21,6 +21,10 @@ export function elementById(document: Document, id: string): HTMLElement {
   return element;
 }
 
+export function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
 export function anInstanceOf(type: abstract new (...args: never[]) => unknown): unknown {
   return expect.any(type);
 }

@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
+import { isRecord } from './guards';
 import { TestFixtureError, UnexpectedFakeCallError } from './test-errors';
 
 export interface McpRequestRecord {
@@ -14,13 +15,18 @@ export type McpReply = (message: Readonly<Record<string, unknown>>) => Response;
 const FIXTURE = path.resolve(import.meta.dirname, '../fixtures/exa-web-search.sse');
 
 export function readExaSearchFixture(): Readonly<Record<string, unknown>> {
-  const data = readFileSync(FIXTURE, 'utf8')
-    .split('\n')
-    .find((line) => line.startsWith('data: '));
-  if (data === undefined) throw new TestFixtureError(`${FIXTURE} holds no event data`);
+  return parseEventStreamResult(readFileSync(FIXTURE, 'utf8'), FIXTURE);
+}
+
+export function parseEventStreamResult(
+  stream: string,
+  source: string,
+): Readonly<Record<string, unknown>> {
+  const data = stream.split('\n').find((line) => line.startsWith('data: '));
+  if (data === undefined) throw new TestFixtureError(`${source} holds no event data`);
   const message: unknown = JSON.parse(data.slice('data: '.length));
   if (!isRecord(message) || !isRecord(message.result)) {
-    throw new TestFixtureError(`${FIXTURE} holds no JSON-RPC result`);
+    throw new TestFixtureError(`${source} holds no JSON-RPC result`);
   }
   return message.result;
 }
@@ -110,8 +116,4 @@ export class FakeMcpServer {
         throw new UnexpectedFakeCallError(`unexpected MCP method ${String(message.method)}`);
     }
   };
-}
-
-function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }

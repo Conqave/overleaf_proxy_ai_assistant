@@ -14,6 +14,7 @@
     "test:integration": "npm run build && vitest run --project integration",
     "test:deploy": "npm run build && vitest run --project deploy",
     "test:contract": "vitest run --project contract",
+    "test:exa-contract": "vitest run --project exa-contract",
     "check": "npm run format:check && npm run lint && npm run typecheck && npm run test"
   },
   "devDependencies": {

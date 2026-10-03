@@ -42,6 +42,12 @@ export default defineConfig({
           include: ['tests/contract/**/*.test.ts'],
         },
       },
+      {
+        test: {
+          name: 'exa-contract',
+          include: ['tests/exa-contract/**/*.test.ts'],
+        },
+      },
     ],
   },
 });
